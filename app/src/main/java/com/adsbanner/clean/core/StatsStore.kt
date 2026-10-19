@@ -2,8 +2,13 @@ package com.adsbanner.clean.core
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.os.Build
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 
@@ -28,6 +33,9 @@ object StatsStore {
     private const val F_TS = "ts"
     private const val F_TJ = "tj"
     private const val F_LAST = "last"
+
+    private const val F_DAILY = "daily"
+    private const val F_INSTALLED = "installed"
 
     enum class Kind { SPLASH, JUMP }
 
@@ -67,9 +75,25 @@ object StatsStore {
                 runCatching { JSONObject(raw) }.getOrElse { JSONObject() }
             }
             rolloverIfNeeded()
+            // 热力图的起点：取系统记录的首次安装时间，升级上来的老用户也不会被算成今天
+            if (!root.has(F_INSTALLED)) {
+                root.put(F_INSTALLED, resolveInstallDate(context).toString())
+                persist()
+            }
             loaded = true
         }
     }
+
+    private fun resolveInstallDate(context: Context): LocalDate = runCatching {
+        val pm = context.packageManager
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.getPackageInfo(context.packageName, 0)
+        }
+        Instant.ofEpochMilli(info.firstInstallTime).atZone(ZoneId.systemDefault()).toLocalDate()
+    }.getOrElse { LocalDate.now() }
 
     /** 跨天后清零"今日"计数 */
     private fun rolloverIfNeeded() {
@@ -104,6 +128,13 @@ object StatsStore {
             item.put(F_LAST, System.currentTimeMillis())
             apps.put(pkg, item)
             root.put("apps", apps)
+
+            // 额外记一份按天的总次数，供热力图使用
+            val daily = root.optJSONObject(F_DAILY) ?: JSONObject().also { root.put(F_DAILY, it) }
+            val today = LocalDate.now().toString()
+            daily.put(today, daily.optInt(today) + 1)
+            root.put(F_DAILY, daily)
+
             persist()
         }
     }
@@ -155,10 +186,33 @@ object StatsStore {
         }
     }
 
+    /** 每天的拦截总次数，供热力图使用 */
+    fun dailyCounts(): Map<LocalDate, Int> {
+        synchronized(lock) {
+            val daily = root.optJSONObject(F_DAILY) ?: return emptyMap()
+            val out = HashMap<LocalDate, Int>(daily.length())
+            for (key in daily.keys().asSequence().toList()) {
+                val date = runCatching { LocalDate.parse(key) }.getOrNull() ?: continue
+                out[date] = daily.optInt(key)
+            }
+            return out
+        }
+    }
+
+    /** 安装日期，热力图从这天开始画 */
+    fun installedOn(): LocalDate {
+        synchronized(lock) {
+            val raw = root.optString(F_INSTALLED)
+            return runCatching { LocalDate.parse(raw) }.getOrElse { LocalDate.now() }
+        }
+    }
+
     fun clear() {
         synchronized(lock) {
+            val installed = root.optString(F_INSTALLED)
             root = JSONObject()
             root.put("day", dayFormat.format(Date()))
+            if (installed.isNotBlank()) root.put(F_INSTALLED, installed)
             persist()
         }
     }

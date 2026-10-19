@@ -17,4 +17,11 @@
     <color name="danger">#F04438</color>
     <color name="warning">#F79009</color>
     <color name="white">#FFFFFF</color>
+
+    <!-- 热力图色阶：0 次到 10 次以上 -->
+    <color name="heat_empty">#EAEEF5</color>
+    <color name="heat_1">#D3E0FF</color>
+    <color name="heat_2">#A6C2FF</color>
+    <color name="heat_3">#6B96FF</color>
+    <color name="heat_4">#2F6BFF</color>
 </resources>
