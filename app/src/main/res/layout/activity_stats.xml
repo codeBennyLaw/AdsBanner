@@ -33,13 +33,13 @@
             android:textStyle="bold" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnClear"
+            android:id="@+id/btnHeatmap"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:minWidth="0dp"
-            android:text="清空"
-            android:textColor="@color/text_secondary" />
+            android:text="热力图"
+            android:textColor="@color/brand" />
     </LinearLayout>
 
     <com.google.android.material.button.MaterialButtonToggleGroup
@@ -86,6 +86,7 @@
         android:textSize="12sp" />
 
     <ScrollView
+        android:id="@+id/listScroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -124,6 +125,72 @@
                 android:textColor="@color/text_tertiary"
                 android:textSize="13sp"
                 android:visibility="gone" />
+        </LinearLayout>
+    </ScrollView>
+
+    <ScrollView
+        android:id="@+id/heatmapScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="18dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="28dp">
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.AdsBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        style="@style/Text.RowTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="每日拦截"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvHeatMeta"
+                        style="@style/Text.RowSub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp" />
+
+                    <HorizontalScrollView
+                        android:id="@+id/heatScroll"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:scrollbars="none">
+
+                        <com.adsbanner.clean.ui.HeatmapView
+                            android:id="@+id/heatmap"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </HorizontalScrollView>
+
+                    <TextView
+                        style="@style/Text.RowSub"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="每格一天，颜色越深当天拦截越多" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
     </ScrollView>
 </LinearLayout>
