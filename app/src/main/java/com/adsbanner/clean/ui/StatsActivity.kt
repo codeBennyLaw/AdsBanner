@@ -39,6 +39,7 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatScroll: HorizontalScrollView
     private lateinit var heatmap: HeatmapView
     private lateinit var tvHeatMeta: TextView
+    private lateinit var tvHeatDetail: TextView
 
     private var mode = Mode.ALL
     private var heatmapVisible = false
@@ -60,6 +61,13 @@ class StatsActivity : AppCompatActivity() {
         heatScroll = findViewById(R.id.heatScroll)
         heatmap = findViewById(R.id.heatmap)
         tvHeatMeta = findViewById(R.id.tvHeatMeta)
+        tvHeatDetail = findViewById(R.id.tvHeatDetail)
+
+        heatmap.onCellClick = { date, count ->
+            tvHeatDetail.visibility = View.VISIBLE
+            tvHeatDetail.text =
+                "${date.year} 年 ${date.monthValue} 月 ${date.dayOfMonth} 日 · 拦截 $count 次"
+        }
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsets(
