@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchSplash: MaterialSwitch
     private lateinit var switchJump: MaterialSwitch
     private lateinit var switchKeepAlive: MaterialSwitch
+    private lateinit var switchNotify: MaterialSwitch
 
     private var binding = false
 
@@ -81,6 +82,7 @@ class MainActivity : AppCompatActivity() {
         switchSplash = findViewById(R.id.switchSplash)
         switchJump = findViewById(R.id.switchJump)
         switchKeepAlive = findViewById(R.id.switchKeepAlive)
+        switchNotify = findViewById(R.id.switchNotify)
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
@@ -142,6 +144,11 @@ class MainActivity : AppCompatActivity() {
                 KeepAliveService.stop(this)
             }
         }
+        switchNotify.setOnCheckedChangeListener { _, checked ->
+            if (binding) return@setOnCheckedChangeListener
+            Prefs.interceptNotify = checked
+            if (checked) requestNotificationPermissionIfNeeded(force = true)
+        }
     }
 
     private fun refresh() {
@@ -170,6 +177,7 @@ class MainActivity : AppCompatActivity() {
         switchSplash.isChecked = Prefs.skipSplash
         switchJump.isChecked = Prefs.jumpGuard
         switchKeepAlive.isChecked = Prefs.keepAlive
+        switchNotify.isChecked = Prefs.interceptNotify
         binding = false
 
         tvTargetHint.text = "已启用 ${Prefs.jumpTargets.size} 个应用"
