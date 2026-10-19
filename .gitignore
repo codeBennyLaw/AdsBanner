@@ -1,0 +1,46 @@
+# Gradle
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 本机 SDK 路径，因机器而异，不入库
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+.navigation/
+out/
+.vscode/
+.opencode/
+
+# 构建产物
+*.apk
+*.aab
+*.ap_
+*.aar
+*.dex
+*.class
+output.json
+
+# 签名文件与密钥，绝不能提交
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# 日志与临时文件
+*.log
+*.hprof
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# Kotlin / 编译缓存
+.kotlin/
