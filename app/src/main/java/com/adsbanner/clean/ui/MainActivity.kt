@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTargetHint: TextView
     private lateinit var tvBatteryHint: TextView
     private lateinit var tvVersion: TextView
+    private lateinit var tvRepo: TextView
     private lateinit var switchSplash: MaterialSwitch
     private lateinit var switchJump: MaterialSwitch
     private lateinit var switchKeepAlive: MaterialSwitch
@@ -75,14 +76,23 @@ class MainActivity : AppCompatActivity() {
         tvTargetHint = findViewById(R.id.tvTargetHint)
         tvBatteryHint = findViewById(R.id.tvBatteryHint)
         tvVersion = findViewById(R.id.tvVersion)
+        tvRepo = findViewById(R.id.tvRepo)
         switchSplash = findViewById(R.id.switchSplash)
         switchJump = findViewById(R.id.switchJump)
         switchKeepAlive = findViewById(R.id.switchKeepAlive)
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.0.0"
-        tvVersion.text = "AdsBanner v$versionName · 数据仅保存在本机"
+        }.getOrNull() ?: "1.0.1"
+        tvVersion.text = "v$versionName"
+        tvRepo.text = "github.com/codeBennyLaw/AdsBanner"
+        tvRepo.setOnClickListener { openRepository() }
+    }
+
+    private fun openRepository() {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)))
+        }.onFailure { toast("没有可用的浏览器") }
     }
 
     private fun applyInsets() {
@@ -233,5 +243,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(text: String) {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    }
+
+    private companion object {
+        const val REPO_URL = "https://github.com/codeBennyLaw/AdsBanner"
     }
 }

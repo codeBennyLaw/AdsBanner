@@ -499,24 +499,27 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 说明 -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:layout_marginHorizontal="4dp"
-            android:lineSpacingExtra="4dp"
-            android:text="AdsBanner 不会修改任何应用、不会联网上传数据。所有识别都在本机完成，统计只保存在本机存储空间。"
-            android:textColor="@color/text_tertiary"
-            android:textSize="12sp" />
-
+        <!-- 版本与仓库 -->
         <TextView
             android:id="@+id/tvVersion"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginHorizontal="4dp"
+            android:layout_marginTop="26dp"
+            android:gravity="center"
             android:textColor="@color/text_tertiary"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvRepo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingVertical="6dp"
+            android:textColor="@color/text_tertiary"
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>
