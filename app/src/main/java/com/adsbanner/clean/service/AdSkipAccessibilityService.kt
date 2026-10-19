@@ -1,4 +1,4 @@
-package com.addbanner.clean.service
+package com.adsbanner.clean.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -13,13 +13,13 @@ import android.util.Log
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import com.addbanner.clean.core.AppInfoHelper
-import com.addbanner.clean.core.Prefs
-import com.addbanner.clean.core.SkipRule
-import com.addbanner.clean.core.StatsStore
+import com.adsbanner.clean.core.AppInfoHelper
+import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.SkipRule
+import com.adsbanner.clean.core.StatsStore
 
 /**
- * AddBanner 的核心引擎，运行在系统无障碍通道里。
+ * AdsBanner 的核心引擎，运行在系统无障碍通道里。
  *
  * 两条独立的能力：
  *
@@ -313,7 +313,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        private const val TAG = "AddBanner"
+        private const val TAG = "AdsBanner"
 
         /** 这些包名的事件会污染"前台应用"的判断，直接忽略 */
         private val IGNORED_PACKAGES = setOf(

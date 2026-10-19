@@ -1,4 +1,4 @@
-package com.addbanner.clean.ui
+package com.adsbanner.clean.ui
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -12,9 +12,9 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButtonToggleGroup
-import com.addbanner.clean.R
-import com.addbanner.clean.core.AppInfoHelper
-import com.addbanner.clean.core.StatsStore
+import com.adsbanner.clean.R
+import com.adsbanner.clean.core.AppInfoHelper
+import com.adsbanner.clean.core.StatsStore
 
 /**
  * 按应用维度展示拦截统计。

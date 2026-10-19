@@ -1,4 +1,4 @@
-package com.addbanner.clean.core
+package com.adsbanner.clean.core
 
 /**
  * "跳过按钮"文案识别。

@@ -1,4 +1,4 @@
-package com.addbanner.clean.core
+package com.adsbanner.clean.core
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -9,7 +9,7 @@ import android.content.SharedPreferences
  */
 object Prefs {
 
-    private const val FILE = "addbanner_prefs"
+    private const val FILE = "adsbanner_prefs"
 
     private const val KEY_SKIP_SPLASH = "skip_splash"
     private const val KEY_JUMP_GUARD = "jump_guard"

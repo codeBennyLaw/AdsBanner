@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.addbanner.clean"
+    namespace = "com.adsbanner.clean"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.addbanner.clean"
+        applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -41,14 +41,14 @@ android {
     }
 }
 
-// 产物命名：AddBanner-<buildType>-v-<major-minor-patch>.apk
+// 产物命名：AdsBanner-<buildType>-v-<major-minor-patch>.apk
 androidComponents {
     onVariants { variant ->
         val buildType = variant.buildType
         variant.outputs.forEach { output ->
             val version = (output.versionName.orNull ?: "1.0.0").replace('.', '-')
             val impl = output as? com.android.build.api.variant.impl.VariantOutputImpl ?: return@forEach
-            impl.outputFileName.set("AddBanner-$buildType-v-$version.apk")
+            impl.outputFileName.set("AdsBanner-$buildType-v-$version.apk")
         }
     }
 }

@@ -1,4 +1,4 @@
-package com.addbanner.clean.core
+package com.adsbanner.clean.core
 
 import android.content.Context
 import android.content.Intent

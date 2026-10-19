@@ -1,4 +1,4 @@
-package com.addbanner.clean.ui
+package com.adsbanner.clean.ui
 
 import android.os.Bundle
 import android.text.Editable
@@ -14,9 +14,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.addbanner.clean.R
-import com.addbanner.clean.core.AppInfoHelper
-import com.addbanner.clean.core.Prefs
+import com.adsbanner.clean.R
+import com.adsbanner.clean.core.AppInfoHelper
+import com.adsbanner.clean.core.Prefs
 
 /**
  * 跳转拦截名单。列出所有带桌面图标的应用，勾选即加入名单。
