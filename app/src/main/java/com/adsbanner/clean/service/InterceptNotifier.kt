@@ -22,10 +22,15 @@ import com.adsbanner.clean.ui.MainActivity
 /**
  * 拦截时在状态栏 / 灵动岛弹一条 10 秒的实时提示。
  *
- * Android 16（API 36）起通知可以被系统提升为 Live Update，在状态栏胶囊和厂商的岛上显示。
- * 申请提升的三个接口都晚于项目的 compileSdk，因此全部走反射，并在运行时用
- * `hasPromotableCharacteristics()` / `canPostPromotedNotifications()` 判断系统是否真的支持，
- * 不靠版本号硬猜 —— 部分 ROM 会保留新接口却沿用旧规则。
+ * Android 16（API 36）起通知可被系统提升为 Live Update。申请提升要满足两类条件：
+ *
+ * 1. 通知本身够格 —— ongoing、有进度、带摘要文案，缺一项 `hasPromotableCharacteristics()`
+ *    就会返回 false，系统只会当普通通知处理
+ * 2. 用户对本应用授权 —— 系统设置里有「允许实时通知」，未授权时
+ *    `canPostPromotedNotifications()` 为 false，同样只能显示普通通知
+ *
+ * 三个接口都晚于项目的 compileSdk，全部走反射，并用系统自己的判定校验结果，
+ * 不靠版本号硬猜。
  */
 object InterceptNotifier {
 
@@ -34,6 +39,10 @@ object InterceptNotifier {
     private const val NOTIFICATION_ID = 2002
     private const val DURATION_MS = 10_000L
     private const val TICK_MS = 1_000L
+    private const val BRAND_COLOR = 0xFF2F6BFF.toInt()
+
+    private const val ACTION_PROMOTION_SETTINGS = "android.settings.APP_NOTIFICATION_PROMOTION_SETTINGS"
+    private const val EXTRA_APP_PACKAGE = "android.provider.extra.APP_PACKAGE"
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -51,7 +60,7 @@ object InterceptNotifier {
         startedAt = SystemClock.elapsedRealtime()
 
         ensureChannel(app)
-        push(app, 0)
+        push(app, 0, DURATION_MS)
 
         ticker?.let { handler.removeCallbacks(it) }
         val task = object : Runnable {
@@ -61,7 +70,11 @@ object InterceptNotifier {
                     cancel(app)
                     return
                 }
-                push(app, (elapsed * 100 / DURATION_MS).toInt().coerceIn(0, 100))
+                push(
+                    app,
+                    (elapsed * 100 / DURATION_MS).toInt().coerceIn(0, 100),
+                    (DURATION_MS - elapsed).coerceAtLeast(1_000L)
+                )
                 handler.postDelayed(this, TICK_MS)
             }
         }
@@ -77,28 +90,59 @@ object InterceptNotifier {
         }
     }
 
+    // ------------------------------------------------------------------ 系统实时通知授权
+
+    /** 系统是否支持并被授权发布实时通知 */
+    fun canPostPromoted(context: Context): Boolean {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+        return LiveUpdate.canPost(manager)
+    }
+
+    /** 系统里是否存在实时通知的授权页面 */
+    fun canOpenPromotionSettings(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < 36) return false
+        return runCatching {
+            promotionIntent(context).resolveActivity(context.packageManager) != null
+        }.getOrDefault(false)
+    }
+
+    fun openPromotionSettings(context: Context): Boolean = runCatching {
+        context.startActivity(promotionIntent(context))
+        true
+    }.getOrDefault(false)
+
+    private fun promotionIntent(context: Context): Intent =
+        Intent(ACTION_PROMOTION_SETTINGS)
+            .putExtra(EXTRA_APP_PACKAGE, context.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
     // ------------------------------------------------------------------ 内部实现
 
-    private fun push(context: Context, progress: Int) {
+    private fun push(context: Context, progress: Int, remainingMs: Long) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (!hasPostPermission(context)) return
 
         val builder = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notify)
+            .setColor(BRAND_COLOR)
             .setContentTitle(title)
             .setContentText(text)
+            .setSubText("广告拦截")
+            // 标准进度条：既是给人看的，也是提升为实时通知的判定条件之一
+            .setProgress(100, progress, false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_EVENT)
             .setContentIntent(contentIntent(context))
+            // 即便进程被杀，超时后系统也会自己收走
+            .setTimeoutAfter(remainingMs)
 
-        // 能提升就按实时通知的样式构建，否则走普通通知
-        val enhanced = LiveUpdate.canPost(manager)
-        if (enhanced) LiveUpdate.applyStyle(builder, progress, title)
+        val promoted = LiveUpdate.canPost(manager)
+        if (promoted) LiveUpdate.applyStyle(builder, progress, title)
 
         runCatching {
-            val notification = if (enhanced) LiveUpdate.build(builder) else builder.build()
+            val notification = if (promoted) LiveUpdate.build(builder) else builder.build()
             manager.notify(NOTIFICATION_ID, notification)
         }.onFailure { Log.w(TAG, "发送拦截提示失败: ${it.message}") }
     }
@@ -118,7 +162,7 @@ object InterceptNotifier {
     private fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-        // OEM 的实时表面通常只认 IMPORTANCE_DEFAULT 及以上的通道
+        // 厂商的实时表面通常只认 IMPORTANCE_DEFAULT 及以上的通道
         val channel = NotificationChannel(
             CHANNEL_ID,
             "拦截提示",
@@ -141,7 +185,7 @@ object InterceptNotifier {
     }
 
     /**
-     * Android 16 实时通知适配。接口全部反射，避免为了三个方法把 compileSdk 提到 36。
+     * Android 16 实时通知适配。接口全部反射，避免为了几个方法把 compileSdk 提到 36。
      */
     private object LiveUpdate {
 
@@ -170,7 +214,7 @@ object InterceptNotifier {
             characteristics?.invoke(notification) as? Boolean
         }.getOrNull()
 
-        /** 进度条样式 + 状态栏上的短摘要，两者都是提升的判定条件 */
+        /** 系统样式进度条 + 状态栏短摘要，两者都是提升的判定条件 */
         fun applyStyle(builder: Notification.Builder, progress: Int, shortText: String) {
             runCatching {
                 val type = Class.forName("android.app.Notification\$ProgressStyle")

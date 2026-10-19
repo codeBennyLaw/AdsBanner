@@ -24,6 +24,7 @@ import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AccessibilityHelper
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
 
 class MainActivity : AppCompatActivity() {
@@ -38,6 +39,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBatteryHint: TextView
     private lateinit var tvVersion: TextView
     private lateinit var linkRepo: View
+    private lateinit var content: View
     private lateinit var switchSplash: MaterialSwitch
     private lateinit var switchJump: MaterialSwitch
     private lateinit var switchKeepAlive: MaterialSwitch
@@ -79,6 +81,7 @@ class MainActivity : AppCompatActivity() {
         tvBatteryHint = findViewById(R.id.tvBatteryHint)
         tvVersion = findViewById(R.id.tvVersion)
         linkRepo = findViewById(R.id.linkRepo)
+        content = findViewById(R.id.content)
         switchSplash = findViewById(R.id.switchSplash)
         switchJump = findViewById(R.id.switchJump)
         switchKeepAlive = findViewById(R.id.switchKeepAlive)
@@ -97,16 +100,28 @@ class MainActivity : AppCompatActivity() {
         }.onFailure { toast("没有可用的浏览器") }
     }
 
+    /**
+     * 沉浸的关键：内边距加在内容容器上，而不是加在 ScrollView 上。
+     * 前者让内容滚动时可以滑到状态栏下方，系统栏区域始终由页面背景铺满；
+     * 后者会把整块内容永远压到状态栏以下，看着就像没有沉浸。
+     */
     private fun applyInsets() {
         val root = findViewById<View>(R.id.root)
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            content.setPadding(
+                dp(18) + bars.left,
+                dp(18) + bars.top,
+                dp(18) + bars.right,
+                dp(32) + bars.bottom
+            )
             insets
         }
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun setupClicks() {
         findViewById<View>(R.id.btnService).setOnClickListener {
@@ -147,8 +162,29 @@ class MainActivity : AppCompatActivity() {
         switchNotify.setOnCheckedChangeListener { _, checked ->
             if (binding) return@setOnCheckedChangeListener
             Prefs.interceptNotify = checked
-            if (checked) requestNotificationPermissionIfNeeded(force = true)
+            if (checked) {
+                requestNotificationPermissionIfNeeded(force = true)
+                guidePromotionIfNeeded()
+            }
         }
+    }
+
+    /** 系统支持实时通知但未授权时，引导用户去系统设置里打开 */
+    private fun guidePromotionIfNeeded() {
+        if (!InterceptNotifier.canOpenPromotionSettings(this)) return
+        if (InterceptNotifier.canPostPromoted(this)) return
+        AlertDialog.Builder(this)
+            .setTitle("开启实时通知")
+            .setMessage(
+                "本机支持实时通知（状态栏胶囊 / 灵动岛），但系统还没有对本应用开放。\n\n" +
+                    "在接下来的设置页里打开「允许实时通知」，拦截时才能在岛上显示。" +
+                    "不开启也能正常拦截，只是提示会退回普通通知。"
+            )
+            .setNegativeButton("暂不", null)
+            .setPositiveButton("去设置") { _, _ ->
+                InterceptNotifier.openPromotionSettings(this)
+            }
+            .show()
     }
 
     private fun refresh() {
