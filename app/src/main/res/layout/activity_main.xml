@@ -344,8 +344,12 @@
                     android:background="@color/divider" />
 
                 <LinearLayout
+                    android:id="@+id/rowNotify"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingHorizontal="16dp"
@@ -364,6 +368,7 @@
                             android:text="拦截实时提示" />
 
                         <TextView
+                            android:id="@+id/tvNotifyHint"
                             style="@style/Text.RowSub"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"

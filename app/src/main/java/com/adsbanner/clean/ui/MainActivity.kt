@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatsMeta: TextView
     private lateinit var tvTargetHint: TextView
     private lateinit var tvBatteryHint: TextView
+    private lateinit var tvNotifyHint: TextView
     private lateinit var tvVersion: TextView
     private lateinit var linkRepo: View
     private lateinit var content: View
@@ -79,6 +80,7 @@ class MainActivity : AppCompatActivity() {
         tvStatsMeta = findViewById(R.id.tvStatsMeta)
         tvTargetHint = findViewById(R.id.tvTargetHint)
         tvBatteryHint = findViewById(R.id.tvBatteryHint)
+        tvNotifyHint = findViewById(R.id.tvNotifyHint)
         tvVersion = findViewById(R.id.tvVersion)
         linkRepo = findViewById(R.id.linkRepo)
         content = findViewById(R.id.content)
@@ -135,6 +137,19 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }
+        findViewById<View>(R.id.rowNotify).setOnClickListener { onNotifyRowClick() }
+    }
+
+    private fun onNotifyRowClick() {
+        when {
+            !Prefs.interceptNotify -> toast("先打开右侧开关")
+            !InterceptNotifier.supportsLiveUpdates() ->
+                toast("本机不支持系统实时通知，拦截时以普通通知展示")
+            InterceptNotifier.canPostPromoted(this) -> toast("实时通知已授权")
+            !InterceptNotifier.canOpenPromotionSettings(this) ->
+                toast("系统没有提供实时通知设置页，请到系统通知设置里查看")
+            else -> InterceptNotifier.openPromotionSettings(this)
+        }
     }
 
     private fun setupSwitches() {
@@ -217,6 +232,26 @@ class MainActivity : AppCompatActivity() {
         binding = false
 
         tvTargetHint.text = "已启用 ${Prefs.jumpTargets.size} 个应用"
+
+        // 实时通知状态直接显示出来，不用猜卡在哪一步
+        when {
+            !Prefs.interceptNotify -> {
+                tvNotifyHint.text = "已关闭，拦截时不再提示"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
+            }
+            !InterceptNotifier.supportsLiveUpdates() -> {
+                tvNotifyHint.text = "本机为普通通知，同样 10 秒后消失"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
+            }
+            InterceptNotifier.canPostPromoted(this) -> {
+                tvNotifyHint.text = "已接入系统实时通知（胶囊 / 灵动岛）"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.success))
+            }
+            else -> {
+                tvNotifyHint.text = "需在系统设置允许实时通知，点此前往"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.warning))
+            }
+        }
 
         val powerManager = getSystemService(PowerManager::class.java)
         val ignoring = powerManager?.isIgnoringBatteryOptimizations(packageName) == true
