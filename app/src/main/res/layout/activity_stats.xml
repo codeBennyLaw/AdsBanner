@@ -184,11 +184,20 @@
                     </HorizontalScrollView>
 
                     <TextView
+                        android:id="@+id/tvHeatDetail"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp"
+                        android:visibility="gone" />
+
+                    <TextView
                         style="@style/Text.RowSub"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="每格一天，颜色越深当天拦截越多" />
+                        android:layout_marginTop="6dp"
+                        android:text="每格一天，颜色越深当天拦截越多，点击格子看具体日期" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
