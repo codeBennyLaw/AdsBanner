@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.AdsBanner" parent="Theme.Material3.Light.NoActionBar">
+    <style name="Theme.AdsBanner" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand</item>
-        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorOnPrimary">@color/on_brand</item>
         <item name="colorPrimaryContainer">@color/brand_light</item>
         <item name="colorOnPrimaryContainer">@color/brand_dark</item>
+        <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowLightStatusBar">true</item>
