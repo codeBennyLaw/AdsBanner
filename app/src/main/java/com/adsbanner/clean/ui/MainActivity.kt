@@ -37,7 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTargetHint: TextView
     private lateinit var tvBatteryHint: TextView
     private lateinit var tvVersion: TextView
-    private lateinit var tvRepo: TextView
+    private lateinit var linkRepo: View
     private lateinit var switchSplash: MaterialSwitch
     private lateinit var switchJump: MaterialSwitch
     private lateinit var switchKeepAlive: MaterialSwitch
@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
         tvTargetHint = findViewById(R.id.tvTargetHint)
         tvBatteryHint = findViewById(R.id.tvBatteryHint)
         tvVersion = findViewById(R.id.tvVersion)
-        tvRepo = findViewById(R.id.tvRepo)
+        linkRepo = findViewById(R.id.linkRepo)
         switchSplash = findViewById(R.id.switchSplash)
         switchJump = findViewById(R.id.switchJump)
         switchKeepAlive = findViewById(R.id.switchKeepAlive)
@@ -84,9 +84,8 @@ class MainActivity : AppCompatActivity() {
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
         }.getOrNull() ?: "1.0.1"
-        tvVersion.text = "v$versionName"
-        tvRepo.text = "github.com/codeBennyLaw/AdsBanner"
-        tvRepo.setOnClickListener { openRepository() }
+        tvVersion.text = "版本 $versionName"
+        linkRepo.setOnClickListener { openRepository() }
     }
 
     private fun openRepository() {
