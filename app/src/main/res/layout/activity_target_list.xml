@@ -37,7 +37,7 @@
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="22dp"
         android:lineSpacingExtra="3dp"
-        android:text="当你在其他应用里误触广告、被强行拉起下面勾选的应用时，AddBanner 会立即把你送回原来的应用。"
+        android:text="当你在其他应用里误触广告、被强行拉起下面勾选的应用时，AdsBanner 会立即把你送回原来的应用。"
         android:textColor="@color/text_secondary"
         android:textSize="12sp" />
 
@@ -72,7 +72,7 @@
             android:paddingBottom="28dp">
 
             <com.google.android.material.card.MaterialCardView
-                style="@style/Card.AddBanner"
+                style="@style/Card.AdsBanner"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 

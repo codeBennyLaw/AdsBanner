@@ -1,4 +1,4 @@
-package com.addbanner.clean.core
+package com.adsbanner.clean.core
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -20,7 +20,7 @@ import java.util.Locale
  */
 object StatsStore {
 
-    private const val FILE = "addbanner_stats"
+    private const val FILE = "adsbanner_stats"
     private const val KEY_ROOT = "root"
 
     private const val F_S = "s"

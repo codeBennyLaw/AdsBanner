@@ -1,4 +1,4 @@
-package com.addbanner.clean.ui
+package com.adsbanner.clean.ui
 
 import android.Manifest
 import android.content.Intent
@@ -20,11 +20,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.materialswitch.MaterialSwitch
-import com.addbanner.clean.R
-import com.addbanner.clean.core.AccessibilityHelper
-import com.addbanner.clean.core.Prefs
-import com.addbanner.clean.core.StatsStore
-import com.addbanner.clean.service.KeepAliveService
+import com.adsbanner.clean.R
+import com.adsbanner.clean.core.AccessibilityHelper
+import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.service.KeepAliveService
 
 class MainActivity : AppCompatActivity() {
 
@@ -82,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
         }.getOrNull() ?: "1.0.0"
-        tvVersion.text = "AddBanner v$versionName · 数据仅保存在本机"
+        tvVersion.text = "AdsBanner v$versionName · 数据仅保存在本机"
     }
 
     private fun applyInsets() {
@@ -142,7 +142,7 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.getColor(this, if (enabled) R.color.text_primary else R.color.danger)
         )
         tvServiceHint.text =
-            if (enabled) "AddBanner 已可以拦截广告" else "未开启时无法拦截，点击右侧去开启"
+            if (enabled) "AdsBanner 已可以拦截广告" else "未开启时无法拦截，点击右侧去开启"
 
         val snapshot = StatsStore.snapshot()
         tvTodayCount.text = snapshot.todayTotal.toString()
@@ -194,18 +194,18 @@ class MainActivity : AppCompatActivity() {
             国内 ROM 会主动清理后台，需要手动放行一次：
 
             小米 / Redmi
-            设置 → 应用设置 → 应用管理 → AddBanner → 省电策略选"无限制"，并打开"自启动"
+            设置 → 应用设置 → 应用管理 → AdsBanner → 省电策略选"无限制"，并打开"自启动"
 
             华为 / 荣耀
-            设置 → 应用启动管理 → AddBanner → 关闭"自动管理"，勾选三项允许
+            设置 → 应用启动管理 → AdsBanner → 关闭"自动管理"，勾选三项允许
 
             OPPO / 一加 / realme
-            设置 → 电池 → 应用耗电管理 → AddBanner → 允许后台运行、允许自启动
+            设置 → 电池 → 应用耗电管理 → AdsBanner → 允许后台运行、允许自启动
 
             vivo / iQOO
-            设置 → 电池 → 后台耗电管理 → AddBanner → 允许后台高耗电；i管家 → 自启动管理
+            设置 → 电池 → 后台耗电管理 → AdsBanner → 允许后台高耗电；i管家 → 自启动管理
 
-            · 最近任务里下拉/长按"AddBanner"卡片加锁，可避免一键清理时被杀
+            · 最近任务里下拉/长按"AdsBanner"卡片加锁，可避免一键清理时被杀
             · 无障碍服务本身由系统守护，即使进程被杀，系统通常会自动重新绑定
         """.trimIndent()
 

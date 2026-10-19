@@ -1,4 +1,4 @@
-# AddBanner
+# AdsBanner
 
 Android 端的开屏广告跳过与误触跳转拦截工具。
 
@@ -44,7 +44,7 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 
 ## 使用
 
-1. 安装后打开 AddBanner，点「去开启」进入系统无障碍设置，开启「AddBanner · 广告拦截服务」
+1. 安装后打开 AdsBanner，点「去开启」进入系统无障碍设置，开启「AdsBanner · 广告拦截服务」
 2. 回到应用，状态显示为运行中即生效
 3. 按需到「跳转拦截名单」调整要拦截的应用
 4. 如需在清理后台后保持存活，点「加入电池优化白名单」，并参照应用内的国产 ROM 指引放行自启动与后台运行
@@ -61,8 +61,8 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 产物位于 `app/build/outputs/apk/`，文件名形如：
 
 ```
-AddBanner-debug-v-1-0-0.apk
-AddBanner-release-v-1-0-0.apk
+AdsBanner-debug-v-1-0-0.apk
+AdsBanner-release-v-1-0-0.apk
 ```
 
 Release 使用本机 debug keystore 签名，可直接安装；覆盖安装时新旧包签名需一致。
@@ -70,7 +70,7 @@ Release 使用本机 debug keystore 签名，可直接安装；覆盖安装时�
 ## 项目结构
 
 ```
-app/src/main/java/com/addbanner/clean/
+app/src/main/java/com/adsbanner/clean/
 ├── core/          配置、统计存储、跳过规则、应用信息缓存
 ├── service/       无障碍服务、前台常驻服务
 ├── receiver/      开机广播

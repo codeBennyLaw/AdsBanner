@@ -1,10 +1,10 @@
-package com.addbanner.clean
+package com.adsbanner.clean
 
 import android.app.Application
-import com.addbanner.clean.core.Prefs
-import com.addbanner.clean.core.StatsStore
+import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.StatsStore
 
-class AddBannerApp : Application() {
+class AdsBannerApp : Application() {
 
     override fun onCreate() {
         super.onCreate()

@@ -1,12 +1,12 @@
-package com.addbanner.clean.receiver
+package com.adsbanner.clean.receiver
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.addbanner.clean.core.Prefs
-import com.addbanner.clean.core.StatsStore
-import com.addbanner.clean.service.KeepAliveService
+import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.service.KeepAliveService
 
 /**
  * 开机 / 应用更新后恢复守护。
@@ -30,6 +30,6 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     private companion object {
-        const val TAG = "AddBanner"
+        const val TAG = "AdsBanner"
     }
 }

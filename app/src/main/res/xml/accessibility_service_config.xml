@@ -14,4 +14,4 @@
     android:description="@string/accessibility_description"
     android:isAccessibilityTool="true"
     android:notificationTimeout="60"
-    android:settingsActivity="com.addbanner.clean.ui.MainActivity" />
+    android:settingsActivity="com.adsbanner.clean.ui.MainActivity" />

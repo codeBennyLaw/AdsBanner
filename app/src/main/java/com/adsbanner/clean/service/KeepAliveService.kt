@@ -1,4 +1,4 @@
-package com.addbanner.clean.service
+package com.adsbanner.clean.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -12,9 +12,9 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.addbanner.clean.R
-import com.addbanner.clean.core.Prefs
-import com.addbanner.clean.ui.MainActivity
+import com.adsbanner.clean.R
+import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.ui.MainActivity
 
 /**
  * 常驻通知服务。
@@ -62,7 +62,7 @@ class KeepAliveService : Service() {
 
             val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notify)
-                .setContentTitle("AddBanner 正在守护")
+                .setContentTitle("AdsBanner 正在守护")
                 .setContentText("开屏跳过与误触拦截已就绪")
                 .setOngoing(true)
                 .setShowWhen(false)
@@ -86,8 +86,8 @@ class KeepAliveService : Service() {
     }
 
     companion object {
-        private const val TAG = "AddBanner"
-        private const val CHANNEL_ID = "addbanner_status"
+        private const val TAG = "AdsBanner"
+        private const val CHANNEL_ID = "adsbanner_status"
         private const val NOTIFICATION_ID = 1001
 
         fun start(context: Context) {

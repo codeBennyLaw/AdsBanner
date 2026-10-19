@@ -101,7 +101,7 @@
             android:paddingBottom="28dp">
 
             <com.google.android.material.card.MaterialCardView
-                style="@style/Card.AddBanner"
+                style="@style/Card.AdsBanner"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content">
 

@@ -1,11 +1,11 @@
-package com.addbanner.clean.core
+package com.adsbanner.clean.core
 
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.text.TextUtils
-import com.addbanner.clean.service.AdSkipAccessibilityService
+import com.adsbanner.clean.service.AdSkipAccessibilityService
 
 object AccessibilityHelper {
 
