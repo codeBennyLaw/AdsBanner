@@ -92,6 +92,9 @@ object InterceptNotifier {
 
     // ------------------------------------------------------------------ 系统实时通知授权
 
+    /** 系统是否提供实时通知接口（不代表已授权） */
+    fun supportsLiveUpdates(): Boolean = LiveUpdate.isSupported()
+
     /** 系统是否支持并被授权发布实时通知 */
     fun canPostPromoted(context: Context): Boolean {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return false
@@ -204,9 +207,11 @@ object InterceptNotifier {
             }.getOrNull()
         }
 
+        fun isSupported(): Boolean =
+            Build.VERSION.SDK_INT >= 36 && characteristics != null && permission != null
+
         fun canPost(manager: NotificationManager): Boolean {
-            if (Build.VERSION.SDK_INT < 36) return false
-            if (characteristics == null || permission == null) return false
+            if (!isSupported()) return false
             return runCatching { permission?.invoke(manager) as? Boolean ?: false }.getOrDefault(false)
         }
 
