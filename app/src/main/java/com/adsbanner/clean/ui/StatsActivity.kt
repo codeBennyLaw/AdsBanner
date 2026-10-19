@@ -36,6 +36,7 @@ class StatsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_stats)
+        applySystemBarAppearance()
 
         container = findViewById(R.id.listContainer)
         tvSummary = findViewById(R.id.tvSummary)
