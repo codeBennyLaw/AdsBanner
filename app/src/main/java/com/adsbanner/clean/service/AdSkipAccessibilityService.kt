@@ -84,6 +84,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private var lastJumpBlockAt = 0L
 
+    /** 暂停广告提示：上次检查时间 */
+    private var lastPauseAdCheckAt = 0L
+
     /** 页面内广告：上次检查时间、上次点击时间与已点过的位置签名 */
     private var lastInAppAdCheckAt = 0L
     private var lastInAppAdClickAt = 0L
@@ -162,6 +165,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         // 无障碍服务可能晚于应用启动，这里补一次进入时间，避免漏掉开屏
         if (!enterAt.containsKey(pkg)) enterAt[pkg] = now
         if (Prefs.skipSplash) attemptSkip(pkg, now)
+        // 先尝试点掉「即将展示广告」的取消，赶在广告弹出之前
+        attemptCancelPauseAd(pkg, now)
         attemptCloseInAppAd(pkg, now)
     }
 
@@ -226,6 +231,64 @@ class AdSkipAccessibilityService : AccessibilityService() {
             StatsStore.record(pkg, StatsStore.Kind.SPLASH)
             Log.i(TAG, "跳过开屏：\"${candidate.label}\" @ $pkg")
             InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
+        }
+    }
+
+    // ------------------------------------------------------------------ 暂停广告提示
+
+    /**
+     * 点掉「N 秒后将展示广告 [取消]」这类提示。
+     *
+     * 提示只停留一秒左右，所以节流压到 120ms；判断依据是文案而不是播放状态——
+     * 无障碍服务拿不到播放器是否暂停，但这条提示本身只会在暂停时出现。
+     * 命中文案后必须同时找到一个「取消」按钮才动手，避免把别处的取消按钮点掉。
+     */
+    private fun attemptCancelPauseAd(pkg: String, now: Long) {
+        if (!Prefs.inAppAdGuard) return
+        if (pkg !in IN_APP_AD_PACKAGES) return
+        if (now - lastPauseAdCheckAt < 120L) return
+
+        val root = rootInActiveWindow ?: return
+        if (root.packageName != pkg) return
+        lastPauseAdCheckAt = now
+
+        var hasHint = false
+        var cancelNode: AccessibilityNodeInfo? = null
+        var visited = 0
+
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 28 || visited > 600) return
+            if (hasHint && cancelNode != null) return
+            if (depth > 0 && !node.isVisibleToUser) return
+            visited++
+
+            val label = node.text?.toString()?.trim().orEmpty()
+                .ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
+
+            if (label.isNotEmpty()) {
+                if (!hasHint && label.length <= 30 && PAUSE_AD_HINT.containsMatchIn(label)) {
+                    hasHint = true
+                }
+                if (cancelNode == null && label == "取消") cancelNode = node
+            }
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walk(child, depth + 1)
+            }
+        }
+
+        walk(root, 0)
+
+        if (!hasHint) return
+        val target = cancelNode ?: run {
+            // 文案读到了却找不到按钮，通常是提示条用了自绘控件，留个痕迹便于排查
+            Log.i(TAG, "发现暂停广告提示但没找到取消按钮 @ $pkg")
+            return
+        }
+
+        if (clickCandidate(Candidate(target, "取消", 0, false))) {
+            Log.i(TAG, "取消暂停广告提示 @ $pkg")
         }
     }
 
@@ -476,6 +539,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
         private val IN_APP_AD_PACKAGES = setOf(
             "tv.danmaku.bili"
         )
+
+        /** 「N 秒后将展示广告」这类倒计时提示，命中后配合「取消」按钮一起判断 */
+        private val PAUSE_AD_HINT = Regex("秒后将展示广告|即将展示广告|秒后将播放广告|即将播放广告")
 
         /** 广告标识，要求整段文案完全相等，避免正文里出现「广告」二字时误判 */
         private val AD_LABELS = setOf("广告", "廣告", "赞助", "推广")
