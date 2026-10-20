@@ -42,7 +42,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private data class Candidate(
         val node: AccessibilityNodeInfo,
         val label: String,
-        val score: Int
+        val score: Int,
+        /** 弱匹配：文案是「关闭 / ×」这类到处都是的按钮，点击前要额外确认 */
+        val weak: Boolean
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -178,7 +180,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         // 刚进入应用的几秒内放宽位置限制，覆盖少数把跳过按钮放在底部的设计
         val allowAnywhere = age <= 6000L
-        val candidate = findCandidate(pkg, allowAnywhere) ?: return
+        // 「关闭 / ×」只在刚启动那一瞬间才可能是开屏按钮，过了这段时间基本都是页面自己的按钮
+        val allowWeak = age <= 3000L
+        val candidate = findCandidate(pkg, allowAnywhere, allowWeak) ?: return
 
         if (clickCandidate(candidate)) {
             splashDonePkg = pkg
@@ -189,7 +193,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun findCandidate(pkg: String, allowAnywhere: Boolean): Candidate? {
+    private fun findCandidate(pkg: String, allowAnywhere: Boolean, allowWeak: Boolean): Candidate? {
         val screen = screenSize()
         val roots = ArrayList<AccessibilityNodeInfo>()
 
@@ -206,21 +210,32 @@ class AdSkipAccessibilityService : AccessibilityService() {
             roots.add(active)
         }
 
+        // 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点，只认明确的"跳过"
+        val weakAllowed = allowWeak && pkg !in WEAK_MATCH_BLOCKED
+
         var best: Candidate? = null
         for (root in roots) {
-            val found = findInTree(root, screen, allowAnywhere) ?: continue
+            val found = findInTree(root, screen, allowAnywhere, weakAllowed) ?: continue
             if (best == null || found.score > best.score) best = found
         }
         return best
     }
 
+    /**
+     * 遍历节点树挑出候选。
+     *
+     * 弱匹配（关闭 / ×）会被额外限制：必须同时满足"页面结构像开屏页"和"页面上有广告特征"，
+     * 否则支付宝、微信这类容器应用里的关闭按钮、小程序的关闭图标都会被当成广告按钮点掉。
+     */
     private fun findInTree(
         root: AccessibilityNodeInfo,
         screen: Point,
-        allowAnywhere: Boolean
+        allowAnywhere: Boolean,
+        weakAllowed: Boolean
     ): Candidate? {
-        var best: Candidate? = null
+        val candidates = ArrayList<Candidate>(4)
         var visited = 0
+        var adHints = 0
 
         fun walk(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > 30 || visited > 700) return
@@ -232,14 +247,18 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 val label = if (text.isNotEmpty()) text else desc
 
                 if (label.isNotEmpty()) {
+                    if (AD_HINT.containsMatchIn(label)) adHints++
+
                     val strength = SkipRule.match(label)
                     if (strength != SkipRule.NONE) {
                         val rect = Rect()
                         node.getBoundsInScreen(rect)
                         if (rect.width() > 0 && rect.height() > 0) {
                             val score = scoreOf(strength, rect, screen, allowAnywhere)
-                            if (score > 0 && score > (best?.score ?: 0)) {
-                                best = Candidate(node, label, score)
+                            if (score > 0) {
+                                candidates.add(
+                                    Candidate(node, label, score, strength == SkipRule.WEAK)
+                                )
                             }
                         }
                     }
@@ -253,7 +272,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
 
         walk(root, 0)
-        return best
+
+        candidates.sortByDescending { it.score }
+        for (candidate in candidates) {
+            if (!candidate.weak) return candidate
+            if (weakAllowed && adHints > 0 && visited <= SPLASH_MAX_NODES) return candidate
+        }
+        return null
     }
 
     /**
@@ -321,6 +346,18 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AdsBanner"
+
+        /** 开屏页结构简单，节点数通常很少；小程序、列表页动辄上百个 */
+        private const val SPLASH_MAX_NODES = 60
+
+        /** 出现这些文字才说明当前页确实是开屏广告 */
+        private val AD_HINT = Regex("广告|跳过|\\d+\\s*[sS秒]")
+
+        /** 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点 */
+        private val WEAK_MATCH_BLOCKED = setOf(
+            "com.eg.android.AlipayGphone",
+            "com.tencent.mm"
+        )
 
         /** 这些包名的事件会污染"前台应用"的判断，直接忽略 */
         private val IGNORED_PACKAGES = setOf(
