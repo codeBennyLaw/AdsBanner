@@ -5,10 +5,12 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
+    android:clipToPadding="false"
     android:fillViewport="true"
     android:scrollbars="none">
 
     <LinearLayout
+        android:id="@+id/content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -334,6 +336,51 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginStart="16dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout
+                    android:id="@+id/rowNotify"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="16dp"
+                    android:paddingVertical="14dp">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/Text.RowTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="拦截实时提示" />
+
+                        <TextView
+                            android:id="@+id/tvNotifyHint"
+                            style="@style/Text.RowSub"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="拦截时在状态栏 / 灵动岛显示 10 秒" />
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchNotify"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -499,24 +546,66 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- 说明 -->
-        <TextView
+        <!-- 版本与仓库 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:layout_marginHorizontal="4dp"
-            android:lineSpacingExtra="4dp"
-            android:text="AdsBanner 不会修改任何应用、不会联网上传数据。所有识别都在本机完成，统计只保存在本机存储空间。"
-            android:textColor="@color/text_tertiary"
-            android:textSize="12sp" />
+            android:layout_marginTop="22dp"
+            android:gravity="center"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/tvVersion"
+            <TextView
+                android:id="@+id/tvVersion"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_tertiary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" · "
+                android:textColor="@color/text_tertiary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnCheckUpdate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="6dp"
+                android:text="检查更新"
+                android:textColor="@color/brand"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/linkRepo"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginHorizontal="4dp"
-            android:textColor="@color/text_tertiary"
-            android:textSize="11sp" />
+            android:layout_height="48dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_github_mark"
+                android:tint="@color/text_tertiary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="GitHub 仓库 ↗"
+                android:textColor="@color/text_tertiary"
+                android:textSize="13sp" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

@@ -2,10 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- 仅用于检查更新时读取 GitHub Release，不采集任何数据 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 开机自启 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Android 13+ 常驻通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 16 实时通知（状态栏胶囊 / 灵动岛），缺这条 canPostPromotedNotifications() 恒为 false -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <!-- Android 14+ 前台服务必须声明类型 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />

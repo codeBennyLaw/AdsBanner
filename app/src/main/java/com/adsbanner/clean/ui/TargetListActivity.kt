@@ -35,6 +35,7 @@ class TargetListActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_target_list)
+        applySystemBarAppearance()
 
         container = findViewById(R.id.listContainer)
         tvEmpty = findViewById(R.id.tvEmpty)
