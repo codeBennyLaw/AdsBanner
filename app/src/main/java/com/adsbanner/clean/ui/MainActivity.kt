@@ -25,6 +25,7 @@ import com.adsbanner.clean.core.AccessibilityHelper
 import com.adsbanner.clean.core.AppForeground
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.service.AdSkipAccessibilityService
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
 import com.adsbanner.clean.service.UpdateDownloadService
@@ -261,6 +262,16 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }
         findViewById<View>(R.id.rowNotify).setOnClickListener { onNotifyRowClick() }
+        // 长按导出当前页面节点树，便于针对具体广告页调整识别条件
+        findViewById<View>(R.id.rowInAppAd).setOnLongClickListener {
+            val service = AdSkipAccessibilityService.instance
+            when {
+                service == null -> toast("无障碍服务没在运行，先在系统设置里开启")
+                service.dumpToLog() -> toast("已导出节点树，用 adb logcat -s AdsBanner 查看")
+                else -> toast("当前没有可导出的页面")
+            }
+            true
+        }
     }
 
     private fun onNotifyRowClick() {

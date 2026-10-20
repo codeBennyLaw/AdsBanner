@@ -101,6 +101,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         StatsStore.init(this)
         foregroundPkg = null
         lastWindowEventAt = SystemClock.elapsedRealtime()
+        instance = this
         Log.i(TAG, "无障碍服务已连接")
         // 服务在线时顺带拉起常驻通知，提高进程优先级
         if (Prefs.keepAlive) KeepAliveService.start(this)
@@ -123,8 +124,70 @@ class AdSkipAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        instance = null
         InterceptNotifier.cancel(this)
         super.onDestroy()
+    }
+
+    /**
+     * 调试用：把当前前台应用的节点树写到 logcat。
+     *
+     * 页面内广告的识别条件依赖真实节点，闭着眼睛猜文案和位置效率太低，
+     * 导出一次就能看清提示条到底是原生控件还是自绘内容。
+     */
+    fun dumpForegroundTree(): String {
+        val pkg = foregroundPkg ?: return ""
+        val roots = collectRoots(pkg)
+        if (roots.isEmpty()) return ""
+
+        val sb = StringBuilder("节点树 dump @ $pkg\n")
+        var count = 0
+
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (count > 900 || depth > 40) return
+            count++
+
+            val text = node.text?.toString()?.trim().orEmpty()
+            val desc = node.contentDescription?.toString()?.trim().orEmpty()
+            val cls = node.className?.toString()?.substringAfterLast('.').orEmpty()
+
+            if (text.isNotEmpty() || desc.isNotEmpty() || node.isClickable) {
+                val rect = Rect()
+                node.getBoundsInScreen(rect)
+                sb.append("  ".repeat(depth.coerceAtMost(18)))
+                sb.append(cls)
+                if (text.isNotEmpty()) sb.append(" text=\"").append(text.take(40)).append('"')
+                if (desc.isNotEmpty()) sb.append(" desc=\"").append(desc.take(40)).append('"')
+                if (node.isClickable) sb.append(" click")
+                sb.append(" [").append(rect.left).append(',')
+                    .append(rect.top).append('-')
+                    .append(rect.right).append(',')
+                    .append(rect.bottom).append("]\n")
+            }
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walk(child, depth + 1)
+            }
+        }
+
+        roots.forEach { walk(it, 0) }
+        return sb.toString()
+    }
+
+    /** 把节点树分段打到 logcat，单条日志有长度上限 */
+    fun dumpToLog(): Boolean {
+        val text = dumpForegroundTree()
+        if (text.isBlank()) return false
+
+        val chunk = 3_500
+        var index = 0
+        while (index < text.length) {
+            val end = minOf(index + chunk, text.length)
+            Log.i(TAG, "DUMP|" + text.substring(index, end))
+            index = end
+        }
+        return true
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -248,8 +311,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (pkg !in IN_APP_AD_PACKAGES) return
         if (now - lastPauseAdCheckAt < 120L) return
 
-        val root = rootInActiveWindow ?: return
-        if (root.packageName != pkg) return
+        val roots = collectRoots(pkg)
+        if (roots.isEmpty()) return
         lastPauseAdCheckAt = now
 
         var hasHint = false
@@ -278,7 +341,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
             }
         }
 
-        walk(root, 0)
+        for (root in roots) {
+            walk(root, 0)
+            if (hasHint && cancelNode != null) break
+        }
 
         if (!hasHint) return
         val target = cancelNode ?: run {
@@ -307,8 +373,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (pkg !in IN_APP_AD_PACKAGES) return
         if (now - lastInAppAdCheckAt < 1_000L) return
 
-        val root = rootInActiveWindow ?: return
-        if (root.packageName != pkg) return
+        val roots = collectRoots(pkg)
+        if (roots.isEmpty()) return
         lastInAppAdCheckAt = now
 
         val screen = screenSize()
@@ -347,7 +413,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
             }
         }
 
-        walk(root, 0)
+        for (root in roots) {
+            walk(root, 0)
+            if (hasAdLabel && closeNode != null) break
+        }
 
         val target = closeNode ?: return
         if (!hasAdLabel) return
@@ -489,22 +558,44 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun clickCandidate(candidate: Candidate): Boolean {
-        // 优先走标准点击，避免坐标点击落到被广告覆盖的区域
+        val self = Rect()
+        candidate.node.getBoundsInScreen(self)
+        val selfArea = self.width().toLong() * self.height()
+
+        // 优先点节点自身。向上找可点击父节点时，必须确认父节点没有明显放大成容器，
+        // 否则会点到容器中心 —— 广告层里「×」和「⋮」常挂在同一个可点击容器下，就会点偏。
         var node: AccessibilityNodeInfo? = candidate.node
         var depth = 0
         while (node != null && depth < 4) {
             if (node.isEnabled && node.isClickable && node.isVisibleToUser) {
-                if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                val parentRect = Rect()
+                node.getBoundsInScreen(parentRect)
+                val parentArea = parentRect.width().toLong() * parentRect.height()
+                val precise = depth == 0 || (selfArea > 0 && parentArea <= selfArea * 2)
+                if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
             }
             node = node.parent
             depth++
         }
 
-        // 自定义绘制的控件不暴露 clickable，退化为坐标点击
-        val rect = Rect()
-        candidate.node.getBoundsInScreen(rect)
-        if (rect.width() <= 0 || rect.height() <= 0) return false
-        return tapAt(rect.centerX().toFloat(), rect.centerY().toFloat())
+        // 自定义绘制的控件不暴露 clickable，退化为点击自身中心的坐标
+        if (self.width() <= 0 || self.height() <= 0) return false
+        return tapAt(self.centerX().toFloat(), self.centerY().toFloat())
+    }
+
+    /** 收集当前属于该应用的所有窗口根节点，悬浮层、弹层常常不在活动窗口里 */
+    private fun collectRoots(pkg: String): List<AccessibilityNodeInfo> {
+        val roots = ArrayList<AccessibilityNodeInfo>(2)
+        runCatching {
+            windows?.forEach { window ->
+                val root = window?.root ?: return@forEach
+                if (root.packageName == pkg) roots.add(root)
+            }
+        }
+        if (roots.isEmpty()) {
+            rootInActiveWindow?.let { if (it.packageName == pkg) roots.add(it) }
+        }
+        return roots
     }
 
     private fun tapAt(x: Float, y: Float): Boolean = runCatching {
@@ -530,6 +621,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AdsBanner"
+
+        /** 供设置页在调试时导出当前页面节点树，未连接时为 null */
+        @Volatile
+        var instance: AdSkipAccessibilityService? = null
+            private set
 
         /** 开屏页结构简单，节点数通常很少；小程序、列表页动辄上百个 */
         private const val SPLASH_MAX_NODES = 60
