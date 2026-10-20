@@ -47,7 +47,8 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -57,12 +58,14 @@
         <activity
             android:name=".ui.StatsActivity"
             android:exported="false"
-            android:parentActivityName=".ui.MainActivity" />
+            android:parentActivityName=".ui.MainActivity"
+            android:screenOrientation="portrait" />
 
         <activity
             android:name=".ui.TargetListActivity"
             android:exported="false"
-            android:parentActivityName=".ui.MainActivity" />
+            android:parentActivityName=".ui.MainActivity"
+            android:screenOrientation="portrait" />
 
         <!-- 核心：无障碍服务，由系统绑定/守护 -->
         <service
