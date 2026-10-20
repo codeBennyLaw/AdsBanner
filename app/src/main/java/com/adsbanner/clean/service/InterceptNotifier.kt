@@ -114,6 +114,48 @@ object InterceptNotifier {
         true
     }.getOrDefault(false)
 
+    /**
+     * 逐环节列出当前状态，用来确认到底卡在哪一步：
+     * 系统版本 -> 接口 -> 授权 -> 通知总开关 -> 实际是否被提升。
+     */
+    fun describe(context: Context): String {
+        val manager = context.getSystemService(NotificationManager::class.java)
+
+        val active = manager?.activeNotifications
+            ?.firstOrNull { it.packageName == context.packageName && it.id == NOTIFICATION_ID }
+            ?.notification
+
+        val promotedFlag = runCatching {
+            Notification::class.java.getField("FLAG_PROMOTED_ONGOING").getInt(null)
+        }.getOrDefault(0)
+
+        val last = when {
+            active == null -> "最近一条提示：当前无正在显示的提示"
+            promotedFlag != 0 && (active.flags and promotedFlag) != 0 ->
+                "最近一条提示：已被系统提升为实时通知"
+            else -> {
+                val eligible = LiveUpdate.isEligible(active)
+                "最近一条提示：未提升\n资格判定：" + when (eligible) {
+                    true -> "符合提升条件，等系统决定"
+                    false -> "不符合提升条件"
+                    null -> "系统未返回判定"
+                }
+            }
+        }
+
+        return listOf(
+            "系统：Android ${Build.VERSION.SDK_INT}（API ${Build.VERSION.SDK_INT}）",
+            "实时通知接口：" + if (supportsLiveUpdates()) "可用" else "不可用",
+            "实时通知授权：" + when {
+                !supportsLiveUpdates() -> "不适用"
+                canPostPromoted(context) -> "已授权"
+                else -> "未授权"
+            },
+            "通知总开关：" + if (manager?.areNotificationsEnabled() == true) "开启" else "关闭",
+            last
+        ).joinToString("\n")
+    }
+
     private fun promotionIntent(context: Context): Intent =
         Intent(ACTION_PROMOTION_SETTINGS)
             .putExtra(EXTRA_APP_PACKAGE, context.packageName)

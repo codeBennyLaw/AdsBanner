@@ -141,17 +141,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onNotifyRowClick() {
-        when {
-            !Prefs.interceptNotify -> toast("先打开右侧开关")
-            Build.VERSION.SDK_INT < 36 ->
-                toast("系统为 Android ${Build.VERSION.SDK_INT}，没有实时通知能力")
-            !InterceptNotifier.supportsLiveUpdates() ->
-                toast("系统缺少实时通知接口，拦截时以普通通知展示")
-            InterceptNotifier.canPostPromoted(this) -> toast("已授权，是否上岛由系统决定")
-            !InterceptNotifier.canOpenPromotionSettings(this) ->
-                toast("系统没有提供实时通知设置页，请到系统通知设置里查看")
-            else -> InterceptNotifier.openPromotionSettings(this)
+        val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
+        AlertDialog.Builder(this)
+            .setTitle("实时通知诊断")
+            .setMessage(InterceptNotifier.describe(this))
+            .setPositiveButton("发一条测试") { _, _ -> sendTestNotification() }
+            .setNeutralButton("系统设置") { _, _ ->
+                if (canOpenSettings) {
+                    InterceptNotifier.openPromotionSettings(this)
+                } else {
+                    toast("系统没有提供实时通知设置页")
+                }
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun sendTestNotification() {
+        if (!Prefs.interceptNotify) {
+            toast("先打开右侧开关")
+            return
         }
+        InterceptNotifier.notify(this, "示例应用", StatsStore.Kind.SPLASH)
+        toast("已发送 10 秒测试提示")
     }
 
     private fun setupSwitches() {
