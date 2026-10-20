@@ -2,6 +2,7 @@ package com.adsbanner.clean.ui
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -65,6 +66,10 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         applySystemBarAppearance()
+        // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
+        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
 
         bindViews()
         applyInsets()
