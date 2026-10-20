@@ -44,3 +44,4 @@ Thumbs.db
 
 # Kotlin / 编译缓存
 .kotlin/
+.opencode
