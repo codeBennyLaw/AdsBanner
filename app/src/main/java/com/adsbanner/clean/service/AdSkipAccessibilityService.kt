@@ -91,6 +91,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    override fun onDestroy() {
+        InterceptNotifier.cancel(this)
+        super.onDestroy()
+    }
+
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         screenCache = null
@@ -143,6 +148,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         StatsStore.record(target, StatsStore.Kind.JUMP)
         Log.i(TAG, "拦截误触跳转 -> $target")
+        InterceptNotifier.notify(this, AppInfoHelper.label(this, target), StatsStore.Kind.JUMP)
 
         // 稍等目标应用完成启动再返回，否则返回事件可能被丢弃
         handler.postDelayed({
@@ -179,6 +185,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             splashDoneAt = SystemClock.elapsedRealtime()
             StatsStore.record(pkg, StatsStore.Kind.SPLASH)
             Log.i(TAG, "跳过开屏：\"${candidate.label}\" @ $pkg")
+            InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
         }
     }
 

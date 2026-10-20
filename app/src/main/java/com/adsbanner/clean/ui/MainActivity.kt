@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,13 +19,15 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.google.android.material.card.MaterialCardView
-import com.google.android.material.materialswitch.MaterialSwitch
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AccessibilityHelper
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
+import com.adsbanner.clean.update.ReleaseUpdates
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class MainActivity : AppCompatActivity() {
 
@@ -36,10 +39,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatsMeta: TextView
     private lateinit var tvTargetHint: TextView
     private lateinit var tvBatteryHint: TextView
+    private lateinit var tvNotifyHint: TextView
     private lateinit var tvVersion: TextView
+    private lateinit var btnCheckUpdate: TextView
+    private lateinit var linkRepo: View
+    private lateinit var content: View
     private lateinit var switchSplash: MaterialSwitch
     private lateinit var switchJump: MaterialSwitch
     private lateinit var switchKeepAlive: MaterialSwitch
+    private lateinit var switchNotify: MaterialSwitch
 
     private var binding = false
 
@@ -52,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+        applySystemBarAppearance()
 
         bindViews()
         applyInsets()
@@ -74,27 +83,107 @@ class MainActivity : AppCompatActivity() {
         tvStatsMeta = findViewById(R.id.tvStatsMeta)
         tvTargetHint = findViewById(R.id.tvTargetHint)
         tvBatteryHint = findViewById(R.id.tvBatteryHint)
+        tvNotifyHint = findViewById(R.id.tvNotifyHint)
         tvVersion = findViewById(R.id.tvVersion)
+        linkRepo = findViewById(R.id.linkRepo)
+        content = findViewById(R.id.content)
         switchSplash = findViewById(R.id.switchSplash)
         switchJump = findViewById(R.id.switchJump)
         switchKeepAlive = findViewById(R.id.switchKeepAlive)
+        switchNotify = findViewById(R.id.switchNotify)
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.0.0"
-        tvVersion.text = "AdsBanner v$versionName · 数据仅保存在本机"
+        }.getOrNull() ?: "1.0.1"
+        tvVersion.text = "版本 $versionName"
+        linkRepo.setOnClickListener { openRepository() }
+
+        btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
+        btnCheckUpdate.setOnClickListener { checkForUpdates() }
     }
 
+    // ------------------------------------------------------------------ 检查更新
+
+    private fun checkForUpdates() {
+        if (!btnCheckUpdate.isEnabled) return
+        btnCheckUpdate.isEnabled = false
+        btnCheckUpdate.text = "检查中…"
+
+        val current = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        }.getOrNull() ?: "1.0.0"
+
+        Thread {
+            val result = ReleaseUpdates.check(current)
+            runOnUiThread {
+                btnCheckUpdate.isEnabled = true
+                btnCheckUpdate.text = "检查更新"
+                when (result) {
+                    is ReleaseUpdates.Result.New -> showUpdateDialog(result)
+                    ReleaseUpdates.Result.Current -> toast("当前已是最新版本")
+                    is ReleaseUpdates.Result.Failed -> toast("检查失败：${result.reason}")
+                }
+            }
+        }.start()
+    }
+
+    private fun showUpdateDialog(info: ReleaseUpdates.Result.New) {
+        val view = layoutInflater.inflate(R.layout.dialog_update, null)
+        view.findViewById<TextView>(R.id.tvUpdateVersion).text = "版本 ${info.version}"
+        val body = view.findViewById<TextView>(R.id.tvUpdateBody)
+        ReleaseUpdates.renderMarkdown(this, body, info.notes)
+
+        // 更新说明可能很长，超过半屏就固定高度并可滚动
+        val scroll = view.findViewById<ScrollView>(R.id.updateScroll)
+        scroll.post {
+            val maxHeight = (resources.displayMetrics.heightPixels * 0.5f).toInt()
+            if (body.height > maxHeight) {
+                scroll.layoutParams = scroll.layoutParams.apply { height = maxHeight }
+                scroll.requestLayout()
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("发现新版本")
+            .setView(view)
+            .setNegativeButton("稍后", null)
+            .setPositiveButton("去下载") { _, _ ->
+                val url = info.downloadUrl ?: info.pageUrl
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                }.onFailure { toast("没有可用的浏览器") }
+            }
+            .show()
+    }
+
+    private fun openRepository() {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)))
+        }.onFailure { toast("没有可用的浏览器") }
+    }
+
+    /**
+     * 沉浸的关键：内边距加在内容容器上，而不是加在 ScrollView 上。
+     * 前者让内容滚动时可以滑到状态栏下方，系统栏区域始终由页面背景铺满；
+     * 后者会把整块内容永远压到状态栏以下，看着就像没有沉浸。
+     */
     private fun applyInsets() {
         val root = findViewById<View>(R.id.root)
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            content.setPadding(
+                dp(18) + bars.left,
+                dp(18) + bars.top,
+                dp(18) + bars.right,
+                dp(32) + bars.bottom
+            )
             insets
         }
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun setupClicks() {
         findViewById<View>(R.id.btnService).setOnClickListener {
@@ -108,6 +197,33 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }
+        findViewById<View>(R.id.rowNotify).setOnClickListener { onNotifyRowClick() }
+    }
+
+    private fun onNotifyRowClick() {
+        val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
+        AlertDialog.Builder(this)
+            .setTitle("实时通知诊断")
+            .setMessage(InterceptNotifier.describe(this))
+            .setPositiveButton("发一条测试") { _, _ -> sendTestNotification() }
+            .setNeutralButton("系统设置") { _, _ ->
+                if (canOpenSettings) {
+                    InterceptNotifier.openPromotionSettings(this)
+                } else {
+                    toast("系统没有提供实时通知设置页")
+                }
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun sendTestNotification() {
+        if (!Prefs.interceptNotify) {
+            toast("先打开右侧开关")
+            return
+        }
+        InterceptNotifier.notify(this, "示例应用", StatsStore.Kind.SPLASH)
+        toast("已发送 10 秒测试提示")
     }
 
     private fun setupSwitches() {
@@ -132,6 +248,32 @@ class MainActivity : AppCompatActivity() {
                 KeepAliveService.stop(this)
             }
         }
+        switchNotify.setOnCheckedChangeListener { _, checked ->
+            if (binding) return@setOnCheckedChangeListener
+            Prefs.interceptNotify = checked
+            if (checked) {
+                requestNotificationPermissionIfNeeded(force = true)
+                guidePromotionIfNeeded()
+            }
+        }
+    }
+
+    /** 系统支持实时通知但未授权时，引导用户去系统设置里打开 */
+    private fun guidePromotionIfNeeded() {
+        if (!InterceptNotifier.canOpenPromotionSettings(this)) return
+        if (InterceptNotifier.canPostPromoted(this)) return
+        AlertDialog.Builder(this)
+            .setTitle("开启实时通知")
+            .setMessage(
+                "本机支持实时通知（状态栏胶囊 / 灵动岛），但系统还没有对本应用开放。\n\n" +
+                    "在接下来的设置页里打开「允许实时通知」，拦截时才能在岛上显示。" +
+                    "不开启也能正常拦截，只是提示会退回普通通知。"
+            )
+            .setNegativeButton("暂不", null)
+            .setPositiveButton("去设置") { _, _ ->
+                InterceptNotifier.openPromotionSettings(this)
+            }
+            .show()
     }
 
     private fun refresh() {
@@ -160,9 +302,35 @@ class MainActivity : AppCompatActivity() {
         switchSplash.isChecked = Prefs.skipSplash
         switchJump.isChecked = Prefs.jumpGuard
         switchKeepAlive.isChecked = Prefs.keepAlive
+        switchNotify.isChecked = Prefs.interceptNotify
         binding = false
 
         tvTargetHint.text = "已启用 ${Prefs.jumpTargets.size} 个应用"
+
+        // 实时通知状态直接显示出来，不用猜卡在哪一步
+        when {
+            !Prefs.interceptNotify -> {
+                tvNotifyHint.text = "已关闭，拦截时不再提示"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
+            }
+            Build.VERSION.SDK_INT < 36 -> {
+                tvNotifyHint.text =
+                    "Android ${Build.VERSION.SDK_INT} 不支持实时通知，走普通通知"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
+            }
+            !InterceptNotifier.supportsLiveUpdates() -> {
+                tvNotifyHint.text = "系统缺少实时通知接口，走普通通知"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
+            }
+            InterceptNotifier.canPostPromoted(this) -> {
+                tvNotifyHint.text = "已接入实时通知，拦截时上岛（是否提升由系统决定）"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.success))
+            }
+            else -> {
+                tvNotifyHint.text = "系统支持但未授权，点此前往开启"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.warning))
+            }
+        }
 
         val powerManager = getSystemService(PowerManager::class.java)
         val ignoring = powerManager?.isIgnoringBatteryOptimizations(packageName) == true
@@ -233,5 +401,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(text: String) {
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    }
+
+    private companion object {
+        const val REPO_URL = "https://github.com/codeBennyLaw/AdsBanner"
     }
 }
