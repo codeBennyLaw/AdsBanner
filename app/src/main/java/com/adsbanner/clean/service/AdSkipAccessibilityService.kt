@@ -318,13 +318,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (roots.isEmpty()) return
         lastPauseAdCheckAt = now
 
-        var hasHint = false
+        var hintNode: AccessibilityNodeInfo? = null
         var cancelNode: AccessibilityNodeInfo? = null
         var visited = 0
 
         fun walk(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > 28 || visited > 600) return
-            if (hasHint && cancelNode != null) return
+            if (hintNode != null && cancelNode != null) return
             if (depth > 0 && !node.isVisibleToUser) return
             visited++
 
@@ -333,10 +333,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
             if (label.isNotEmpty()) {
                 noteAdLabel(node, label)
-                if (!hasHint && label.length <= 30 && PAUSE_AD_HINT.containsMatchIn(label)) {
-                    hasHint = true
+                if (hintNode == null && label.length <= 30 && PAUSE_AD_HINT.containsMatchIn(label)) {
+                    hintNode = node
                 }
-                if (cancelNode == null && label == "取消") cancelNode = node
+                if (cancelNode == null && isCancelLabel(label)) cancelNode = node
             }
 
             for (i in 0 until node.childCount) {
@@ -347,12 +347,12 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         for (root in roots) {
             walk(root, 0)
-            if (hasHint && cancelNode != null) break
+            if (hintNode != null && cancelNode != null) break
         }
 
-        if (!hasHint) return
-        val target = cancelNode ?: run {
-            // 文案读到了却找不到按钮，通常是提示条用了自绘控件，留个痕迹便于排查
+        val hint = hintNode ?: return
+        // 找不到「取消」文本时退一步按位置找：同一条提示的右侧、尺寸很小的控件
+        val target = cancelNode ?: findCancelNear(hint, roots) ?: run {
             recordLog("发现暂停广告提示但没找到取消按钮 @ $pkg")
             return
         }
@@ -361,6 +361,52 @@ class AdSkipAccessibilityService : AccessibilityService() {
             StatsStore.record(pkg, StatsStore.Kind.PAGE_AD)
             recordLog("取消暂停广告提示 @ $pkg")
         }
+    }
+
+    private fun isCancelLabel(label: String): Boolean =
+        label.startsWith("取消") && label.length <= 8
+
+    /** 在提示文案同一行右侧找一个尺寸很小的控件，作为「取消」按钮的兜底 */
+    private fun findCancelNear(
+        hint: AccessibilityNodeInfo,
+        roots: List<AccessibilityNodeInfo>
+    ): AccessibilityNodeInfo? {
+        val hintRect = Rect()
+        hint.getBoundsInScreen(hintRect)
+        if (hintRect.width() <= 0) return null
+
+        var best: AccessibilityNodeInfo? = null
+        var bestGap = Int.MAX_VALUE
+
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 30) return
+            if (depth > 0 && !node.isVisibleToUser) return
+
+            val rect = Rect()
+            node.getBoundsInScreen(rect)
+            val sameRow = rect.top < hintRect.bottom && rect.bottom > hintRect.top
+            val toRight = rect.left >= hintRect.right - 8
+            val small = rect.width() in 1..(hintRect.width() * 2) &&
+                rect.height() in 1..(hintRect.height() * 3)
+            val interactive = node.isClickable ||
+                !node.text.isNullOrEmpty() ||
+                !node.contentDescription.isNullOrEmpty()
+
+            if (sameRow && toRight && small && interactive) {
+                val gap = rect.left - hintRect.right
+                if (gap < bestGap) {
+                    bestGap = gap
+                    best = node
+                }
+            }
+
+            for (i in 0 until node.childCount) {
+                walk(node.getChild(i) ?: continue, depth + 1)
+            }
+        }
+
+        roots.forEach { walk(it, 0) }
+        return best
     }
 
     // ------------------------------------------------------------------ 页面内广告
@@ -678,15 +724,22 @@ class AdSkipAccessibilityService : AccessibilityService() {
             "tv.danmaku.bili"
         )
 
-        /** 「N 秒后将展示广告」这类倒计时提示，命中后配合「取消」按钮一起判断 */
-        private val PAUSE_AD_HINT = Regex("秒后将展示广告|即将展示广告|秒后将播放广告|即将播放广告")
+        /**
+         * 「N 秒后将展示广告」这类倒计时提示。
+         * 实测节点里「1秒」和「后将展示广告」是两个分开的文本节点，
+         * 不能要求「秒后」连在一起，只匹配后半段。
+         */
+        private val PAUSE_AD_HINT = Regex("后将展示广告|即将展示广告|后将播放广告|即将播放广告")
 
         /** 广告标识，要求整段文案完全相等，避免正文里出现「广告」二字时误判 */
         private val AD_LABELS = setOf("广告", "廣告", "赞助", "推广")
 
-        /** 关闭控件的文案，包含常见的 × 变体 */
+        /**
+         * 关闭控件的文案，包含常见的 × 变体。
+         * 不能放「不感兴趣」：B 站广告层里那个按钮只标记偏好，点了广告还在。
+         */
         private val CLOSE_LABELS = setOf(
-            "关闭", "关闭广告", "不感兴趣", "×", "✕", "╳", "X", "x"
+            "关闭", "关闭广告", "×", "✕", "╳", "X", "x"
         )
 
         /** 出现这些文字才说明当前页确实是开屏广告 */
