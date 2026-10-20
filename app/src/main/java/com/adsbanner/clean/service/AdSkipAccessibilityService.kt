@@ -84,6 +84,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private var lastJumpBlockAt = 0L
 
+    /** 页面内广告：上次检查时间、上次点击时间与已点过的位置签名 */
+    private var lastInAppAdCheckAt = 0L
+    private var lastInAppAdClickAt = 0L
+    private var lastInAppAdSig = ""
+
     @Volatile
     private var screenCache: Point? = null
 
@@ -153,9 +158,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun onContentChanged(pkg: String) {
+        val now = SystemClock.elapsedRealtime()
         // 无障碍服务可能晚于应用启动，这里补一次进入时间，避免漏掉开屏
-        if (!enterAt.containsKey(pkg)) enterAt[pkg] = SystemClock.elapsedRealtime()
-        if (Prefs.skipSplash) attemptSkip(pkg, SystemClock.elapsedRealtime())
+        if (!enterAt.containsKey(pkg)) enterAt[pkg] = now
+        if (Prefs.skipSplash) attemptSkip(pkg, now)
+        attemptCloseInAppAd(pkg, now)
     }
 
     // ------------------------------------------------------------------ 跳转拦截
@@ -219,6 +226,78 @@ class AdSkipAccessibilityService : AccessibilityService() {
             StatsStore.record(pkg, StatsStore.Kind.SPLASH)
             Log.i(TAG, "跳过开屏：\"${candidate.label}\" @ $pkg")
             InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
+        }
+    }
+
+    // ------------------------------------------------------------------ 页面内广告
+
+    /**
+     * 关闭页面内覆盖式广告，例如播放页暂停后盖在画面上的广告层。
+     *
+     * 与开屏跳过的区别是不限定进入应用后的时间窗，因此必须更保守：
+     * 播放页右上角本来就有播放器自己的控件，误点会把视频关掉。三个条件同时满足才动手——
+     * 只在已知会插入这类广告的应用内、页面里出现「广告」标识、右上角有很小的「关闭 / ×」控件。
+     */
+    private fun attemptCloseInAppAd(pkg: String, now: Long) {
+        if (!Prefs.inAppAdGuard) return
+        if (pkg !in IN_APP_AD_PACKAGES) return
+        if (now - lastInAppAdCheckAt < 1_000L) return
+
+        val root = rootInActiveWindow ?: return
+        if (root.packageName != pkg) return
+        lastInAppAdCheckAt = now
+
+        val screen = screenSize()
+        val w = screen.x.toFloat()
+        val h = screen.y.toFloat()
+        if (w <= 0f || h <= 0f) return
+
+        var hasAdLabel = false
+        var closeNode: AccessibilityNodeInfo? = null
+        var closeLabel = ""
+
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 25) return
+            if (depth > 0 && !node.isVisibleToUser) return
+
+            val label = node.text?.toString()?.trim().orEmpty()
+                .ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
+
+            if (label.isNotEmpty()) {
+                if (!hasAdLabel && label in AD_LABELS) hasAdLabel = true
+                if (closeNode == null && label in CLOSE_LABELS) {
+                    val rect = Rect()
+                    node.getBoundsInScreen(rect)
+                    val small = rect.width() in 1..(w * 0.18f).toInt() &&
+                        rect.height() in 1..(h * 0.12f).toInt()
+                    if (small && rect.centerX() > w * 0.78f && rect.centerY() < h * 0.45f) {
+                        closeNode = node
+                        closeLabel = label
+                    }
+                }
+            }
+
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walk(child, depth + 1)
+            }
+        }
+
+        walk(root, 0)
+
+        val target = closeNode ?: return
+        if (!hasAdLabel) return
+
+        val rect = Rect()
+        target.getBoundsInScreen(rect)
+        // 同一位置的关闭按钮短时间内只点一次，防止广告反复弹出时连续触发
+        val signature = "${rect.left},${rect.top},${rect.right},${rect.bottom}"
+        if (signature == lastInAppAdSig && now - lastInAppAdClickAt < 10_000L) return
+
+        if (clickCandidate(Candidate(target, closeLabel, 0, false))) {
+            lastInAppAdSig = signature
+            lastInAppAdClickAt = now
+            Log.i(TAG, "关闭页面内广告：\"$closeLabel\" @ $pkg")
         }
     }
 
@@ -392,6 +471,19 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         /** 目标应用离开前台不超过这个时间又回来，视为窗口抖动，不拦截 */
         private const val RETURN_GRACE_MS = 5_000L
+
+        /** 页面内广告清理生效的应用，暂只针对哔哩哔哩的播放页暂停广告 */
+        private val IN_APP_AD_PACKAGES = setOf(
+            "tv.danmaku.bili"
+        )
+
+        /** 广告标识，要求整段文案完全相等，避免正文里出现「广告」二字时误判 */
+        private val AD_LABELS = setOf("广告", "廣告", "赞助", "推广")
+
+        /** 关闭控件的文案，包含常见的 × 变体 */
+        private val CLOSE_LABELS = setOf(
+            "关闭", "关闭广告", "不感兴趣", "×", "✕", "╳", "X", "x"
+        )
 
         /** 出现这些文字才说明当前页确实是开屏广告 */
         private val AD_HINT = Regex("广告|跳过|\\d+\\s*[sS秒]")
