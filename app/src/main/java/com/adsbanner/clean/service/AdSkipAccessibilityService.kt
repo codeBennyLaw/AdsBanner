@@ -18,6 +18,9 @@ import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.StatsStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * AdsBanner 的核心引擎，运行在系统无障碍通道里。
@@ -251,7 +254,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         lastJumpBlockAt = now
 
         StatsStore.record(target, StatsStore.Kind.JUMP)
-        Log.i(TAG, "拦截误触跳转 -> $target")
+        recordLog("拦截误触跳转 -> $target")
         InterceptNotifier.notify(this, AppInfoHelper.label(this, target), StatsStore.Kind.JUMP)
 
         // 稍等目标应用完成启动再返回，否则返回事件可能被丢弃
@@ -292,7 +295,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             splashDonePkg = pkg
             splashDoneAt = SystemClock.elapsedRealtime()
             StatsStore.record(pkg, StatsStore.Kind.SPLASH)
-            Log.i(TAG, "跳过开屏：\"${candidate.label}\" @ $pkg")
+            recordLog("跳过开屏：\"${candidate.label}\" @ $pkg")
             InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
         }
     }
@@ -350,13 +353,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (!hasHint) return
         val target = cancelNode ?: run {
             // 文案读到了却找不到按钮，通常是提示条用了自绘控件，留个痕迹便于排查
-            Log.i(TAG, "发现暂停广告提示但没找到取消按钮 @ $pkg")
+            recordLog("发现暂停广告提示但没找到取消按钮 @ $pkg")
             return
         }
 
         if (clickCandidate(Candidate(target, "取消", 0, false))) {
             StatsStore.record(pkg, StatsStore.Kind.PAGE_AD)
-            Log.i(TAG, "取消暂停广告提示 @ $pkg")
+            recordLog("取消暂停广告提示 @ $pkg")
         }
     }
 
@@ -433,7 +436,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             lastInAppAdSig = signature
             lastInAppAdClickAt = now
             StatsStore.record(pkg, StatsStore.Kind.PAGE_AD)
-            Log.i(TAG, "关闭页面内广告：\"$closeLabel\" @ $pkg")
+            recordLog("关闭页面内广告：\"$closeLabel\" @ $pkg")
         }
     }
 
@@ -585,6 +588,23 @@ class AdSkipAccessibilityService : AccessibilityService() {
         return tapAt(self.centerX().toFloat(), self.centerY().toFloat())
     }
 
+    /** 最近的关键日志，供应用内查看，用户不必连电脑抓 logcat */
+    private val recentLogs = ArrayDeque<String>()
+    private val logTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
+    private fun recordLog(message: String) {
+        synchronized(recentLogs) {
+            if (recentLogs.size >= 200) recentLogs.removeFirst()
+            recentLogs.addLast("${logTime.format(Date())}  $message")
+        }
+        Log.i(TAG, message)
+    }
+
+    /** 供设置页展示的最近日志 */
+    fun recentLogText(): String = synchronized(recentLogs) {
+        recentLogs.joinToString("\n")
+    }
+
     /** 已记录过的广告相关文案，避免同一条反复刷日志 */
     private val loggedAdLabels = HashSet<String>()
 
@@ -600,7 +620,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         val rect = Rect()
         node.getBoundsInScreen(rect)
-        Log.i(TAG, "广告文本: \"$key\" [$rect]")
+        recordLog("广告文本: \"$key\" [$rect]")
     }
 
     /** 收集当前属于该应用的所有窗口根节点，悬浮层、弹层常常不在活动窗口里 */

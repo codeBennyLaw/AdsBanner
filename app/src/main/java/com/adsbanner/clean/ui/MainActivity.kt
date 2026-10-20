@@ -25,6 +25,7 @@ import com.adsbanner.clean.core.AccessibilityHelper
 import com.adsbanner.clean.core.AppForeground
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.service.AdSkipAccessibilityService
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
 import com.adsbanner.clean.service.UpdateDownloadService
@@ -261,6 +262,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }
         findViewById<View>(R.id.rowNotify).setOnClickListener { onNotifyRowClick() }
+        // 长按这一行可以查看最近的拦截日志，不用连电脑抓 logcat
+        findViewById<View>(R.id.rowInAppAd).setOnLongClickListener {
+            showRecentLogs()
+            true
+        }
     }
 
     private fun onNotifyRowClick() {
@@ -277,6 +283,21 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun showRecentLogs() {
+        val text = AdSkipAccessibilityService.instance?.recentLogText().orEmpty()
+        if (text.isBlank()) {
+            toast("还没有记录，先去哔哩哔哩暂停一次视频")
+            return
+        }
+        val view = layoutInflater.inflate(R.layout.dialog_logs, null)
+        view.findViewById<TextView>(R.id.tvLogContent).text = text
+        AlertDialog.Builder(this)
+            .setTitle("最近日志")
+            .setView(view)
+            .setPositiveButton("关闭", null)
             .show()
     }
 
