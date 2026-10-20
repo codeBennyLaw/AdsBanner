@@ -33,6 +33,8 @@ object StatsStore {
     private const val F_TS = "ts"
     private const val F_TJ = "tj"
     private const val F_LAST = "last"
+    private const val F_LAST_S = "lastS"
+    private const val F_LAST_J = "lastJ"
 
     private const val F_DAILY = "daily"
     private const val F_INSTALLED = "installed"
@@ -45,7 +47,9 @@ object StatsStore {
         val jump: Int,
         val todaySplash: Int,
         val todayJump: Int,
-        val lastAt: Long
+        val lastAt: Long,
+        val lastSplashAt: Long,
+        val lastJumpAt: Long
     ) {
         val total: Int get() = splash + jump
         val todayTotal: Int get() = todaySplash + todayJump
@@ -125,7 +129,10 @@ object StatsStore {
                 item.put(F_J, item.optInt(F_J) + 1)
                 item.put(F_TJ, item.optInt(F_TJ) + 1)
             }
-            item.put(F_LAST, System.currentTimeMillis())
+            val now = System.currentTimeMillis()
+            item.put(F_LAST, now)
+            // 分别记一份按类型的最近时间，筛选开屏 / 跳转时才不会显示成另一种的时间
+            item.put(if (kind == Kind.SPLASH) F_LAST_S else F_LAST_J, now)
             apps.put(pkg, item)
             root.put("apps", apps)
 
@@ -154,13 +161,17 @@ object StatsStore {
             var todayTotal = 0
             for (pkg in apps.keys().asSequence().toList()) {
                 val item = apps.optJSONObject(pkg) ?: continue
+                val last = item.optLong(F_LAST)
                 val stat = AppStat(
                     pkg = pkg,
                     splash = item.optInt(F_S),
                     jump = item.optInt(F_J),
                     todaySplash = item.optInt(F_TS),
                     todayJump = item.optInt(F_TJ),
-                    lastAt = item.optLong(F_LAST)
+                    lastAt = last,
+                    // 旧数据没有分类时间戳，回退到整体时间
+                    lastSplashAt = item.optLong(F_LAST_S, last),
+                    lastJumpAt = item.optLong(F_LAST_J, last)
                 )
                 if (stat.total == 0) continue
                 total += stat.total

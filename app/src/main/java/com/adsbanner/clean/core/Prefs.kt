@@ -111,7 +111,7 @@ object Prefs {
 
     /** 应用切换间隔小于该值时，才认为是一次"被拉起"的跳转 */
     var jumpWindowMs: Long
-        get() = ensure().let { sp.getLong(KEY_JUMP_WINDOW, 3_000L) }
+        get() = ensure().let { sp.getLong(KEY_JUMP_WINDOW, 2_000L) }
         set(value) {
             sp.edit().putLong(KEY_JUMP_WINDOW, value).apply()
         }

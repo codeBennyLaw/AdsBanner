@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inputmethod.InputMethodManager
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.SkipRule
@@ -42,7 +43,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private data class Candidate(
         val node: AccessibilityNodeInfo,
         val label: String,
-        val score: Int
+        val score: Int,
+        /** 弱匹配：文案是「关闭 / ×」这类到处都是的按钮，点击前要额外确认 */
+        val weak: Boolean
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -55,6 +58,24 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     /** 应用 -> 首次进入时间 */
     private val enterAt = HashMap<String, Long>()
+
+    /**
+     * 应用 -> 最后一次离开前台的时刻。
+     * 分享面板、输入法、系统弹层都会让前台包名短暂跳走再跳回来，
+     * 靠这个时间戳把「刚离开又回来」的抖动排除掉。
+     */
+    private val leftAt = HashMap<String, Long>()
+
+    /** 输入法弹起不是用户切换到别的应用，包名在运行时读取，不写死厂商 */
+    private val imePackages: Set<String> by lazy {
+        runCatching {
+            getSystemService(InputMethodManager::class.java)
+                ?.enabledInputMethodList
+                ?.mapNotNull { it.packageName }
+                ?.toSet()
+                .orEmpty()
+        }.getOrDefault(emptySet())
+    }
 
     private var splashDonePkg: String? = null
     private var splashDoneAt = 0L
@@ -82,6 +103,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return
         if (pkg in IGNORED_PACKAGES) return
+        // 输入法弹起会让前台包名短暂变成输入法，不能当成"切到别的应用"
+        if (pkg in imePackages) return
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg)
@@ -110,13 +133,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
         lastWindowEventAt = now
 
         if (pkg != prev) {
+            prev?.let { leftAt[it] = now }
             foregroundPkg = pkg
             enterAt[pkg] = now
             splashDonePkg = null
             skipTryCount = 0
+            // 刚切到新应用，不继承上一个应用的尝试节流，保证第一时间就能尝试
+            lastSkipTryAt = 0L
 
             if (prev != null && gap in 0..Prefs.jumpWindowMs) {
-                if (shouldBlockJump(pkg, prev)) {
+                if (shouldBlockJump(pkg, prev, now)) {
                     blockJump(pkg)
                     return
                 }
@@ -134,10 +160,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     // ------------------------------------------------------------------ 跳转拦截
 
-    private fun shouldBlockJump(target: String, from: String): Boolean {
+    private fun shouldBlockJump(target: String, from: String, now: Long): Boolean {
         if (!Prefs.jumpGuard) return false
         // 从桌面/系统界面启动属于用户主动行为，不拦
         if (AppInfoHelper.isHomeOrSystem(this, from)) return false
+        // 目标应用刚离开又回来，说明是窗口抖动（分享面板、输入法、系统弹层），不是被广告拉起
+        val left = leftAt[target]
+        if (left != null && now - left < RETURN_GRACE_MS) return false
         return target in Prefs.jumpTargets
     }
 
@@ -165,8 +194,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------ 开屏跳过
 
     private fun attemptSkip(pkg: String, now: Long) {
-        if (now - lastSkipTryAt < 130L) return
-        if (skipTryCount >= 80) return
+        // 同一应用内的尝试间隔。系统事件本身已经按 notificationTimeout 节流，
+        // 这里只是防止节点树遍历过于频繁，取一个比系统节流略大的值。
+        if (now - lastSkipTryAt < 70L) return
+        if (skipTryCount >= 120) return
         if (splashDonePkg == pkg && now - splashDoneAt < 3000L) return
 
         val entered = enterAt[pkg] ?: return
@@ -178,7 +209,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         // 刚进入应用的几秒内放宽位置限制，覆盖少数把跳过按钮放在底部的设计
         val allowAnywhere = age <= 6000L
-        val candidate = findCandidate(pkg, allowAnywhere) ?: return
+        // 「关闭 / ×」只在刚启动那一瞬间才可能是开屏按钮，过了这段时间基本都是页面自己的按钮
+        val allowWeak = age <= 3000L
+        val candidate = findCandidate(pkg, allowAnywhere, allowWeak) ?: return
 
         if (clickCandidate(candidate)) {
             splashDonePkg = pkg
@@ -189,7 +222,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun findCandidate(pkg: String, allowAnywhere: Boolean): Candidate? {
+    private fun findCandidate(pkg: String, allowAnywhere: Boolean, allowWeak: Boolean): Candidate? {
         val screen = screenSize()
         val roots = ArrayList<AccessibilityNodeInfo>()
 
@@ -206,41 +239,67 @@ class AdSkipAccessibilityService : AccessibilityService() {
             roots.add(active)
         }
 
+        // 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点，只认明确的"跳过"
+        val weakAllowed = allowWeak && pkg !in WEAK_MATCH_BLOCKED
+
+        // 快路径：先查当前活动窗口，开屏广告基本都在这一层，命中就不用再遍历其它窗口
+        val active = rootInActiveWindow
+        if (active != null && active.packageName == pkg) {
+            findInTree(active, screen, allowAnywhere, weakAllowed)?.let { return it }
+            if (roots.isEmpty()) roots.add(active)
+        }
+
+        if (roots.isEmpty()) return null
+
         var best: Candidate? = null
         for (root in roots) {
-            val found = findInTree(root, screen, allowAnywhere) ?: continue
+            val found = findInTree(root, screen, allowAnywhere, weakAllowed) ?: continue
             if (best == null || found.score > best.score) best = found
         }
         return best
     }
 
+    /**
+     * 遍历节点树挑出候选。
+     *
+     * 弱匹配（关闭 / ×）会被额外限制：必须同时满足"页面结构像开屏页"和"页面上有广告特征"，
+     * 否则支付宝、微信这类容器应用里的关闭按钮、小程序的关闭图标都会被当成广告按钮点掉。
+     */
     private fun findInTree(
         root: AccessibilityNodeInfo,
         screen: Point,
-        allowAnywhere: Boolean
+        allowAnywhere: Boolean,
+        weakAllowed: Boolean
     ): Candidate? {
-        var best: Candidate? = null
+        val candidates = ArrayList<Candidate>(4)
         var visited = 0
+        var adHints = 0
 
         fun walk(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > 30 || visited > 700) return
             visited++
 
-            if (node.isVisibleToUser) {
-                val text = node.text?.toString()?.trim().orEmpty()
-                val desc = node.contentDescription?.toString()?.trim().orEmpty()
-                val label = if (text.isNotEmpty()) text else desc
+            // 不可见节点的整棵子树都不可见，直接剪掉，避免在无效分支上耗时间；
+            // 根节点本身可能被判为不可见，所以 depth 0 不剪
+            if (depth > 0 && !node.isVisibleToUser) return
 
-                if (label.isNotEmpty()) {
-                    val strength = SkipRule.match(label)
-                    if (strength != SkipRule.NONE) {
-                        val rect = Rect()
-                        node.getBoundsInScreen(rect)
-                        if (rect.width() > 0 && rect.height() > 0) {
-                            val score = scoreOf(strength, rect, screen, allowAnywhere)
-                            if (score > 0 && score > (best?.score ?: 0)) {
-                                best = Candidate(node, label, score)
-                            }
+            val text = node.text?.toString()?.trim().orEmpty()
+            val desc = node.contentDescription?.toString()?.trim().orEmpty()
+            val label = if (text.isNotEmpty()) text else desc
+
+            if (label.isNotEmpty()) {
+                if (AD_HINT.containsMatchIn(label)) adHints++
+
+                val strength = SkipRule.match(label)
+                if (strength != SkipRule.NONE) {
+                    val rect = Rect()
+                    node.getBoundsInScreen(rect)
+                    if (rect.width() > 0 && rect.height() > 0) {
+                        val score = scoreOf(strength, rect, screen, allowAnywhere)
+                        if (score > 0) {
+                            candidates.add(
+                                Candidate(node, label, score, strength == SkipRule.WEAK)
+                            )
                         }
                     }
                 }
@@ -253,7 +312,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
 
         walk(root, 0)
-        return best
+
+        candidates.sortByDescending { it.score }
+        for (candidate in candidates) {
+            if (!candidate.weak) return candidate
+            if (weakAllowed && adHints > 0 && visited <= SPLASH_MAX_NODES) return candidate
+        }
+        return null
     }
 
     /**
@@ -321,6 +386,21 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AdsBanner"
+
+        /** 开屏页结构简单，节点数通常很少；小程序、列表页动辄上百个 */
+        private const val SPLASH_MAX_NODES = 60
+
+        /** 目标应用离开前台不超过这个时间又回来，视为窗口抖动，不拦截 */
+        private const val RETURN_GRACE_MS = 5_000L
+
+        /** 出现这些文字才说明当前页确实是开屏广告 */
+        private val AD_HINT = Regex("广告|跳过|\\d+\\s*[sS秒]")
+
+        /** 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点 */
+        private val WEAK_MATCH_BLOCKED = setOf(
+            "com.eg.android.AlipayGphone",
+            "com.tencent.mm"
+        )
 
         /** 这些包名的事件会污染"前台应用"的判断，直接忽略 */
         private val IGNORED_PACKAGES = setOf(
