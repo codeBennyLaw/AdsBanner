@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -16,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -26,8 +28,10 @@ import com.adsbanner.clean.core.StatsStore
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
 import com.adsbanner.clean.update.ReleaseUpdates
+import com.adsbanner.clean.update.UpdateDownloader
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.materialswitch.MaterialSwitch
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -147,13 +151,104 @@ class MainActivity : AppCompatActivity() {
             .setTitle("发现新版本")
             .setView(view)
             .setNegativeButton("稍后", null)
-            .setPositiveButton("去下载") { _, _ ->
-                val url = info.downloadUrl ?: info.pageUrl
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }.onFailure { toast("没有可用的浏览器") }
-            }
+            .setPositiveButton("下载更新") { _, _ -> startDownload(info) }
+            .setNeutralButton("浏览器打开") { _, _ -> openReleasePage(info) }
             .show()
+    }
+
+    private fun openReleasePage(info: ReleaseUpdates.Result.New) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl ?: info.pageUrl)))
+        }.onFailure { toast("没有可用的浏览器") }
+    }
+
+    // ------------------------------------------------------------------ 应用内下载更新
+
+    private var downloadDialog: AlertDialog? = null
+    private var downloadHandle: UpdateDownloader.Handle? = null
+
+    private fun startDownload(info: ReleaseUpdates.Result.New) {
+        val url = info.downloadUrl
+        if (url.isNullOrBlank()) {
+            toast("该版本没有提供安装包，改用浏览器打开")
+            openReleasePage(info)
+            return
+        }
+
+        val view = layoutInflater.inflate(R.layout.dialog_download, null)
+        val bar = view.findViewById<ProgressBar>(R.id.downloadProgress)
+        val percent = view.findViewById<TextView>(R.id.tvDownloadPercent)
+
+        downloadDialog = AlertDialog.Builder(this)
+            .setTitle("正在下载 ${info.version}")
+            .setView(view)
+            .setNegativeButton("取消") { _, _ -> downloadHandle?.cancel() }
+            .setOnDismissListener { downloadHandle?.cancel() }
+            .show()
+
+        downloadHandle = UpdateDownloader.download(
+            context = this,
+            url = url,
+            fileName = "AdsBanner-${info.version}.apk",
+            onProgress = { value ->
+                runOnUiThread {
+                    bar.progress = value
+                    percent.text = "$value%"
+                }
+            },
+            onComplete = { file ->
+                runOnUiThread {
+                    downloadDialog?.dismiss()
+                    downloadDialog = null
+                    installApk(file)
+                }
+            },
+            onError = { reason ->
+                runOnUiThread {
+                    downloadDialog?.dismiss()
+                    downloadDialog = null
+                    toast("下载失败：$reason")
+                }
+            }
+        )
+    }
+
+    private fun installApk(file: File) {
+        if (!file.exists() || file.length() <= 0L) {
+            toast("安装包不存在，请重新下载")
+            return
+        }
+
+        // Android 8 起安装未知来源应用需要单独授权
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            AlertDialog.Builder(this)
+                .setTitle("需要安装权限")
+                .setMessage("系统还没有允许 AdsBanner 安装应用。开启后回到应用重新下载，就能直接安装。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("去设置") { _, _ ->
+                    runCatching {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName")
+                            )
+                        )
+                    }.onFailure { toast("无法打开设置页") }
+                }
+                .show()
+            return
+        }
+
+        runCatching {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }.onFailure { toast("无法启动安装器：${it.message}") }
     }
 
     private fun openRepository() {
