@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inputmethod.InputMethodManager
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.SkipRule
@@ -58,6 +59,24 @@ class AdSkipAccessibilityService : AccessibilityService() {
     /** 应用 -> 首次进入时间 */
     private val enterAt = HashMap<String, Long>()
 
+    /**
+     * 应用 -> 最后一次离开前台的时刻。
+     * 分享面板、输入法、系统弹层都会让前台包名短暂跳走再跳回来，
+     * 靠这个时间戳把「刚离开又回来」的抖动排除掉。
+     */
+    private val leftAt = HashMap<String, Long>()
+
+    /** 输入法弹起不是用户切换到别的应用，包名在运行时读取，不写死厂商 */
+    private val imePackages: Set<String> by lazy {
+        runCatching {
+            getSystemService(InputMethodManager::class.java)
+                ?.enabledInputMethodList
+                ?.mapNotNull { it.packageName }
+                ?.toSet()
+                .orEmpty()
+        }.getOrDefault(emptySet())
+    }
+
     private var splashDonePkg: String? = null
     private var splashDoneAt = 0L
     private var lastSkipTryAt = 0L
@@ -84,6 +103,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return
         if (pkg in IGNORED_PACKAGES) return
+        // 输入法弹起会让前台包名短暂变成输入法，不能当成"切到别的应用"
+        if (pkg in imePackages) return
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg)
@@ -112,13 +133,14 @@ class AdSkipAccessibilityService : AccessibilityService() {
         lastWindowEventAt = now
 
         if (pkg != prev) {
+            prev?.let { leftAt[it] = now }
             foregroundPkg = pkg
             enterAt[pkg] = now
             splashDonePkg = null
             skipTryCount = 0
 
             if (prev != null && gap in 0..Prefs.jumpWindowMs) {
-                if (shouldBlockJump(pkg, prev)) {
+                if (shouldBlockJump(pkg, prev, now)) {
                     blockJump(pkg)
                     return
                 }
@@ -136,10 +158,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     // ------------------------------------------------------------------ 跳转拦截
 
-    private fun shouldBlockJump(target: String, from: String): Boolean {
+    private fun shouldBlockJump(target: String, from: String, now: Long): Boolean {
         if (!Prefs.jumpGuard) return false
         // 从桌面/系统界面启动属于用户主动行为，不拦
         if (AppInfoHelper.isHomeOrSystem(this, from)) return false
+        // 目标应用刚离开又回来，说明是窗口抖动（分享面板、输入法、系统弹层），不是被广告拉起
+        val left = leftAt[target]
+        if (left != null && now - left < RETURN_GRACE_MS) return false
         return target in Prefs.jumpTargets
     }
 
@@ -349,6 +374,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         /** 开屏页结构简单，节点数通常很少；小程序、列表页动辄上百个 */
         private const val SPLASH_MAX_NODES = 60
+
+        /** 目标应用离开前台不超过这个时间又回来，视为窗口抖动，不拦截 */
+        private const val RETURN_GRACE_MS = 5_000L
 
         /** 出现这些文字才说明当前页确实是开屏广告 */
         private val AD_HINT = Regex("广告|跳过|\\d+\\s*[sS秒]")
