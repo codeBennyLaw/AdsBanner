@@ -16,8 +16,12 @@ import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.StatsStore
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
+import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * 按应用维度展示拦截统计，右上角可切换到按天的热力图。
@@ -135,9 +139,9 @@ class StatsActivity : AppCompatActivity() {
             item.findViewById<TextView>(R.id.tvName).text =
                 AppInfoHelper.label(this, stat.pkg)
             item.findViewById<TextView>(R.id.tvDetail).text = when (mode) {
-                Mode.ALL -> "开屏 ${stat.splash} 次 · 跳转 ${stat.jump} 次"
-                Mode.SPLASH -> "开屏广告跳过"
-                Mode.JUMP -> "误触跳转拦截"
+                Mode.ALL -> "开屏 ${stat.splash} 次 · 跳转 ${stat.jump} 次" + recentOf(stat.lastAt)
+                Mode.SPLASH -> "开屏广告跳过" + recentOf(stat.lastSplashAt)
+                Mode.JUMP -> "误触跳转拦截" + recentOf(stat.lastJumpAt)
             }
             item.findViewById<TextView>(R.id.tvCount).text = count.toString()
             item.findViewById<ImageView>(R.id.ivIcon).setImageDrawable(
@@ -145,6 +149,24 @@ class StatsActivity : AppCompatActivity() {
             )
             container.addView(item)
         }
+    }
+
+    /** 追加到副标题后面的「最近一次」时间 */
+    private fun recentOf(timestamp: Long): String {
+        if (timestamp <= 0L) return ""
+        return " · 最近 " + formatTime(timestamp)
+    }
+
+    private fun formatTime(timestamp: Long): String {
+        val date = Date(timestamp)
+        val cal = Calendar.getInstance().apply { time = date }
+        // 今年的记录省掉年份，跨年才补上，避免一行太长
+        val pattern = if (cal.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR)) {
+            "MM-dd HH:mm"
+        } else {
+            "yyyy-MM-dd HH:mm"
+        }
+        return SimpleDateFormat(pattern, Locale.getDefault()).format(date)
     }
 
     // ------------------------------------------------------------------ 热力图
