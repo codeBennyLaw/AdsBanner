@@ -11,6 +11,7 @@
         android:id="@+id/ivIcon"
         android:layout_width="38dp"
         android:layout_height="38dp"
+        android:layout_gravity="center_vertical"
         android:background="@drawable/bg_icon_round"
         android:contentDescription="@null"
         android:padding="4dp" />
@@ -33,10 +34,21 @@
         <TextView
             android:id="@+id/tvDetail"
             style="@style/Text.RowSub"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
+            android:ellipsize="end"
             android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/tvRecent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/text_tertiary"
+            android:textSize="11sp" />
     </LinearLayout>
 
     <TextView

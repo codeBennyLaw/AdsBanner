@@ -16,8 +16,12 @@ import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.StatsStore
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
+import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * 按应用维度展示拦截统计，右上角可切换到按天的热力图。
@@ -139,12 +143,38 @@ class StatsActivity : AppCompatActivity() {
                 Mode.SPLASH -> "开屏广告跳过"
                 Mode.JUMP -> "误触跳转拦截"
             }
+
+            // 最近一次时间单独占一行，按当前筛选类型取对应的时间戳
+            val lastAt = when (mode) {
+                Mode.ALL -> stat.lastAt
+                Mode.SPLASH -> stat.lastSplashAt
+                Mode.JUMP -> stat.lastJumpAt
+            }
+            val recent = item.findViewById<TextView>(R.id.tvRecent)
+            if (lastAt > 0L) {
+                recent.visibility = View.VISIBLE
+                recent.text = "最近 " + formatTime(lastAt)
+            } else {
+                recent.visibility = View.GONE
+            }
             item.findViewById<TextView>(R.id.tvCount).text = count.toString()
             item.findViewById<ImageView>(R.id.ivIcon).setImageDrawable(
                 AppInfoHelper.icon(this, stat.pkg)
             )
             container.addView(item)
         }
+    }
+
+    private fun formatTime(timestamp: Long): String {
+        val date = Date(timestamp)
+        val cal = Calendar.getInstance().apply { time = date }
+        // 今年的记录省掉年份，跨年才补上，避免一行太长
+        val pattern = if (cal.get(Calendar.YEAR) == Calendar.getInstance().get(Calendar.YEAR)) {
+            "MM-dd HH:mm"
+        } else {
+            "yyyy-MM-dd HH:mm"
+        }
+        return SimpleDateFormat(pattern, Locale.getDefault()).format(date)
     }
 
     // ------------------------------------------------------------------ 热力图
