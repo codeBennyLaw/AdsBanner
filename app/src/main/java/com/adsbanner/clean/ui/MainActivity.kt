@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,14 +19,15 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.google.android.material.card.MaterialCardView
-import com.google.android.material.materialswitch.MaterialSwitch
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AccessibilityHelper
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.StatsStore
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
+import com.adsbanner.clean.update.ReleaseUpdates
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class MainActivity : AppCompatActivity() {
 
@@ -39,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBatteryHint: TextView
     private lateinit var tvNotifyHint: TextView
     private lateinit var tvVersion: TextView
+    private lateinit var btnCheckUpdate: TextView
     private lateinit var linkRepo: View
     private lateinit var content: View
     private lateinit var switchSplash: MaterialSwitch
@@ -94,6 +97,63 @@ class MainActivity : AppCompatActivity() {
         }.getOrNull() ?: "1.0.1"
         tvVersion.text = "版本 $versionName"
         linkRepo.setOnClickListener { openRepository() }
+
+        btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
+        btnCheckUpdate.setOnClickListener { checkForUpdates() }
+    }
+
+    // ------------------------------------------------------------------ 检查更新
+
+    private fun checkForUpdates() {
+        if (!btnCheckUpdate.isEnabled) return
+        btnCheckUpdate.isEnabled = false
+        btnCheckUpdate.text = "检查中…"
+
+        val current = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        }.getOrNull() ?: "1.0.0"
+
+        Thread {
+            val result = ReleaseUpdates.check(current)
+            runOnUiThread {
+                btnCheckUpdate.isEnabled = true
+                btnCheckUpdate.text = "检查更新"
+                when (result) {
+                    is ReleaseUpdates.Result.New -> showUpdateDialog(result)
+                    ReleaseUpdates.Result.Current -> toast("当前已是最新版本")
+                    is ReleaseUpdates.Result.Failed -> toast("检查失败：${result.reason}")
+                }
+            }
+        }.start()
+    }
+
+    private fun showUpdateDialog(info: ReleaseUpdates.Result.New) {
+        val view = layoutInflater.inflate(R.layout.dialog_update, null)
+        view.findViewById<TextView>(R.id.tvUpdateVersion).text = "版本 ${info.version}"
+        val body = view.findViewById<TextView>(R.id.tvUpdateBody)
+        ReleaseUpdates.renderMarkdown(this, body, info.notes)
+
+        // 更新说明可能很长，超过半屏就固定高度并可滚动
+        val scroll = view.findViewById<ScrollView>(R.id.updateScroll)
+        scroll.post {
+            val maxHeight = (resources.displayMetrics.heightPixels * 0.5f).toInt()
+            if (body.height > maxHeight) {
+                scroll.layoutParams = scroll.layoutParams.apply { height = maxHeight }
+                scroll.requestLayout()
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("发现新版本")
+            .setView(view)
+            .setNegativeButton("稍后", null)
+            .setPositiveButton("去下载") { _, _ ->
+                val url = info.downloadUrl ?: info.pageUrl
+                runCatching {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                }.onFailure { toast("没有可用的浏览器") }
+            }
+            .show()
     }
 
     private fun openRepository() {

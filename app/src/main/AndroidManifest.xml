@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- 仅用于检查更新时读取 GitHub Release，不采集任何数据 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 开机自启 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Android 13+ 常驻通知 -->
