@@ -329,6 +329,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 .ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
 
             if (label.isNotEmpty()) {
+                noteAdLabel(node, label)
                 if (!hasHint && label.length <= 30 && PAUSE_AD_HINT.containsMatchIn(label)) {
                     hasHint = true
                 }
@@ -394,6 +395,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 .ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
 
             if (label.isNotEmpty()) {
+                noteAdLabel(node, label)
                 if (!hasAdLabel && label in AD_LABELS) hasAdLabel = true
                 if (closeNode == null && label in CLOSE_LABELS) {
                     val rect = Rect()
@@ -581,6 +583,24 @@ class AdSkipAccessibilityService : AccessibilityService() {
         // 自定义绘制的控件不暴露 clickable，退化为点击自身中心的坐标
         if (self.width() <= 0 || self.height() <= 0) return false
         return tapAt(self.centerX().toFloat(), self.centerY().toFloat())
+    }
+
+    /** 已记录过的广告相关文案，避免同一条反复刷日志 */
+    private val loggedAdLabels = HashSet<String>()
+
+    /**
+     * 记录页面里带「广告」字样的文案。不知道目标广告页具体长什么样时，
+     * 靠这几条日志就能判断提示条是原生文本还是自绘内容。
+     */
+    private fun noteAdLabel(node: AccessibilityNodeInfo, label: String) {
+        if (!label.contains("广告")) return
+        if (loggedAdLabels.size > 200) return
+        val key = label.take(40)
+        if (!loggedAdLabels.add(key)) return
+
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        Log.i(TAG, "广告文本: \"$key\" [$rect]")
     }
 
     /** 收集当前属于该应用的所有窗口根节点，悬浮层、弹层常常不在活动窗口里 */
