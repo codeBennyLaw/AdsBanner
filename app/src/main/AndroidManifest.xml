@@ -15,6 +15,7 @@
     <!-- Android 14+ 前台服务必须声明类型 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- 引导用户加入电池优化白名单 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 需要遍历所有 App 才能按应用统计与判断跳转目标 -->
@@ -86,6 +87,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="ad_skip_guard" />
         </service>
+
+        <!-- 更新包下载，前台服务保证切到后台也能跑完 -->
+        <service
+            android:name=".service.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <receiver
             android:name=".receiver.BootReceiver"
