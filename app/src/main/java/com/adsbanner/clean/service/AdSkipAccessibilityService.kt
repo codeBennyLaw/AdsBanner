@@ -288,6 +288,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
 
         if (clickCandidate(Candidate(target, "取消", 0, false))) {
+            StatsStore.record(pkg, StatsStore.Kind.PAGE_AD)
             Log.i(TAG, "取消暂停广告提示 @ $pkg")
         }
     }
@@ -360,6 +361,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (clickCandidate(Candidate(target, closeLabel, 0, false))) {
             lastInAppAdSig = signature
             lastInAppAdClickAt = now
+            StatsStore.record(pkg, StatsStore.Kind.PAGE_AD)
             Log.i(TAG, "关闭页面内广告：\"$closeLabel\" @ $pkg")
         }
     }

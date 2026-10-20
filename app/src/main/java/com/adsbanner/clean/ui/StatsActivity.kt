@@ -7,6 +7,7 @@ import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -25,19 +26,23 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 按应用维度展示拦截统计，右上角可切换到按天的热力图。
- * 应用数量有限（通常几十个），直接向 LinearLayout 里 addView，
- * 不引入 RecyclerView / 分页，减少依赖与状态同步的复杂度。
+ * 按应用维度展示拦截统计。
+ *
+ * 顶部两个维度独立选择：左边是时间范围（今天 / 全部），右边下拉是拦截类型
+ * （全部 / 开屏 / 跳转 / 页面内广告）。两者组合出筛选条件，避免为每种组合都放一个按钮。
  */
 class StatsActivity : AppCompatActivity() {
 
-    private enum class Mode { ALL, SPLASH, JUMP }
+    private enum class Range { TODAY, ALL }
+
+    private enum class Type { ALL, SPLASH, JUMP, PAGE }
 
     private lateinit var container: LinearLayout
     private lateinit var tvSummary: TextView
     private lateinit var tvEmpty: TextView
-    private lateinit var toggleGroup: MaterialButtonToggleGroup
-    private lateinit var btnHeatmap: MaterialButton
+    private lateinit var toggleTime: MaterialButtonToggleGroup
+    private lateinit var btnType: MaterialButton
+    private lateinit var filterRow: View
 
     private lateinit var listScroll: View
     private lateinit var heatmapScroll: View
@@ -45,8 +50,10 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatmap: HeatmapView
     private lateinit var tvHeatMeta: TextView
     private lateinit var tvHeatDetail: TextView
+    private lateinit var btnHeatmap: MaterialButton
 
-    private var mode = Mode.ALL
+    private var range = Range.TODAY
+    private var type = Type.ALL
     private var heatmapVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,8 +69,9 @@ class StatsActivity : AppCompatActivity() {
         container = findViewById(R.id.listContainer)
         tvSummary = findViewById(R.id.tvSummary)
         tvEmpty = findViewById(R.id.tvEmpty)
-        toggleGroup = findViewById(R.id.toggleGroup)
-        btnHeatmap = findViewById(R.id.btnHeatmap)
+        toggleTime = findViewById(R.id.toggleTime)
+        btnType = findViewById(R.id.btnType)
+        filterRow = findViewById(R.id.filterRow)
 
         listScroll = findViewById(R.id.listScroll)
         heatmapScroll = findViewById(R.id.heatmapScroll)
@@ -71,6 +79,7 @@ class StatsActivity : AppCompatActivity() {
         heatmap = findViewById(R.id.heatmap)
         tvHeatMeta = findViewById(R.id.tvHeatMeta)
         tvHeatDetail = findViewById(R.id.tvHeatDetail)
+        btnHeatmap = findViewById(R.id.btnHeatmap)
 
         heatmap.onCellClick = { date, count ->
             tvHeatDetail.visibility = View.VISIBLE
@@ -88,17 +97,14 @@ class StatsActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
         btnHeatmap.setOnClickListener { toggleView() }
+        btnType.setOnClickListener { showTypeMenu() }
 
-        toggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+        toggleTime.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
-            mode = when (checkedId) {
-                R.id.btnTabSplash -> Mode.SPLASH
-                R.id.btnTabJump -> Mode.JUMP
-                else -> Mode.ALL
-            }
+            range = if (checkedId == R.id.btnTimeToday) Range.TODAY else Range.ALL
             if (!heatmapVisible) render()
         }
-        toggleGroup.check(R.id.btnTabAll)
+        toggleTime.check(R.id.btnTimeToday)
     }
 
     override fun onResume() {
@@ -112,7 +118,7 @@ class StatsActivity : AppCompatActivity() {
 
         listScroll.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
         heatmapScroll.visibility = if (heatmapVisible) View.VISIBLE else View.GONE
-        toggleGroup.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
+        filterRow.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
         tvSummary.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
 
         if (heatmapVisible) renderHeatmap() else render()
@@ -120,40 +126,56 @@ class StatsActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ 列表
 
+    private fun showTypeMenu() {
+        PopupMenu(this, btnType).apply {
+            menu.add(0, Type.ALL.ordinal, 0, "全部类型")
+            menu.add(0, Type.SPLASH.ordinal, 1, "开屏广告")
+            menu.add(0, Type.JUMP.ordinal, 2, "误触跳转")
+            menu.add(0, Type.PAGE.ordinal, 3, "页面内广告")
+            setOnMenuItemClickListener { item ->
+                type = Type.entries.getOrElse(item.itemId) { Type.ALL }
+                btnType.text = item.title
+                render()
+                true
+            }
+        }.show()
+    }
+
     private fun render() {
         container.removeAllViews()
         val snapshot = StatsStore.snapshot()
 
         val rows = snapshot.apps.mapNotNull { stat ->
-            val count = when (mode) {
-                Mode.ALL -> stat.total
-                Mode.SPLASH -> stat.splash
-                Mode.JUMP -> stat.jump
-            }
+            val count = countOf(stat)
             if (count <= 0) null else stat to count
         }
 
-        tvSummary.text = "共 ${rows.size} 个应用 · 今日 ${snapshot.todayTotal} 次 · 累计 ${snapshot.total} 次"
+        val rangeText = if (range == Range.TODAY) "今天" else "全部"
+        val total = rows.sumOf { it.second }
+        tvSummary.text = "$rangeText · ${typeLabel(type)} · ${rows.size} 个应用 · $total 次"
 
-        tvEmpty.visibility = if (snapshot.total == 0) View.VISIBLE else View.GONE
-        container.visibility = if (rows.isEmpty()) View.GONE else View.VISIBLE
+        val empty = rows.isEmpty()
+        tvEmpty.visibility = if (empty) View.VISIBLE else View.GONE
+        container.visibility = if (empty) View.GONE else View.VISIBLE
 
         val inflater = LayoutInflater.from(this)
         for ((stat, count) in rows) {
             val item = inflater.inflate(R.layout.item_stat, container, false)
             item.findViewById<TextView>(R.id.tvName).text =
                 AppInfoHelper.label(this, stat.pkg)
-            item.findViewById<TextView>(R.id.tvDetail).text = when (mode) {
-                Mode.ALL -> "开屏 ${stat.splash} 次 · 跳转 ${stat.jump} 次"
-                Mode.SPLASH -> "开屏广告跳过"
-                Mode.JUMP -> "误触跳转拦截"
+            item.findViewById<TextView>(R.id.tvDetail).text = when (type) {
+                Type.ALL -> "开屏 ${stat.splash} · 跳转 ${stat.jump} · 页面 ${stat.page}"
+                Type.SPLASH -> "开屏广告跳过"
+                Type.JUMP -> "误触跳转拦截"
+                Type.PAGE -> "页面内广告关闭"
             }
 
             // 最近一次时间单独占一行，按当前筛选类型取对应的时间戳
-            val lastAt = when (mode) {
-                Mode.ALL -> stat.lastAt
-                Mode.SPLASH -> stat.lastSplashAt
-                Mode.JUMP -> stat.lastJumpAt
+            val lastAt = when (type) {
+                Type.ALL -> stat.lastAt
+                Type.SPLASH -> stat.lastSplashAt
+                Type.JUMP -> stat.lastJumpAt
+                Type.PAGE -> stat.lastPageAt
             }
             val recent = item.findViewById<TextView>(R.id.tvRecent)
             if (lastAt > 0L) {
@@ -162,12 +184,27 @@ class StatsActivity : AppCompatActivity() {
             } else {
                 recent.visibility = View.GONE
             }
+
             item.findViewById<TextView>(R.id.tvCount).text = count.toString()
             item.findViewById<ImageView>(R.id.ivIcon).setImageDrawable(
                 AppInfoHelper.icon(this, stat.pkg)
             )
             container.addView(item)
         }
+    }
+
+    private fun countOf(stat: StatsStore.AppStat): Int = when (type) {
+        Type.ALL -> if (range == Range.TODAY) stat.todayTotal else stat.total
+        Type.SPLASH -> if (range == Range.TODAY) stat.todaySplash else stat.splash
+        Type.JUMP -> if (range == Range.TODAY) stat.todayJump else stat.jump
+        Type.PAGE -> if (range == Range.TODAY) stat.todayPage else stat.page
+    }
+
+    private fun typeLabel(value: Type): String = when (value) {
+        Type.ALL -> "全部类型"
+        Type.SPLASH -> "开屏广告"
+        Type.JUMP -> "误触跳转"
+        Type.PAGE -> "页面内广告"
     }
 
     private fun formatTime(timestamp: Long): String {

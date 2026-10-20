@@ -42,39 +42,49 @@
             android:textColor="@color/brand" />
     </LinearLayout>
 
-    <com.google.android.material.button.MaterialButtonToggleGroup
-        android:id="@+id/toggleGroup"
+    <LinearLayout
+        android:id="@+id/filterRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="18dp"
         android:layout_marginTop="4dp"
-        app:selectionRequired="true"
-        app:singleSelection="true">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnTabAll"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toggleTime"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="全部" />
+            app:selectionRequired="true"
+            app:singleSelection="true">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTimeToday"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="今天" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTimeAll"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="全部" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnTabSplash"
+            android:id="@+id/btnType"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="开屏" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnTabJump"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="跳转" />
-    </com.google.android.material.button.MaterialButtonToggleGroup>
+            android:layout_marginStart="10dp"
+            android:minWidth="0dp"
+            android:text="全部类型" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tvSummary"
