@@ -138,6 +138,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             enterAt[pkg] = now
             splashDonePkg = null
             skipTryCount = 0
+            // 刚切到新应用，不继承上一个应用的尝试节流，保证第一时间就能尝试
+            lastSkipTryAt = 0L
 
             if (prev != null && gap in 0..Prefs.jumpWindowMs) {
                 if (shouldBlockJump(pkg, prev, now)) {
@@ -192,8 +194,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------ 开屏跳过
 
     private fun attemptSkip(pkg: String, now: Long) {
-        if (now - lastSkipTryAt < 130L) return
-        if (skipTryCount >= 80) return
+        // 同一应用内的尝试间隔。系统事件本身已经按 notificationTimeout 节流，
+        // 这里只是防止节点树遍历过于频繁，取一个比系统节流略大的值。
+        if (now - lastSkipTryAt < 70L) return
+        if (skipTryCount >= 120) return
         if (splashDonePkg == pkg && now - splashDoneAt < 3000L) return
 
         val entered = enterAt[pkg] ?: return
@@ -238,6 +242,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
         // 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点，只认明确的"跳过"
         val weakAllowed = allowWeak && pkg !in WEAK_MATCH_BLOCKED
 
+        // 快路径：先查当前活动窗口，开屏广告基本都在这一层，命中就不用再遍历其它窗口
+        val active = rootInActiveWindow
+        if (active != null && active.packageName == pkg) {
+            findInTree(active, screen, allowAnywhere, weakAllowed)?.let { return it }
+            if (roots.isEmpty()) roots.add(active)
+        }
+
+        if (roots.isEmpty()) return null
+
         var best: Candidate? = null
         for (root in roots) {
             val found = findInTree(root, screen, allowAnywhere, weakAllowed) ?: continue
@@ -266,25 +279,27 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (depth > 30 || visited > 700) return
             visited++
 
-            if (node.isVisibleToUser) {
-                val text = node.text?.toString()?.trim().orEmpty()
-                val desc = node.contentDescription?.toString()?.trim().orEmpty()
-                val label = if (text.isNotEmpty()) text else desc
+            // 不可见节点的整棵子树都不可见，直接剪掉，避免在无效分支上耗时间；
+            // 根节点本身可能被判为不可见，所以 depth 0 不剪
+            if (depth > 0 && !node.isVisibleToUser) return
 
-                if (label.isNotEmpty()) {
-                    if (AD_HINT.containsMatchIn(label)) adHints++
+            val text = node.text?.toString()?.trim().orEmpty()
+            val desc = node.contentDescription?.toString()?.trim().orEmpty()
+            val label = if (text.isNotEmpty()) text else desc
 
-                    val strength = SkipRule.match(label)
-                    if (strength != SkipRule.NONE) {
-                        val rect = Rect()
-                        node.getBoundsInScreen(rect)
-                        if (rect.width() > 0 && rect.height() > 0) {
-                            val score = scoreOf(strength, rect, screen, allowAnywhere)
-                            if (score > 0) {
-                                candidates.add(
-                                    Candidate(node, label, score, strength == SkipRule.WEAK)
-                                )
-                            }
+            if (label.isNotEmpty()) {
+                if (AD_HINT.containsMatchIn(label)) adHints++
+
+                val strength = SkipRule.match(label)
+                if (strength != SkipRule.NONE) {
+                    val rect = Rect()
+                    node.getBoundsInScreen(rect)
+                    if (rect.width() > 0 && rect.height() > 0) {
+                        val score = scoreOf(strength, rect, screen, allowAnywhere)
+                        if (score > 0) {
+                            candidates.add(
+                                Candidate(node, label, score, strength == SkipRule.WEAK)
+                            )
                         }
                     }
                 }
