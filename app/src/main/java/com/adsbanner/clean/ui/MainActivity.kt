@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchJump: MaterialSwitch
     private lateinit var switchKeepAlive: MaterialSwitch
     private lateinit var switchNotify: MaterialSwitch
+    private lateinit var switchInAppAd: MaterialSwitch
 
     private var binding = false
 
@@ -113,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         switchJump = findViewById(R.id.switchJump)
         switchKeepAlive = findViewById(R.id.switchKeepAlive)
         switchNotify = findViewById(R.id.switchNotify)
+        switchInAppAd = findViewById(R.id.switchInAppAd)
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
@@ -317,6 +319,10 @@ class MainActivity : AppCompatActivity() {
                 guidePromotionIfNeeded()
             }
         }
+        switchInAppAd.setOnCheckedChangeListener { _, checked ->
+            if (binding) return@setOnCheckedChangeListener
+            Prefs.inAppAdGuard = checked
+        }
     }
 
     /** 系统支持实时通知但未授权时，引导用户去系统设置里打开 */
@@ -364,6 +370,7 @@ class MainActivity : AppCompatActivity() {
         switchJump.isChecked = Prefs.jumpGuard
         switchKeepAlive.isChecked = Prefs.keepAlive
         switchNotify.isChecked = Prefs.interceptNotify
+        switchInAppAd.isChecked = Prefs.inAppAdGuard
         binding = false
 
         tvTargetHint.text = "已启用 ${Prefs.jumpTargets.size} 个应用"
