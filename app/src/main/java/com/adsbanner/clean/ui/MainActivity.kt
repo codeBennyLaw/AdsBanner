@@ -143,9 +143,11 @@ class MainActivity : AppCompatActivity() {
     private fun onNotifyRowClick() {
         when {
             !Prefs.interceptNotify -> toast("先打开右侧开关")
+            Build.VERSION.SDK_INT < 36 ->
+                toast("系统为 Android ${Build.VERSION.SDK_INT}，没有实时通知能力")
             !InterceptNotifier.supportsLiveUpdates() ->
-                toast("本机不支持系统实时通知，拦截时以普通通知展示")
-            InterceptNotifier.canPostPromoted(this) -> toast("实时通知已授权")
+                toast("系统缺少实时通知接口，拦截时以普通通知展示")
+            InterceptNotifier.canPostPromoted(this) -> toast("已授权，是否上岛由系统决定")
             !InterceptNotifier.canOpenPromotionSettings(this) ->
                 toast("系统没有提供实时通知设置页，请到系统通知设置里查看")
             else -> InterceptNotifier.openPromotionSettings(this)
@@ -239,16 +241,21 @@ class MainActivity : AppCompatActivity() {
                 tvNotifyHint.text = "已关闭，拦截时不再提示"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             }
+            Build.VERSION.SDK_INT < 36 -> {
+                tvNotifyHint.text =
+                    "Android ${Build.VERSION.SDK_INT} 不支持实时通知，走普通通知"
+                tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
+            }
             !InterceptNotifier.supportsLiveUpdates() -> {
-                tvNotifyHint.text = "本机为普通通知，同样 10 秒后消失"
+                tvNotifyHint.text = "系统缺少实时通知接口，走普通通知"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             }
             InterceptNotifier.canPostPromoted(this) -> {
-                tvNotifyHint.text = "已接入系统实时通知（胶囊 / 灵动岛）"
+                tvNotifyHint.text = "已接入实时通知，拦截时上岛（是否提升由系统决定）"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.success))
             }
             else -> {
-                tvNotifyHint.text = "需在系统设置允许实时通知，点此前往"
+                tvNotifyHint.text = "系统支持但未授权，点此前往开启"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.warning))
             }
         }
