@@ -139,9 +139,23 @@ class StatsActivity : AppCompatActivity() {
             item.findViewById<TextView>(R.id.tvName).text =
                 AppInfoHelper.label(this, stat.pkg)
             item.findViewById<TextView>(R.id.tvDetail).text = when (mode) {
-                Mode.ALL -> "开屏 ${stat.splash} 次 · 跳转 ${stat.jump} 次" + recentOf(stat.lastAt)
-                Mode.SPLASH -> "开屏广告跳过" + recentOf(stat.lastSplashAt)
-                Mode.JUMP -> "误触跳转拦截" + recentOf(stat.lastJumpAt)
+                Mode.ALL -> "开屏 ${stat.splash} 次 · 跳转 ${stat.jump} 次"
+                Mode.SPLASH -> "开屏广告跳过"
+                Mode.JUMP -> "误触跳转拦截"
+            }
+
+            // 最近一次时间单独占一行，按当前筛选类型取对应的时间戳
+            val lastAt = when (mode) {
+                Mode.ALL -> stat.lastAt
+                Mode.SPLASH -> stat.lastSplashAt
+                Mode.JUMP -> stat.lastJumpAt
+            }
+            val recent = item.findViewById<TextView>(R.id.tvRecent)
+            if (lastAt > 0L) {
+                recent.visibility = View.VISIBLE
+                recent.text = "最近 " + formatTime(lastAt)
+            } else {
+                recent.visibility = View.GONE
             }
             item.findViewById<TextView>(R.id.tvCount).text = count.toString()
             item.findViewById<ImageView>(R.id.ivIcon).setImageDrawable(
@@ -149,12 +163,6 @@ class StatsActivity : AppCompatActivity() {
             )
             container.addView(item)
         }
-    }
-
-    /** 追加到副标题后面的「最近一次」时间 */
-    private fun recentOf(timestamp: Long): String {
-        if (timestamp <= 0L) return ""
-        return " · 最近 " + formatTime(timestamp)
     }
 
     private fun formatTime(timestamp: Long): String {
