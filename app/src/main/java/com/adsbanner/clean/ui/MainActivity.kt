@@ -2,6 +2,7 @@ package com.adsbanner.clean.ui
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -21,13 +22,17 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AccessibilityHelper
+import com.adsbanner.clean.core.AppForeground
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.StatsStore
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
+import com.adsbanner.clean.service.UpdateDownloadService
+import com.adsbanner.clean.update.ApkInstaller
 import com.adsbanner.clean.update.ReleaseUpdates
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.materialswitch.MaterialSwitch
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -61,17 +66,34 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         applySystemBarAppearance()
+        // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
+        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
 
         bindViews()
         applyInsets()
         setupClicks()
         setupSwitches()
         requestNotificationPermissionIfNeeded()
+        handleInstallIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
+        AppForeground.visible = true
         refresh()
+    }
+
+    override fun onPause() {
+        AppForeground.visible = false
+        super.onPause()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleInstallIntent(intent)
     }
 
     private fun bindViews() {
@@ -147,13 +169,52 @@ class MainActivity : AppCompatActivity() {
             .setTitle("发现新版本")
             .setView(view)
             .setNegativeButton("稍后", null)
-            .setPositiveButton("去下载") { _, _ ->
-                val url = info.downloadUrl ?: info.pageUrl
-                runCatching {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }.onFailure { toast("没有可用的浏览器") }
-            }
+            .setPositiveButton("下载更新") { _, _ -> startDownload(info) }
             .show()
+    }
+
+    // ------------------------------------------------------------------ 应用内下载更新
+
+    private fun startDownload(info: ReleaseUpdates.Result.New) {
+        val url = info.downloadUrl
+        if (url.isNullOrBlank()) {
+            toast("该版本没有提供安装包")
+            return
+        }
+        // 交给前台服务，切出应用也能继续下载
+        UpdateDownloadService.start(this, url, "AdsBanner-${info.version}.apk", info.version)
+        toast("已开始下载，进度见通知栏")
+    }
+
+    /** 从下载完成的通知点回来时，带着待安装的文件路径 */
+    private fun handleInstallIntent(intent: Intent?) {
+        val path = intent?.getStringExtra(UpdateDownloadService.EXTRA_INSTALL_PATH) ?: return
+        intent.removeExtra(UpdateDownloadService.EXTRA_INSTALL_PATH)
+        if (path.isBlank()) return
+        installApk(File(path))
+    }
+
+    private fun installApk(file: File) {
+        if (!file.exists() || file.length() <= 0L) {
+            toast("安装包不存在，请重新下载")
+            return
+        }
+
+        // Android 8 起安装未知来源应用需要单独授权
+        if (!ApkInstaller.hasInstallPermission(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("需要安装权限")
+                .setMessage("系统还没有允许 AdsBanner 安装应用。开启后回到应用即可继续安装。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("去设置") { _, _ ->
+                    runCatching { startActivity(ApkInstaller.permissionIntent(this)) }
+                        .onFailure { toast("无法打开设置页") }
+                }
+                .show()
+            return
+        }
+
+        if (!ApkInstaller.launch(this, file)) toast("无法启动安装器")
     }
 
     private fun openRepository() {

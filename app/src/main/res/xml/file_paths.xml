@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 只暴露下载目录，安装时通过 content:// 交给系统安装器 -->
+<paths>
+    <cache-path
+        name="updates"
+        path="updates/" />
+</paths>
