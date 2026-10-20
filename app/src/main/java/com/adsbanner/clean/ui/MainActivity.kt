@@ -170,14 +170,7 @@ class MainActivity : AppCompatActivity() {
             .setView(view)
             .setNegativeButton("稍后", null)
             .setPositiveButton("下载更新") { _, _ -> startDownload(info) }
-            .setNeutralButton("浏览器打开") { _, _ -> openReleasePage(info) }
             .show()
-    }
-
-    private fun openReleasePage(info: ReleaseUpdates.Result.New) {
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl ?: info.pageUrl)))
-        }.onFailure { toast("没有可用的浏览器") }
     }
 
     // ------------------------------------------------------------------ 应用内下载更新
@@ -185,8 +178,7 @@ class MainActivity : AppCompatActivity() {
     private fun startDownload(info: ReleaseUpdates.Result.New) {
         val url = info.downloadUrl
         if (url.isNullOrBlank()) {
-            toast("该版本没有提供安装包，改用浏览器打开")
-            openReleasePage(info)
+            toast("该版本没有提供安装包")
             return
         }
         // 交给前台服务，切出应用也能继续下载
