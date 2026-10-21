@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity() {
 
         bindViews()
         applyInsets()
+        Motion.enter(content)
         setupClicks()
         setupSwitches()
         requestNotificationPermissionIfNeeded()
@@ -254,9 +255,11 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener {
             startActivity(Intent(this, StatsActivity::class.java))
+            overridePendingTransition(android.R.anim.slide_in_left, android.R.anim.fade_out)
         }
         findViewById<MaterialCardView>(R.id.cardTargets).setOnClickListener {
             startActivity(Intent(this, TargetListActivity::class.java))
+            overridePendingTransition(android.R.anim.slide_in_left, android.R.anim.fade_out)
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }

@@ -21,13 +21,16 @@ object SkipRule {
         Regex("^[0-9]{1,2}\\s*[sS秒]\\s*(后)?\\s*跳过(广告)?$"),
         // 跳过丨5 / 跳过|5 / 跳过 · 5
         Regex("^跳过\\s*[|丨/·•]\\s*[0-9]{1,2}$"),
+        // 部分广告会把倒计时和按钮文案拆成「跳过 广告 3 秒」。
+        Regex("^跳过\\s*(广告)?\\s*[0-9]{1,2}\\s*[sS秒]$"),
         // 点击跳过 / 点击跳过广告
         Regex("^(点击|轻点)\\s*跳过(广告)?$"),
         // 关闭广告 / 关闭开屏广告（本质仍是广告专属按钮）
         Regex("^关闭(开屏)?广告$"),
         // skip / skip ad / 5s skip
         Regex("^skip(\\s*ad)?$", RegexOption.IGNORE_CASE),
-        Regex("^[0-9]{1,2}\\s*s\\s*skip$", RegexOption.IGNORE_CASE)
+        Regex("^[0-9]{1,2}\\s*s\\s*skip(\\s*ad)?$", RegexOption.IGNORE_CASE),
+        Regex("^skip\\s*[0-9]{1,2}\\s*s$", RegexOption.IGNORE_CASE)
     )
 
     /** 弱匹配：只在右上角区域点击，避免误伤普通弹窗 */
@@ -41,7 +44,11 @@ object SkipRule {
     private val denyWords = listOf("片头", "片尾", "跳过此", "跳过下", "剧情", "会员", "付费", "订阅")
 
     fun match(raw: String): Int {
-        val text = raw.replace('\u00A0', ' ').replace('\u3000', ' ').trim()
+        val text = raw.replace('\u00A0', ' ')
+            .replace('\u3000', ' ')
+            .replace('\n', ' ')
+            .replace(Regex("\\s+"), " ")
+            .trim()
         if (text.isEmpty() || text.length > 16) return NONE
         if (denyWords.any { text.contains(it) }) return NONE
 
