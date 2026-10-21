@@ -3,14 +3,17 @@
     无障碍服务配置
     - typeWindowStateChanged : 前台应用/窗口切换，用于识别新启动的 App 与跳转
     - typeWindowContentChanged: 开屏广告按钮延迟渲染，需要持续监听内容变化
+    - typeViewClicked / typeWindowsChanged: 播放页交互与广告窗口变化，唤醒短时复查
+    - canPerformGestures: 节点点击无效时，对目标按钮模拟触摸
     - flagIncludeNotImportantViews / flagRetrieveInteractiveWindows:
       很多跳过按钮被标记为"不重要视图"或在独立窗口中，必须打开才能拿到节点
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault|flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
     android:description="@string/accessibility_description"
     android:isAccessibilityTool="true"
     android:notificationTimeout="25"

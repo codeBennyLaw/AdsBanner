@@ -22,21 +22,28 @@ import com.adsbanner.clean.ui.MainActivity
 /**
  * 拦截时在状态栏 / 灵动岛弹一条 10 秒的实时提示。
  *
+ * 每次拦截单独占一个通知位，所以同时拦多个应用时几条提示可以并存、各自倒计时，
+ * 不会被后一条覆盖掉。同时展示的数量设了上限，超出就把最早的收走，避免刷屏。
+ *
  * Android 16（API 36）起通知可被系统提升为 Live Update。申请提升要满足两类条件：
- *
  * 1. 通知本身够格 —— ongoing、有进度、带摘要文案，缺一项 `hasPromotableCharacteristics()`
- *    就会返回 false，系统只会当普通通知处理
- * 2. 用户对本应用授权 —— 系统设置里有「允许实时通知」，未授权时
- *    `canPostPromotedNotifications()` 为 false，同样只能显示普通通知
+ *    就会返回 false
+ * 2. 用户对本应用授权 —— 未授权时 `canPostPromotedNotifications()` 为 false
  *
- * 三个接口都晚于项目的 compileSdk，全部走反射，并用系统自己的判定校验结果，
- * 不靠版本号硬猜。
+ * 三个接口都晚于项目的 compileSdk，全部走反射，并用系统自己的判定校验结果。
  */
 object InterceptNotifier {
 
     private const val TAG = "AdsBanner"
     private const val CHANNEL_ID = "adsbanner_intercept"
-    private const val NOTIFICATION_ID = 2002
+
+    /** 通知 ID 区间，同时用来识别哪些通知属于拦截提示 */
+    private const val ID_BASE = 2002
+    private const val ID_SPAN = 200
+
+    /** 同时最多展示几条，避免连续拦截时通知栏被刷满 */
+    private const val MAX_CONCURRENT = 4
+
     private const val DURATION_MS = 10_000L
     private const val TICK_MS = 1_000L
     private const val BRAND_COLOR = 0xFF2F6BFF.toInt()
@@ -46,47 +53,89 @@ object InterceptNotifier {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private var ticker: Runnable? = null
-    private var startedAt = 0L
-    private var title = ""
-    private var text = ""
+    /** 正在展示的提示，key 为通知 ID；LinkedHashMap 保序，超限时淘汰最早的一条 */
+    private val active = LinkedHashMap<Int, Session>()
+    private var nextId = ID_BASE
+
+    private class Session(
+        val id: Int,
+        val title: String,
+        val text: String,
+        val startedAt: Long
+    ) {
+        var ticker: Runnable? = null
+    }
 
     fun notify(context: Context, appLabel: String, kind: StatsStore.Kind) {
         if (!Prefs.interceptNotify) return
 
         val app = context.applicationContext
-        title = if (kind == StatsStore.Kind.SPLASH) "已跳过开屏广告" else "已拦截误触跳转"
-        text = appLabel
-        startedAt = SystemClock.elapsedRealtime()
+        val title = if (kind == StatsStore.Kind.SPLASH) "已跳过开屏广告" else "已拦截误触跳转"
+        val session = Session(allocateId(), title, appLabel, SystemClock.elapsedRealtime())
 
         ensureChannel(app)
-        push(app, 0, DURATION_MS)
+        synchronized(active) { active[session.id] = session }
+        push(app, session, 0, DURATION_MS)
+        schedule(app, session)
+        trim(app)
+    }
 
-        ticker?.let { handler.removeCallbacks(it) }
+    private fun allocateId(): Int {
+        val id = nextId
+        nextId = if (nextId >= ID_BASE + ID_SPAN) ID_BASE else nextId + 1
+        return id
+    }
+
+    private fun schedule(context: Context, session: Session) {
         val task = object : Runnable {
             override fun run() {
-                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                val elapsed = SystemClock.elapsedRealtime() - session.startedAt
                 if (elapsed >= DURATION_MS) {
-                    cancel(app)
+                    cancelOne(context, session.id)
                     return
                 }
                 push(
-                    app,
+                    context,
+                    session,
                     (elapsed * 100 / DURATION_MS).toInt().coerceIn(0, 100),
                     (DURATION_MS - elapsed).coerceAtLeast(1_000L)
                 )
                 handler.postDelayed(this, TICK_MS)
             }
         }
-        ticker = task
+        session.ticker = task
         handler.postDelayed(task, TICK_MS)
     }
 
-    fun cancel(context: Context) {
-        ticker?.let { handler.removeCallbacks(it) }
-        ticker = null
+    /** 超出上限时收走最早展示的那条 */
+    private fun trim(context: Context) {
+        while (true) {
+            val oldest = synchronized(active) {
+                if (active.size <= MAX_CONCURRENT) return
+                active.keys.first()
+            }
+            cancelOne(context, oldest)
+        }
+    }
+
+    private fun cancelOne(context: Context, id: Int) {
+        val session = synchronized(active) { active.remove(id) } ?: return
+        session.ticker?.let { handler.removeCallbacks(it) }
         runCatching {
-            context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+            context.getSystemService(NotificationManager::class.java)?.cancel(id)
+        }
+    }
+
+    fun cancel(context: Context) {
+        val sessions = synchronized(active) {
+            val copy = active.values.toList()
+            active.clear()
+            copy
+        }
+        val manager = context.getSystemService(NotificationManager::class.java)
+        sessions.forEach { session ->
+            session.ticker?.let { handler.removeCallbacks(it) }
+            runCatching { manager?.cancel(session.id) }
         }
     }
 
@@ -114,6 +163,11 @@ object InterceptNotifier {
         true
     }.getOrDefault(false)
 
+    private fun promotionIntent(context: Context): Intent =
+        Intent(ACTION_PROMOTION_SETTINGS)
+            .putExtra(EXTRA_APP_PACKAGE, context.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
     /**
      * 逐环节列出当前状态，用来确认到底卡在哪一步：
      * 系统版本 -> 接口 -> 授权 -> 通知总开关 -> 实际是否被提升。
@@ -121,8 +175,11 @@ object InterceptNotifier {
     fun describe(context: Context): String {
         val manager = context.getSystemService(NotificationManager::class.java)
 
-        val active = manager?.activeNotifications
-            ?.firstOrNull { it.packageName == context.packageName && it.id == NOTIFICATION_ID }
+        val live = manager?.activeNotifications
+            ?.firstOrNull {
+                it.packageName == context.packageName &&
+                    it.id >= ID_BASE && it.id <= ID_BASE + ID_SPAN
+            }
             ?.notification
 
         val promotedFlag = runCatching {
@@ -130,11 +187,11 @@ object InterceptNotifier {
         }.getOrDefault(0)
 
         val last = when {
-            active == null -> "最近一条提示：当前无正在显示的提示"
-            promotedFlag != 0 && (active.flags and promotedFlag) != 0 ->
+            live == null -> "最近一条提示：当前无正在显示的提示"
+            promotedFlag != 0 && (live.flags and promotedFlag) != 0 ->
                 "最近一条提示：已被系统提升为实时通知"
             else -> {
-                val eligible = LiveUpdate.isEligible(active)
+                val eligible = LiveUpdate.isEligible(live)
                 "最近一条提示：未提升\n资格判定：" + when (eligible) {
                     true -> "符合提升条件，等系统决定"
                     false -> "不符合提升条件"
@@ -156,22 +213,17 @@ object InterceptNotifier {
         ).joinToString("\n")
     }
 
-    private fun promotionIntent(context: Context): Intent =
-        Intent(ACTION_PROMOTION_SETTINGS)
-            .putExtra(EXTRA_APP_PACKAGE, context.packageName)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
     // ------------------------------------------------------------------ 内部实现
 
-    private fun push(context: Context, progress: Int, remainingMs: Long) {
+    private fun push(context: Context, session: Session, progress: Int, remainingMs: Long) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         if (!hasPostPermission(context)) return
 
         val builder = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(BRAND_COLOR)
-            .setContentTitle(title)
-            .setContentText(text)
+            .setContentTitle(session.title)
+            .setContentText(session.text)
             .setSubText("广告拦截")
             // 标准进度条：既是给人看的，也是提升为实时通知的判定条件之一
             .setProgress(100, progress, false)
@@ -184,11 +236,11 @@ object InterceptNotifier {
             .setTimeoutAfter(remainingMs)
 
         val promoted = LiveUpdate.canPost(manager)
-        if (promoted) LiveUpdate.applyStyle(builder, progress, title)
+        if (promoted) LiveUpdate.applyStyle(builder, progress, session.title)
 
         runCatching {
             val notification = if (promoted) LiveUpdate.build(builder) else builder.build()
-            manager.notify(NOTIFICATION_ID, notification)
+            manager.notify(session.id, notification)
         }.onFailure { Log.w(TAG, "发送拦截提示失败: ${it.message}") }
     }
 
