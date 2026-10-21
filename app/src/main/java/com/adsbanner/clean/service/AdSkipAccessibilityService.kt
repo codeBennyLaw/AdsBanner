@@ -18,9 +18,6 @@ import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.StatsStore
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * AdsBanner 的核心引擎，运行在系统无障碍通道里。
@@ -87,13 +84,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private var lastJumpBlockAt = 0L
 
-    /** 暂停广告提示：上次检查时间 */
-    private var lastPauseAdCheckAt = 0L
-
-    /** 页面内广告：上次检查时间、上次点击时间与已点过的位置签名 */
-    private var lastInAppAdCheckAt = 0L
-    private var lastInAppAdClickAt = 0L
-    private var lastInAppAdSig = ""
+    private val pauseAdGuard by lazy { BiliPauseAdGuard(this) }
 
     @Volatile
     private var screenCache: Point? = null
@@ -104,7 +95,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         StatsStore.init(this)
         foregroundPkg = null
         lastWindowEventAt = SystemClock.elapsedRealtime()
-        instance = this
         Log.i(TAG, "无障碍服务已连接")
         // 服务在线时顺带拉起常驻通知，提高进程优先级
         if (Prefs.keepAlive) KeepAliveService.start(this)
@@ -112,6 +102,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        pauseAdGuard.onEvent(event)
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return
         if (pkg in IGNORED_PACKAGES) return
@@ -121,81 +112,25 @@ class AdSkipAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg)
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> onContentChanged(pkg)
+            else -> Unit
         }
     }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        pauseAdGuard.stop()
+    }
 
     override fun onDestroy() {
-        instance = null
+        pauseAdGuard.stop()
+        handler.removeCallbacksAndMessages(null)
         InterceptNotifier.cancel(this)
         super.onDestroy()
-    }
-
-    /**
-     * 调试用：把当前前台应用的节点树写到 logcat。
-     *
-     * 页面内广告的识别条件依赖真实节点，闭着眼睛猜文案和位置效率太低，
-     * 导出一次就能看清提示条到底是原生控件还是自绘内容。
-     */
-    fun dumpForegroundTree(): String {
-        val pkg = foregroundPkg ?: return ""
-        val roots = collectRoots(pkg)
-        if (roots.isEmpty()) return ""
-
-        val sb = StringBuilder("节点树 dump @ $pkg\n")
-        var count = 0
-
-        fun walk(node: AccessibilityNodeInfo, depth: Int) {
-            if (count > 900 || depth > 40) return
-            count++
-
-            val text = node.text?.toString()?.trim().orEmpty()
-            val desc = node.contentDescription?.toString()?.trim().orEmpty()
-            val cls = node.className?.toString()?.substringAfterLast('.').orEmpty()
-
-            if (text.isNotEmpty() || desc.isNotEmpty() || node.isClickable) {
-                val rect = Rect()
-                node.getBoundsInScreen(rect)
-                sb.append("  ".repeat(depth.coerceAtMost(18)))
-                sb.append(cls)
-                if (text.isNotEmpty()) sb.append(" text=\"").append(text.take(40)).append('"')
-                if (desc.isNotEmpty()) sb.append(" desc=\"").append(desc.take(40)).append('"')
-                if (node.isClickable) sb.append(" click")
-                sb.append(" [").append(rect.left).append(',')
-                    .append(rect.top).append('-')
-                    .append(rect.right).append(',')
-                    .append(rect.bottom).append("]\n")
-            }
-
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i) ?: continue
-                walk(child, depth + 1)
-            }
-        }
-
-        roots.forEach { walk(it, 0) }
-        return sb.toString()
-    }
-
-    /** 把节点树分段打到 logcat，单条日志有长度上限 */
-    fun dumpToLog(): Boolean {
-        val text = dumpForegroundTree()
-        if (text.isBlank()) return false
-
-        val chunk = 3_500
-        var index = 0
-        while (index < text.length) {
-            val end = minOf(index + chunk, text.length)
-            Log.i(TAG, "DUMP|" + text.substring(index, end))
-            index = end
-        }
-        return true
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         screenCache = null
+        pauseAdGuard.stop()
     }
 
     // ------------------------------------------------------------------ 窗口切换
@@ -231,9 +166,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         // 无障碍服务可能晚于应用启动，这里补一次进入时间，避免漏掉开屏
         if (!enterAt.containsKey(pkg)) enterAt[pkg] = now
         if (Prefs.skipSplash) attemptSkip(pkg, now)
-        // 先尝试点掉「即将展示广告」的取消，赶在广告弹出之前
-        attemptCancelPauseAd(pkg, now)
-        attemptCloseInAppAd(pkg, now)
     }
 
     // ------------------------------------------------------------------ 跳转拦截
@@ -254,7 +186,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         lastJumpBlockAt = now
 
         StatsStore.record(target, StatsStore.Kind.JUMP)
-        recordLog("拦截误触跳转 -> $target")
+        Log.i(TAG, "拦截误触跳转 -> $target")
         InterceptNotifier.notify(this, AppInfoHelper.label(this, target), StatsStore.Kind.JUMP)
 
         // 稍等目标应用完成启动再返回，否则返回事件可能被丢弃
@@ -295,194 +227,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             splashDonePkg = pkg
             splashDoneAt = SystemClock.elapsedRealtime()
             StatsStore.record(pkg, StatsStore.Kind.SPLASH)
-            recordLog("跳过开屏：\"${candidate.label}\" @ $pkg")
+            Log.i(TAG, "跳过开屏：\"${candidate.label}\" @ $pkg")
             InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
-        }
-    }
-
-    // ------------------------------------------------------------------ 暂停广告提示
-
-    /**
-     * 点掉「N 秒后将展示广告 [取消]」这类提示。
-     *
-     * 提示只停留一秒左右，所以节流压到 120ms；判断依据是文案而不是播放状态——
-     * 无障碍服务拿不到播放器是否暂停，但这条提示本身只会在暂停时出现。
-     * 命中文案后必须同时找到一个「取消」按钮才动手，避免把别处的取消按钮点掉。
-     */
-    private fun attemptCancelPauseAd(pkg: String, now: Long) {
-        if (!Prefs.inAppAdGuard) return
-        if (pkg !in IN_APP_AD_PACKAGES) return
-        if (now - lastPauseAdCheckAt < 120L) return
-
-        val roots = collectRoots(pkg)
-        if (roots.isEmpty()) return
-        lastPauseAdCheckAt = now
-
-        var hintNode: AccessibilityNodeInfo? = null
-        var cancelNode: AccessibilityNodeInfo? = null
-        var visited = 0
-
-        fun walk(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 28 || visited > 600) return
-            if (hintNode != null && cancelNode != null) return
-            if (depth > 0 && !node.isVisibleToUser) return
-            visited++
-
-            val label = node.text?.toString()?.trim().orEmpty()
-                .ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
-
-            if (label.isNotEmpty()) {
-                noteAdLabel(node, label)
-                if (hintNode == null && label.length <= 30 && PAUSE_AD_HINT.containsMatchIn(label)) {
-                    hintNode = node
-                }
-                if (cancelNode == null && isCancelLabel(label)) cancelNode = node
-            }
-
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i) ?: continue
-                walk(child, depth + 1)
-            }
-        }
-
-        for (root in roots) {
-            walk(root, 0)
-            if (hintNode != null && cancelNode != null) break
-        }
-
-        val hint = hintNode ?: return
-        // 找不到「取消」文本时退一步按位置找：同一条提示的右侧、尺寸很小的控件
-        val target = cancelNode ?: findCancelNear(hint, roots) ?: run {
-            recordLog("发现暂停广告提示但没找到取消按钮 @ $pkg")
-            return
-        }
-
-        if (clickCandidate(Candidate(target, "取消", 0, false))) {
-            StatsStore.record(pkg, StatsStore.Kind.PAGE_AD)
-            recordLog("取消暂停广告提示 @ $pkg")
-        }
-    }
-
-    private fun isCancelLabel(label: String): Boolean =
-        label.startsWith("取消") && label.length <= 8
-
-    /** 在提示文案同一行右侧找一个尺寸很小的控件，作为「取消」按钮的兜底 */
-    private fun findCancelNear(
-        hint: AccessibilityNodeInfo,
-        roots: List<AccessibilityNodeInfo>
-    ): AccessibilityNodeInfo? {
-        val hintRect = Rect()
-        hint.getBoundsInScreen(hintRect)
-        if (hintRect.width() <= 0) return null
-
-        var best: AccessibilityNodeInfo? = null
-        var bestGap = Int.MAX_VALUE
-
-        fun walk(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 30) return
-            if (depth > 0 && !node.isVisibleToUser) return
-
-            val rect = Rect()
-            node.getBoundsInScreen(rect)
-            val sameRow = rect.top < hintRect.bottom && rect.bottom > hintRect.top
-            val toRight = rect.left >= hintRect.right - 8
-            val small = rect.width() in 1..(hintRect.width() * 2) &&
-                rect.height() in 1..(hintRect.height() * 3)
-            val interactive = node.isClickable ||
-                !node.text.isNullOrEmpty() ||
-                !node.contentDescription.isNullOrEmpty()
-
-            if (sameRow && toRight && small && interactive) {
-                val gap = rect.left - hintRect.right
-                if (gap < bestGap) {
-                    bestGap = gap
-                    best = node
-                }
-            }
-
-            for (i in 0 until node.childCount) {
-                walk(node.getChild(i) ?: continue, depth + 1)
-            }
-        }
-
-        roots.forEach { walk(it, 0) }
-        return best
-    }
-
-    // ------------------------------------------------------------------ 页面内广告
-
-    /**
-     * 关闭页面内覆盖式广告，例如播放页暂停后盖在画面上的广告层。
-     *
-     * 与开屏跳过的区别是不限定进入应用后的时间窗，因此必须更保守：
-     * 播放页右上角本来就有播放器自己的控件，误点会把视频关掉。三个条件同时满足才动手——
-     * 只在已知会插入这类广告的应用内、页面里出现「广告」标识、右上角有很小的「关闭 / ×」控件。
-     */
-    private fun attemptCloseInAppAd(pkg: String, now: Long) {
-        if (!Prefs.inAppAdGuard) return
-        if (pkg !in IN_APP_AD_PACKAGES) return
-        if (now - lastInAppAdCheckAt < 1_000L) return
-
-        val roots = collectRoots(pkg)
-        if (roots.isEmpty()) return
-        lastInAppAdCheckAt = now
-
-        val screen = screenSize()
-        val w = screen.x.toFloat()
-        val h = screen.y.toFloat()
-        if (w <= 0f || h <= 0f) return
-
-        var hasAdLabel = false
-        var closeNode: AccessibilityNodeInfo? = null
-        var closeLabel = ""
-
-        fun walk(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 25) return
-            if (depth > 0 && !node.isVisibleToUser) return
-
-            val label = node.text?.toString()?.trim().orEmpty()
-                .ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
-
-            if (label.isNotEmpty()) {
-                noteAdLabel(node, label)
-                if (!hasAdLabel && label in AD_LABELS) hasAdLabel = true
-                if (closeNode == null && label in CLOSE_LABELS) {
-                    val rect = Rect()
-                    node.getBoundsInScreen(rect)
-                    val small = rect.width() in 1..(w * 0.18f).toInt() &&
-                        rect.height() in 1..(h * 0.12f).toInt()
-                    if (small && rect.centerX() > w * 0.78f && rect.centerY() < h * 0.45f) {
-                        closeNode = node
-                        closeLabel = label
-                    }
-                }
-            }
-
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i) ?: continue
-                walk(child, depth + 1)
-            }
-        }
-
-        for (root in roots) {
-            walk(root, 0)
-            if (hasAdLabel && closeNode != null) break
-        }
-
-        val target = closeNode ?: return
-        if (!hasAdLabel) return
-
-        val rect = Rect()
-        target.getBoundsInScreen(rect)
-        // 同一位置的关闭按钮短时间内只点一次，防止广告反复弹出时连续触发
-        val signature = "${rect.left},${rect.top},${rect.right},${rect.bottom}"
-        if (signature == lastInAppAdSig && now - lastInAppAdClickAt < 10_000L) return
-
-        if (clickCandidate(Candidate(target, closeLabel, 0, false))) {
-            lastInAppAdSig = signature
-            lastInAppAdClickAt = now
-            StatsStore.record(pkg, StatsStore.Kind.PAGE_AD)
-            recordLog("关闭页面内广告：\"$closeLabel\" @ $pkg")
         }
     }
 
@@ -634,56 +380,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         return tapAt(self.centerX().toFloat(), self.centerY().toFloat())
     }
 
-    /** 最近的关键日志，供应用内查看，用户不必连电脑抓 logcat */
-    private val recentLogs = ArrayDeque<String>()
-    private val logTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-
-    private fun recordLog(message: String) {
-        synchronized(recentLogs) {
-            if (recentLogs.size >= 200) recentLogs.removeFirst()
-            recentLogs.addLast("${logTime.format(Date())}  $message")
-        }
-        Log.i(TAG, message)
-    }
-
-    /** 供设置页展示的最近日志 */
-    fun recentLogText(): String = synchronized(recentLogs) {
-        recentLogs.joinToString("\n")
-    }
-
-    /** 已记录过的广告相关文案，避免同一条反复刷日志 */
-    private val loggedAdLabels = HashSet<String>()
-
-    /**
-     * 记录页面里带「广告」字样的文案。不知道目标广告页具体长什么样时，
-     * 靠这几条日志就能判断提示条是原生文本还是自绘内容。
-     */
-    private fun noteAdLabel(node: AccessibilityNodeInfo, label: String) {
-        if (!label.contains("广告")) return
-        if (loggedAdLabels.size > 200) return
-        val key = label.take(40)
-        if (!loggedAdLabels.add(key)) return
-
-        val rect = Rect()
-        node.getBoundsInScreen(rect)
-        recordLog("广告文本: \"$key\" [$rect]")
-    }
-
-    /** 收集当前属于该应用的所有窗口根节点，悬浮层、弹层常常不在活动窗口里 */
-    private fun collectRoots(pkg: String): List<AccessibilityNodeInfo> {
-        val roots = ArrayList<AccessibilityNodeInfo>(2)
-        runCatching {
-            windows?.forEach { window ->
-                val root = window?.root ?: return@forEach
-                if (root.packageName == pkg) roots.add(root)
-            }
-        }
-        if (roots.isEmpty()) {
-            rootInActiveWindow?.let { if (it.packageName == pkg) roots.add(it) }
-        }
-        return roots
-    }
-
     private fun tapAt(x: Float, y: Float): Boolean = runCatching {
         val path = Path().apply { moveTo(x, y) }
         val stroke = GestureDescription.StrokeDescription(path, 0L, 60L)
@@ -708,39 +404,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "AdsBanner"
 
-        /** 供设置页在调试时导出当前页面节点树，未连接时为 null */
-        @Volatile
-        var instance: AdSkipAccessibilityService? = null
-            private set
-
         /** 开屏页结构简单，节点数通常很少；小程序、列表页动辄上百个 */
         private const val SPLASH_MAX_NODES = 60
 
         /** 目标应用离开前台不超过这个时间又回来，视为窗口抖动，不拦截 */
         private const val RETURN_GRACE_MS = 5_000L
-
-        /** 页面内广告清理生效的应用，暂只针对哔哩哔哩的播放页暂停广告 */
-        private val IN_APP_AD_PACKAGES = setOf(
-            "tv.danmaku.bili"
-        )
-
-        /**
-         * 「N 秒后将展示广告」这类倒计时提示。
-         * 实测节点里「1秒」和「后将展示广告」是两个分开的文本节点，
-         * 不能要求「秒后」连在一起，只匹配后半段。
-         */
-        private val PAUSE_AD_HINT = Regex("后将展示广告|即将展示广告|后将播放广告|即将播放广告")
-
-        /** 广告标识，要求整段文案完全相等，避免正文里出现「广告」二字时误判 */
-        private val AD_LABELS = setOf("广告", "廣告", "赞助", "推广")
-
-        /**
-         * 关闭控件的文案，包含常见的 × 变体。
-         * 不能放「不感兴趣」：B 站广告层里那个按钮只标记偏好，点了广告还在。
-         */
-        private val CLOSE_LABELS = setOf(
-            "关闭", "关闭广告", "×", "✕", "╳", "X", "x"
-        )
 
         /** 出现这些文字才说明当前页确实是开屏广告 */
         private val AD_HINT = Regex("广告|跳过|\\d+\\s*[sS秒]")
