@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 深色模式：主色提亮以保证在深底上的对比度，容器色改为深蓝 -->
-    <color name="brand">#8AB4FF</color>
+    <color name="brand">#8DB5FF</color>
     <color name="brand_dark">#D6E4FF</color>
     <color name="brand_light">#1B2A44</color>
     <color name="on_brand">#0B1220</color>
 
     <color name="bg">#0E1116</color>
     <color name="surface">#171B22</color>
+    <color name="surface_alt">#202631</color>
+    <color name="card_stroke">#2B3442</color>
     <color name="divider">#242A34</color>
 
     <color name="text_primary">#EDF1F7</color>

@@ -15,6 +15,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.InputMethodManager
 import com.adsbanner.clean.core.AppInfoHelper
+import com.adsbanner.clean.core.BiliPauseAdRule
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.StatsStore
@@ -102,14 +103,20 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        pauseAdGuard.onEvent(event)
         val pkg = event.packageName?.toString() ?: return
+        val type = event.eventType
+        // B 站页面守护只需要自己的交互事件；窗口切换仍要转发一次，及时结束旧页面扫描。
+        if (pkg == BiliPauseAdRule.PACKAGE || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            pauseAdGuard.onEvent(event)
+        }
+        // 两个能力都关闭时，不再读取节点树或维护前台状态。
+        if (!Prefs.skipSplash && !Prefs.jumpGuard) return
         if (pkg == packageName) return
         if (pkg in IGNORED_PACKAGES) return
         // 输入法弹起会让前台包名短暂变成输入法，不能当成"切到别的应用"
         if (pkg in imePackages) return
 
-        when (event.eventType) {
+        when (type) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg)
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> onContentChanged(pkg)
             else -> Unit
@@ -158,15 +165,18 @@ class AdSkipAccessibilityService : AccessibilityService() {
             }
         }
 
-        if (Prefs.skipSplash) attemptSkip(pkg, now)
+        if (Prefs.skipSplash && isScreenInteractive()) attemptSkip(pkg, now)
     }
 
     private fun onContentChanged(pkg: String) {
         val now = SystemClock.elapsedRealtime()
         // 无障碍服务可能晚于应用启动，这里补一次进入时间，避免漏掉开屏
         if (!enterAt.containsKey(pkg)) enterAt[pkg] = now
-        if (Prefs.skipSplash) attemptSkip(pkg, now)
+        if (Prefs.skipSplash && isScreenInteractive()) attemptSkip(pkg, now)
     }
+
+    private fun isScreenInteractive(): Boolean =
+        getSystemService(android.os.PowerManager::class.java)?.isInteractive != false
 
     // ------------------------------------------------------------------ 跳转拦截
 
