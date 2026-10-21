@@ -145,10 +145,13 @@ class StatsActivity : AppCompatActivity() {
         container.removeAllViews()
         val snapshot = StatsStore.snapshot()
 
-        val rows = snapshot.apps.mapNotNull { stat ->
-            val count = countOf(stat)
-            if (count <= 0) null else stat to count
-        }
+        val rows = snapshot.apps
+            .mapNotNull { stat ->
+                val count = countOf(stat)
+                if (count <= 0) null else stat to count
+            }
+            // 按当前筛选条件下的次数排序，而不是跟随存储里的默认顺序
+            .sortedByDescending { it.second }
 
         val rangeText = if (range == Range.TODAY) "今天" else "全部"
         val total = rows.sumOf { it.second }
@@ -164,7 +167,13 @@ class StatsActivity : AppCompatActivity() {
             item.findViewById<TextView>(R.id.tvName).text =
                 AppInfoHelper.label(this, stat.pkg)
             item.findViewById<TextView>(R.id.tvDetail).text = when (type) {
-                Type.ALL -> "开屏 ${stat.splash} · 跳转 ${stat.jump} · 页面 ${stat.page}"
+                // 小项明细也要跟随时间范围，选「今天」时不能显示累计值
+                Type.ALL -> {
+                    val splash = if (range == Range.TODAY) stat.todaySplash else stat.splash
+                    val jump = if (range == Range.TODAY) stat.todayJump else stat.jump
+                    val page = if (range == Range.TODAY) stat.todayPage else stat.page
+                    "开屏 $splash · 跳转 $jump · 页面 $page"
+                }
                 Type.SPLASH -> "开屏广告跳过"
                 Type.JUMP -> "误触跳转拦截"
                 Type.PAGE -> "页面内广告关闭"
