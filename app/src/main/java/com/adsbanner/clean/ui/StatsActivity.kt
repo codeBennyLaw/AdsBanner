@@ -61,6 +61,7 @@ class StatsActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_stats)
         applySystemBarAppearance()
+        Motion.enter(findViewById(R.id.root))
         // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -95,7 +96,10 @@ class StatsActivity : AppCompatActivity() {
             insets
         }
 
-        findViewById<View>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<View>(R.id.btnBack).setOnClickListener {
+            finish()
+            overridePendingTransition(android.R.anim.fade_in, android.R.anim.slide_out_right)
+        }
         btnHeatmap.setOnClickListener { toggleView() }
         btnType.setOnClickListener { showTypeMenu() }
 
@@ -116,8 +120,9 @@ class StatsActivity : AppCompatActivity() {
         heatmapVisible = !heatmapVisible
         btnHeatmap.text = if (heatmapVisible) "列表" else "热力图"
 
-        listScroll.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
-        heatmapScroll.visibility = if (heatmapVisible) View.VISIBLE else View.GONE
+        val showing = if (heatmapVisible) heatmapScroll else listScroll
+        val hiding = if (heatmapVisible) listScroll else heatmapScroll
+        Motion.crossfade(showing, hiding)
         filterRow.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
         tvSummary.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
 
@@ -200,6 +205,7 @@ class StatsActivity : AppCompatActivity() {
             )
             container.addView(item)
         }
+        Motion.staggerChildren(container)
     }
 
     private fun countOf(stat: StatsStore.AppStat): Int = when (type) {
