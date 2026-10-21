@@ -84,6 +84,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private var lastJumpBlockAt = 0L
 
+    private val pauseAdGuard by lazy { BiliPauseAdGuard(this) }
+
     @Volatile
     private var screenCache: Point? = null
 
@@ -100,6 +102,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        pauseAdGuard.onEvent(event)
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return
         if (pkg in IGNORED_PACKAGES) return
@@ -109,12 +112,17 @@ class AdSkipAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg)
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> onContentChanged(pkg)
+            else -> Unit
         }
     }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        pauseAdGuard.stop()
+    }
 
     override fun onDestroy() {
+        pauseAdGuard.stop()
+        handler.removeCallbacksAndMessages(null)
         InterceptNotifier.cancel(this)
         super.onDestroy()
     }
@@ -122,6 +130,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         screenCache = null
+        pauseAdGuard.stop()
     }
 
     // ------------------------------------------------------------------ 窗口切换
@@ -153,9 +162,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun onContentChanged(pkg: String) {
+        val now = SystemClock.elapsedRealtime()
         // 无障碍服务可能晚于应用启动，这里补一次进入时间，避免漏掉开屏
-        if (!enterAt.containsKey(pkg)) enterAt[pkg] = SystemClock.elapsedRealtime()
-        if (Prefs.skipSplash) attemptSkip(pkg, SystemClock.elapsedRealtime())
+        if (!enterAt.containsKey(pkg)) enterAt[pkg] = now
+        if (Prefs.skipSplash) attemptSkip(pkg, now)
     }
 
     // ------------------------------------------------------------------ 跳转拦截
@@ -345,22 +355,29 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun clickCandidate(candidate: Candidate): Boolean {
-        // 优先走标准点击，避免坐标点击落到被广告覆盖的区域
+        val self = Rect()
+        candidate.node.getBoundsInScreen(self)
+        val selfArea = self.width().toLong() * self.height()
+
+        // 优先点节点自身。向上找可点击父节点时，必须确认父节点没有明显放大成容器，
+        // 否则会点到容器中心 —— 广告层里「×」和「⋮」常挂在同一个可点击容器下，就会点偏。
         var node: AccessibilityNodeInfo? = candidate.node
         var depth = 0
         while (node != null && depth < 4) {
             if (node.isEnabled && node.isClickable && node.isVisibleToUser) {
-                if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                val parentRect = Rect()
+                node.getBoundsInScreen(parentRect)
+                val parentArea = parentRect.width().toLong() * parentRect.height()
+                val precise = depth == 0 || (selfArea > 0 && parentArea <= selfArea * 2)
+                if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
             }
             node = node.parent
             depth++
         }
 
-        // 自定义绘制的控件不暴露 clickable，退化为坐标点击
-        val rect = Rect()
-        candidate.node.getBoundsInScreen(rect)
-        if (rect.width() <= 0 || rect.height() <= 0) return false
-        return tapAt(rect.centerX().toFloat(), rect.centerY().toFloat())
+        // 自定义绘制的控件不暴露 clickable，退化为点击自身中心的坐标
+        if (self.width() <= 0 || self.height() <= 0) return false
+        return tapAt(self.centerX().toFloat(), self.centerY().toFloat())
     }
 
     private fun tapAt(x: Float, y: Float): Boolean = runCatching {

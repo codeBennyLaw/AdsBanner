@@ -36,23 +36,30 @@ object StatsStore {
     private const val F_LAST_S = "lastS"
     private const val F_LAST_J = "lastJ"
 
+    private const val F_P = "p"
+    private const val F_TP = "tp"
+    private const val F_LAST_P = "lastP"
+
     private const val F_DAILY = "daily"
     private const val F_INSTALLED = "installed"
 
-    enum class Kind { SPLASH, JUMP }
+    enum class Kind { SPLASH, JUMP, PAGE_AD }
 
     data class AppStat(
         val pkg: String,
         val splash: Int,
         val jump: Int,
+        val page: Int,
         val todaySplash: Int,
         val todayJump: Int,
+        val todayPage: Int,
         val lastAt: Long,
         val lastSplashAt: Long,
-        val lastJumpAt: Long
+        val lastJumpAt: Long,
+        val lastPageAt: Long
     ) {
-        val total: Int get() = splash + jump
-        val todayTotal: Int get() = todaySplash + todayJump
+        val total: Int get() = splash + jump + page
+        val todayTotal: Int get() = todaySplash + todayJump + todayPage
     }
 
     data class Snapshot(
@@ -110,6 +117,7 @@ object StatsStore {
                     val item = apps.optJSONObject(pkg) ?: continue
                     item.put(F_TS, 0)
                     item.put(F_TJ, 0)
+                    item.put(F_TP, 0)
                 }
             }
         }
@@ -122,17 +130,25 @@ object StatsStore {
             rolloverIfNeeded()
             val apps = root.optJSONObject("apps") ?: JSONObject().also { root.put("apps", it) }
             val item = apps.optJSONObject(pkg) ?: JSONObject()
-            if (kind == Kind.SPLASH) {
-                item.put(F_S, item.optInt(F_S) + 1)
-                item.put(F_TS, item.optInt(F_TS) + 1)
-            } else {
-                item.put(F_J, item.optInt(F_J) + 1)
-                item.put(F_TJ, item.optInt(F_TJ) + 1)
-            }
             val now = System.currentTimeMillis()
+            when (kind) {
+                Kind.SPLASH -> {
+                    item.put(F_S, item.optInt(F_S) + 1)
+                    item.put(F_TS, item.optInt(F_TS) + 1)
+                    item.put(F_LAST_S, now)
+                }
+                Kind.JUMP -> {
+                    item.put(F_J, item.optInt(F_J) + 1)
+                    item.put(F_TJ, item.optInt(F_TJ) + 1)
+                    item.put(F_LAST_J, now)
+                }
+                Kind.PAGE_AD -> {
+                    item.put(F_P, item.optInt(F_P) + 1)
+                    item.put(F_TP, item.optInt(F_TP) + 1)
+                    item.put(F_LAST_P, now)
+                }
+            }
             item.put(F_LAST, now)
-            // 分别记一份按类型的最近时间，筛选开屏 / 跳转时才不会显示成另一种的时间
-            item.put(if (kind == Kind.SPLASH) F_LAST_S else F_LAST_J, now)
             apps.put(pkg, item)
             root.put("apps", apps)
 
@@ -166,12 +182,15 @@ object StatsStore {
                     pkg = pkg,
                     splash = item.optInt(F_S),
                     jump = item.optInt(F_J),
+                    page = item.optInt(F_P),
                     todaySplash = item.optInt(F_TS),
                     todayJump = item.optInt(F_TJ),
+                    todayPage = item.optInt(F_TP),
                     lastAt = last,
                     // 旧数据没有分类时间戳，回退到整体时间
                     lastSplashAt = item.optLong(F_LAST_S, last),
-                    lastJumpAt = item.optLong(F_LAST_J, last)
+                    lastJumpAt = item.optLong(F_LAST_J, last),
+                    lastPageAt = item.optLong(F_LAST_P, last)
                 )
                 if (stat.total == 0) continue
                 total += stat.total

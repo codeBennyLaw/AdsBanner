@@ -15,6 +15,7 @@ object Prefs {
     private const val KEY_JUMP_GUARD = "jump_guard"
     private const val KEY_KEEP_ALIVE = "keep_alive"
     private const val KEY_INTERCEPT_NOTIFY = "intercept_notify"
+    private const val KEY_IN_APP_AD = "in_app_ad_guard"
     private const val KEY_TARGETS = "jump_targets"
     private const val KEY_SPLASH_WINDOW = "splash_window_ms"
     private const val KEY_JUMP_WINDOW = "jump_window_ms"
@@ -87,6 +88,16 @@ object Prefs {
         get() = ensure().let { sp.getBoolean(KEY_INTERCEPT_NOTIFY, true) }
         set(value) {
             sp.edit().putBoolean(KEY_INTERCEPT_NOTIFY, value).apply()
+        }
+
+    /**
+     * 关闭页面内覆盖式广告（例如播放页暂停后弹出的广告层）。
+     * 默认关闭：这类广告与播放器自身的控件位置接近，误关的代价比漏关高。
+     */
+    var inAppAdGuard: Boolean
+        get() = ensure().let { sp.getBoolean(KEY_IN_APP_AD, false) }
+        set(value) {
+            sp.edit().putBoolean(KEY_IN_APP_AD, value).apply()
         }
 
     /** 跳转拦截目标名单 */
