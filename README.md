@@ -70,8 +70,8 @@ github.token=github_pat_xxx
 产物位于 `app/build/outputs/apk/`，文件名形如：
 
 ```
-AdsBanner-debug-v-1-0-0.apk
-AdsBanner-release-v-1-0-0.apk
+AdsBanner-debug-v-2-0-0.apk
+AdsBanner-release-v-2-0-0.apk
 ```
 
 Release 使用本机 debug keystore 签名，可直接安装；覆盖安装时新旧包签名需一致。
