@@ -14,7 +14,6 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -31,6 +30,7 @@ import com.adsbanner.clean.service.UpdateDownloadService
 import com.adsbanner.clean.update.ApkInstaller
 import com.adsbanner.clean.update.ReleaseUpdates
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import java.io.File
 
@@ -168,7 +168,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("发现新版本")
             .setView(view)
             .setNegativeButton("稍后", null)
@@ -205,7 +205,7 @@ class MainActivity : AppCompatActivity() {
 
         // Android 8 起安装未知来源应用需要单独授权
         if (!ApkInstaller.hasInstallPermission(this)) {
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle("需要安装权限")
                 .setMessage("系统还没有允许 AdsBanner 安装应用。开启后回到应用即可继续安装。")
                 .setNegativeButton("取消", null)
@@ -268,7 +268,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onNotifyRowClick() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("实时通知诊断")
             .setMessage(InterceptNotifier.describe(this))
             .setPositiveButton("发一条测试") { _, _ -> sendTestNotification() }
@@ -332,7 +332,7 @@ class MainActivity : AppCompatActivity() {
     private fun guidePromotionIfNeeded() {
         if (!InterceptNotifier.canOpenPromotionSettings(this)) return
         if (InterceptNotifier.canPostPromoted(this)) return
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("开启实时通知")
             .setMessage(
                 "本机支持实时通知（状态栏胶囊 / 灵动岛），但系统还没有对本应用开放。\n\n" +
@@ -376,7 +376,7 @@ class MainActivity : AppCompatActivity() {
         switchInAppAd.isChecked = Prefs.inAppAdGuard
         binding = false
 
-        tvTargetHint.text = "已启用 ${Prefs.jumpTargets.size} 个应用"
+        tvTargetHint.text = "已设置 ${Prefs.jumpTargets.size} 个拦截目标"
 
         // 实时通知状态直接显示出来，不用猜卡在哪一步
         when {
@@ -448,7 +448,7 @@ class MainActivity : AppCompatActivity() {
             · 无障碍服务本身由系统守护，即使进程被杀，系统通常会自动重新绑定
         """.trimIndent()
 
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("后台保活设置指引")
             .setMessage(message)
             .setPositiveButton("知道了", null)
