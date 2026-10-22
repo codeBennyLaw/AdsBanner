@@ -13,8 +13,8 @@ android {
         applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.0.0"
+        versionCode = 8
+        versionName = "2.0.1"
 
         // 检查更新用的 GitHub 凭据从 local.properties 注入。
         // GitHub 的推送保护不允许有效 token 进入提交历史，但 APK 里需要带上它。
