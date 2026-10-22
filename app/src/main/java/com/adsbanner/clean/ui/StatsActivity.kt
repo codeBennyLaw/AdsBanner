@@ -39,6 +39,9 @@ class StatsActivity : AppCompatActivity() {
 
     private lateinit var container: LinearLayout
     private lateinit var tvSummary: TextView
+    private lateinit var tvStatCount: TextView
+    private lateinit var tvStatCaption: TextView
+    private lateinit var statsOverview: View
     private lateinit var tvEmpty: TextView
     private lateinit var toggleTime: MaterialButtonToggleGroup
     private lateinit var btnType: MaterialButton
@@ -61,6 +64,7 @@ class StatsActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_stats)
         applySystemBarAppearance()
+        ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
         Motion.enter(findViewById(R.id.root))
         // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
@@ -69,6 +73,9 @@ class StatsActivity : AppCompatActivity() {
 
         container = findViewById(R.id.listContainer)
         tvSummary = findViewById(R.id.tvSummary)
+        tvStatCount = findViewById(R.id.tvStatCount)
+        tvStatCaption = findViewById(R.id.tvStatCaption)
+        statsOverview = findViewById(R.id.statsOverview)
         tvEmpty = findViewById(R.id.tvEmpty)
         toggleTime = findViewById(R.id.toggleTime)
         btnType = findViewById(R.id.btnType)
@@ -124,7 +131,7 @@ class StatsActivity : AppCompatActivity() {
         val hiding = if (heatmapVisible) listScroll else heatmapScroll
         Motion.crossfade(showing, hiding)
         filterRow.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
-        tvSummary.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
+        statsOverview.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
 
         if (heatmapVisible) renderHeatmap() else render()
     }
@@ -137,6 +144,8 @@ class StatsActivity : AppCompatActivity() {
             menu.add(0, Type.SPLASH.ordinal, 1, "开屏广告")
             menu.add(0, Type.JUMP.ordinal, 2, "误触跳转")
             menu.add(0, Type.PAGE.ordinal, 3, "页面内广告")
+            menu.setGroupCheckable(0, true, true)
+            menu.findItem(type.ordinal).isChecked = true
             setOnMenuItemClickListener { item ->
                 type = Type.entries.getOrElse(item.itemId) { Type.ALL }
                 btnType.text = item.title
@@ -158,12 +167,19 @@ class StatsActivity : AppCompatActivity() {
             // 按当前筛选条件下的次数排序，而不是跟随存储里的默认顺序
             .sortedByDescending { it.second }
 
-        val rangeText = if (range == Range.TODAY) "今天" else "全部"
         val total = rows.sumOf { it.second }
-        tvSummary.text = "$rangeText · ${typeLabel(type)} · ${rows.size} 个应用 · $total 次"
+        tvStatCaption.text = if (range == Range.TODAY) "今日拦截" else "累计拦截"
+        tvStatCount.text = total.toString()
+        tvStatCount.contentDescription = "${tvStatCaption.text} $total 次"
+        tvSummary.text = "${typeLabel(type)} · ${rows.size} 个应用"
 
         val empty = rows.isEmpty()
         tvEmpty.visibility = if (empty) View.VISIBLE else View.GONE
+        tvEmpty.text = if (snapshot.total > 0) {
+            "当前筛选下暂无记录\n试试切换时间范围或广告类型"
+        } else {
+            "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
+        }
         container.visibility = if (empty) View.GONE else View.VISIBLE
 
         val inflater = LayoutInflater.from(this)

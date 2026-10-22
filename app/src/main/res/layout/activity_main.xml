@@ -14,8 +14,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingHorizontal="18dp"
-        android:paddingTop="18dp"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="24dp"
         android:paddingBottom="32dp">
 
         <!-- 标题 -->
@@ -106,7 +106,7 @@
                     android:layout_height="wrap_content"
                     android:insetTop="0dp"
                     android:insetBottom="0dp"
-                    android:minHeight="40dp"
+                    android:minHeight="48dp"
                     android:text="去开启" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -119,19 +119,23 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:clickable="true"
-            android:focusable="true">
+            android:focusable="true"
+            app:cardBackgroundColor="@color/brand_light"
+            app:strokeWidth="0dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="20dp">
 
                 <TextView
                     style="@style/Text.Section"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="拦截统计" />
+                    android:text="拦截统计"
+                    android:drawableStart="@drawable/ic_chart"
+                    android:drawablePadding="8dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -150,8 +154,8 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textColor="@color/text_primary"
-                            android:textSize="30sp"
+                            android:textColor="@color/brand_dark"
+                            android:textSize="34sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -172,8 +176,8 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textColor="@color/text_primary"
-                            android:textSize="30sp"
+                            android:textColor="@color/brand_dark"
+                            android:textSize="34sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -188,8 +192,10 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center_vertical"
-                        android:text="详情 ›"
-                        android:textColor="@color/brand"
+                        android:text="详情"
+                        android:drawableEnd="@drawable/ic_chevron_right"
+                        android:drawablePadding="4dp"
+                        android:textColor="@color/brand_dark"
                         android:textSize="13sp" />
                 </LinearLayout>
 
@@ -208,7 +214,7 @@
             style="@style/Text.Section"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
+            android:layout_marginTop="24dp"
             android:layout_marginStart="4dp"
             android:text="拦截开关" />
 
@@ -253,6 +259,7 @@
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchSplash"
+                        android:contentDescription="开屏广告自动跳过"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
@@ -288,11 +295,12 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="3dp"
-                            android:text="被强行拉起购物 App 时立即返回" />
+                            android:text="广告期间被自动拉起时尝试返回" />
                     </LinearLayout>
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchJump"
+                        android:contentDescription="误触跳转拦截"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
@@ -334,6 +342,7 @@
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchInAppAd"
+                        android:contentDescription="页面内广告清理"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
@@ -374,6 +383,7 @@
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchKeepAlive"
+                        android:contentDescription="常驻通知"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
@@ -419,6 +429,7 @@
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchNotify"
+                        android:contentDescription="拦截实时提示"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
                 </LinearLayout>
@@ -430,7 +441,7 @@
             style="@style/Text.Section"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
+            android:layout_marginTop="24dp"
             android:layout_marginStart="4dp"
             android:text="跳转拦截名单" />
 
@@ -471,12 +482,12 @@
                         android:text="已启用 0 个应用" />
                 </LinearLayout>
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="›"
-                    android:textColor="@color/text_tertiary"
-                    android:textSize="22sp" />
+                <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:importantForAccessibility="no"
+                        android:contentDescription="@null" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -485,7 +496,7 @@
             style="@style/Text.Section"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
+            android:layout_marginTop="24dp"
             android:layout_marginStart="4dp"
             android:text="后台存活" />
 
@@ -532,12 +543,12 @@
                             android:text="避免系统休眠时断开服务" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="›"
-                        android:textColor="@color/text_tertiary"
-                        android:textSize="22sp" />
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:importantForAccessibility="no"
+                        android:contentDescription="@null" />
                 </LinearLayout>
 
                 <View
@@ -577,12 +588,12 @@
                             android:text="小米/华为/OPPO/vivo 需手动允许后台运行" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="›"
-                        android:textColor="@color/text_tertiary"
-                        android:textSize="22sp" />
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_chevron_right"
+                        android:importantForAccessibility="no"
+                        android:contentDescription="@null" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -591,7 +602,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
+            android:layout_marginTop="24dp"
             android:gravity="center"
             android:orientation="horizontal">
 
@@ -611,6 +622,8 @@
 
             <TextView
                 android:id="@+id/btnCheckUpdate"
+                android:minHeight="48dp"
+                android:gravity="center"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?android:attr/selectableItemBackground"
@@ -638,13 +651,13 @@
                 android:layout_height="20dp"
                 android:contentDescription="@null"
                 android:src="@drawable/ic_github_mark"
-                android:tint="@color/text_tertiary" />
+                app:tint="@color/text_tertiary" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:text="GitHub 仓库 ↗"
+                android:text="GitHub 仓库"
                 android:textColor="@color/text_tertiary"
                 android:textSize="13sp" />
         </LinearLayout>
