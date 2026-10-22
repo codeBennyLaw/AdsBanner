@@ -14,6 +14,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.BiliPauseAdRule
@@ -62,6 +63,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private val splashSession = SplashScanSession()
     private var nextSplashScanAt = Long.MAX_VALUE
     private val splashScan = Runnable { scanSplashWindow() }
+    /** 只保留本次启动的应用事件节点，窗口列表短暂缺失时仍可向系统查询该窗口。 */
+    private var splashEventRoot: AccessibilityNodeInfo? = null
 
     /**
      * 应用 -> 最后一次离开前台的时刻。
@@ -140,6 +143,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> onContentChanged(pkg)
             else -> Unit
         }
+        if (Prefs.skipSplash && splashSession.packageName == pkg) rememberSplashSource(event, pkg)
     }
 
     override fun onInterrupt() {
@@ -158,6 +162,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         screenCache = null
+        clearSplashSource()
         pauseAdGuard.stop()
     }
 
@@ -207,6 +212,33 @@ class AdSkipAccessibilityService : AccessibilityService() {
         handler.removeCallbacks(splashScan)
         nextSplashScanAt = Long.MAX_VALUE
         splashSession.clear()
+        clearSplashSource()
+    }
+
+    private fun clearSplashSource() {
+        splashEventRoot?.let(::recycleNode)
+        splashEventRoot = null
+    }
+
+    private fun rememberSplashSource(event: AccessibilityEvent, pkg: String) {
+        var root = event.source ?: return
+        if (root.packageName?.toString() != pkg) {
+            recycleNode(root)
+            return
+        }
+        // 有些应用只在内容事件中提供节点；尽量向上取整棵树，失败时保留事件子树。
+        var depth = 0
+        while (depth++ < 30) {
+            val parent = root.parent ?: break
+            if (parent.packageName?.toString() != pkg) {
+                recycleNode(parent)
+                break
+            }
+            recycleNode(root)
+            root = parent
+        }
+        clearSplashSource()
+        splashEventRoot = root
     }
 
     private fun refreshSplashCache() {
@@ -232,9 +264,12 @@ class AdSkipAccessibilityService : AccessibilityService() {
             return
         }
         val now = SystemClock.elapsedRealtime()
-        val activePkg = rootInActiveWindow?.packageName?.toString()
-        val covered = activePkg != pkg
-        if (activePkg != null && covered && activePkg !in IGNORED_PACKAGES && activePkg !in imePackages) {
+        val active = rootInActiveWindow
+        val activePkg = active?.packageName?.toString()
+        // 部分系统在通知栏展开时仍把应用标为活动窗口，不能仅凭活动包名判断遮挡。
+        val covered = activePkg != pkg || hasSystemCover(active.windowId)
+        active?.let(::recycleNode)
+        if (activePkg != null && activePkg != pkg && activePkg !in IGNORED_PACKAGES && activePkg !in imePackages) {
             if (splashSession.awaitingTarget(now)) {
                 splashSession.updateCoverage(now, true)
                 scheduleSplashScan(150L)
@@ -247,9 +282,25 @@ class AdSkipAccessibilityService : AccessibilityService() {
             stopSplashScan()
             return
         }
-        // 活动窗口未知时只等待。SystemUI 遮挡时可以尝试应用节点动作，绝不透过通知栏模拟触摸。
-        if (activePkg != null) attemptSkip(pkg, now, covered)
+        // 活动根节点暂缺时也检查应用窗口/事件子树。遮挡期间只提交节点动作。
+        attemptSkip(pkg, now, covered)
         scheduleSplashScan(if (covered) 300L else 150L)
+    }
+
+    private fun hasSystemCover(windowId: Int): Boolean {
+        val screenWindows = windows.orEmpty()
+        val target = screenWindows.firstOrNull { it.id == windowId } ?: return true
+        val targetBounds = Rect().also(target::getBoundsInScreen)
+        return screenWindows.any { window ->
+            if (window.layer <= target.layer || window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                false
+            } else {
+                val overlap = Rect().also(window::getBoundsInScreen)
+                // 排除常驻状态栏/导航栏，通知栏和较大的系统弹层按遮挡处理。
+                overlap.intersect(targetBounds) && overlap.width() > targetBounds.width() / 2 &&
+                    overlap.height() > targetBounds.height() / 6
+            }
+        }
     }
 
     // ------------------------------------------------------------------ 跳转拦截
@@ -300,51 +351,51 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val allowAnywhere = age <= 6000L
         // 「关闭 / ×」只在刚启动那一瞬间才可能是开屏按钮，过了这段时间基本都是页面自己的按钮
         val allowWeak = splashSession.allowWeak(now)
-        val candidate = findCandidate(pkg, allowAnywhere, allowWeak, covered) ?: return
-
-        if (clickCandidate(candidate, pkg, allowGesture = !covered)) {
+        val candidates = findCandidates(pkg, allowAnywhere, allowWeak, covered)
+        try {
+            // 先尝试多个候选的节点动作，避免不可点击的同名文字挡住真正的跳过按钮。
+            val clicked = candidates.take(8).firstOrNull { clickCandidate(it, pkg, covered, allowGesture = false) }
+                ?: if (covered) null else candidates.firstOrNull()?.takeIf {
+                    clickCandidate(it, pkg, covered = false, allowGesture = true)
+                }
+            if (clicked == null) return
             stopSplashScan()
             StatsStore.record(pkg, StatsStore.Kind.SPLASH)
-            Log.i(TAG, "跳过开屏：\"${candidate.label}\" @ $pkg")
+            Log.i(TAG, "跳过开屏：\"${clicked.label}\" @ $pkg")
             InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
+        } finally {
+            candidates.forEach { recycleNode(it.node) }
         }
     }
 
-    private fun findCandidate(pkg: String, allowAnywhere: Boolean, allowWeak: Boolean, covered: Boolean): Candidate? {
+    private fun findCandidates(pkg: String, allowAnywhere: Boolean, allowWeak: Boolean, covered: Boolean): List<Candidate> {
         val screen = screenSize()
-        val roots = ArrayList<AccessibilityNodeInfo>()
+        val roots = LinkedHashMap<Int, AccessibilityNodeInfo>()
 
-        runCatching {
-            windows?.forEach { window ->
-                val root = window?.root ?: return@forEach
-                if (root.packageName == pkg) roots.add(root)
-            }
+        fun addRoot(root: AccessibilityNodeInfo?) {
+            if (root == null) return
+            if (root.packageName?.toString() == pkg && root.windowId !in roots) roots[root.windowId] = root
+            else recycleNode(root)
         }
 
-        if (roots.isEmpty()) {
-            val active = rootInActiveWindow ?: return null
-            if (active.packageName != pkg) return null
-            roots.add(active)
+        runCatching {
+            windows?.forEach { addRoot(it.root) }
+        }
+        addRoot(rootInActiveWindow)
+        splashEventRoot?.let { saved ->
+            // refresh 仍须得到系统许可；缓存节点不能绕过隐藏窗口的访问限制。
+            if (saved.refresh() && saved.packageName?.toString() == pkg) addRoot(copyNode(saved))
+            else clearSplashSource()
         }
 
         // 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点，只认明确的"跳过"
         val weakAllowed = allowWeak && pkg !in WEAK_MATCH_BLOCKED
-
-        // 快路径：先查当前活动窗口，开屏广告基本都在这一层，命中就不用再遍历其它窗口
-        val active = rootInActiveWindow
-        if (active != null && active.packageName == pkg) {
-            findInTree(active, screen, allowAnywhere, weakAllowed, covered)?.let { return it }
-            if (roots.isEmpty()) roots.add(active)
+        return try {
+            roots.values.flatMap { findInTree(it, screen, allowAnywhere, weakAllowed, covered) }
+                .sortedWith(compareBy<Candidate> { it.weak }.thenByDescending { it.score })
+        } finally {
+            roots.values.forEach(::recycleNode)
         }
-
-        if (roots.isEmpty()) return null
-
-        var best: Candidate? = null
-        for (root in roots) {
-            val found = findInTree(root, screen, allowAnywhere, weakAllowed, covered) ?: continue
-            if (best == null || found.score > best.score) best = found
-        }
-        return best
     }
 
     /**
@@ -359,7 +410,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         allowAnywhere: Boolean,
         weakAllowed: Boolean,
         covered: Boolean
-    ): Candidate? {
+    ): List<Candidate> {
         val candidates = ArrayList<Candidate>(4)
         var visited = 0
         var adHints = 0
@@ -386,7 +437,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                         val score = scoreOf(strength, rect, screen, allowAnywhere)
                         if (score > 0) {
                             candidates.add(
-                                Candidate(node, label, score, strength == SkipRule.WEAK)
+                                Candidate(copyNode(node), label, score, strength == SkipRule.WEAK)
                             )
                         }
                     }
@@ -395,18 +446,21 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
             for (i in 0 until node.childCount) {
                 val child = node.getChild(i) ?: continue
-                walk(child, depth + 1)
+                try {
+                    walk(child, depth + 1)
+                } finally {
+                    recycleNode(child)
+                }
             }
         }
 
         walk(root, 0)
 
-        candidates.sortByDescending { it.score }
-        for (candidate in candidates) {
-            if (!candidate.weak) return candidate
-            if (weakAllowed && adHints > 0 && visited <= SPLASH_MAX_NODES) return candidate
+        return candidates.filter { candidate ->
+            val allowed = !candidate.weak || (weakAllowed && adHints > 0 && visited <= SPLASH_MAX_NODES)
+            if (!allowed) recycleNode(candidate.node)
+            allowed
         }
-        return null
     }
 
     /**
@@ -432,27 +486,44 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun clickCandidate(candidate: Candidate, pkg: String, allowGesture: Boolean): Boolean {
-        if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg) return false
+    private fun clickCandidate(candidate: Candidate, pkg: String, covered: Boolean, allowGesture: Boolean): Boolean {
+        if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg ||
+            !candidate.node.isEnabled) return false
+        // 页面可能已更新；旧节点不能仅凭之前读到的文案继续点击。
+        val label = candidate.node.text?.toString()?.trim().orEmpty().ifEmpty {
+            candidate.node.contentDescription?.toString()?.trim().orEmpty()
+        }
+        val strength = SkipRule.match(label)
+        if (strength == SkipRule.NONE || (!candidate.weak && strength != SkipRule.STRONG) ||
+            (covered && strength != SkipRule.STRONG)) return false
         val self = Rect()
         candidate.node.getBoundsInScreen(self)
         val selfArea = self.width().toLong() * self.height()
 
         // 优先点节点自身。向上找可点击父节点时，必须确认父节点没有明显放大成容器，
         // 否则会点到容器中心 —— 广告层里「×」和「⋮」常挂在同一个可点击容器下，就会点偏。
-        var node: AccessibilityNodeInfo? = candidate.node
+        var node: AccessibilityNodeInfo? = copyNode(candidate.node)
         var depth = 0
-        while (node != null && depth < 4) {
-            if (node.packageName?.toString() == pkg && node.isEnabled && node.isClickable &&
-                (node.isVisibleToUser || !allowGesture)) {
-                val parentRect = Rect()
-                node.getBoundsInScreen(parentRect)
-                val parentArea = parentRect.width().toLong() * parentRect.height()
-                val precise = depth == 0 || (selfArea > 0 && parentArea <= selfArea * 2)
-                if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        try {
+            while (node != null && depth < 4) {
+                val hasClickAction = node.isClickable || node.actionList.any {
+                    it.id == AccessibilityNodeInfo.ACTION_CLICK
+                }
+                if (node.packageName?.toString() == pkg && node.windowId == candidate.node.windowId &&
+                    node.isEnabled && hasClickAction && (node.isVisibleToUser || covered)) {
+                    val parentRect = Rect()
+                    node.getBoundsInScreen(parentRect)
+                    val parentArea = parentRect.width().toLong() * parentRect.height()
+                    val precise = depth == 0 || (selfArea > 0 && parentArea <= selfArea * 2)
+                    if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                }
+                val parent = node.parent
+                recycleNode(node)
+                node = parent
+                depth++
             }
-            node = node.parent
-            depth++
+        } finally {
+            node?.let(::recycleNode)
         }
 
         // 自定义绘制的控件不暴露 clickable，退化为点击自身中心的坐标
@@ -486,6 +557,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         dispatchGesture(gesture, null, null)
     }.getOrDefault(false)
+
+    @Suppress("DEPRECATION")
+    private fun copyNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) AccessibilityNodeInfo(node)
+        else AccessibilityNodeInfo.obtain(node)
+
+    @Suppress("DEPRECATION")
+    private fun recycleNode(node: AccessibilityNodeInfo) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) node.recycle()
+    }
 
     private fun screenSize(): Point {
         screenCache?.let { return it }
