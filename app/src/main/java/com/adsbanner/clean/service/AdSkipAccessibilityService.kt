@@ -35,9 +35,8 @@ import com.adsbanner.clean.core.StatsStore
  *    分布在其它区域，靠位置过滤掉。
  *
  * 2) 误触跳转拦截
- *    广告跳转的唯一可靠特征是"用户还在 A 应用里，A 应用突然把 B 应用切换到前台"。
- *    因此记录"上一次前后台窗口事件的时间"，如果切到名单内的 B 应用且间隔极短、
- *    且来源不是桌面/系统界面，就判定为被强行拉起，立刻发送返回。
+ *    只在启动期间有近期广告证据、且没有主动操作时，处理名单内应用的自动拉起。
+ *    点击、滚动和系统导航优先放行；返回前再次确认目标窗口，减少对正常购物的干扰。
  *
  * 说明：无障碍服务只能"观察 + 模拟点击/返回"，没有任何 API 可以在点击落地前
  * 拦截 Intent 跳转。所以跳转拦截一定是"已经跳过去，再立即退回来"，会有极短的闪现。
@@ -57,21 +56,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
     /** 上一次检测到的前台包名 */
     private var foregroundPkg: String? = null
 
-    /** 上一次窗口切换事件的时间（elapsedRealtime），用于判断"是不是被突然拉起" */
-    private var lastWindowEventAt = 0L
-
     private val splashSession = SplashScanSession()
     private var nextSplashScanAt = Long.MAX_VALUE
     private val splashScan = Runnable { scanSplashWindow() }
     /** 只保留本次启动的应用事件节点，窗口列表短暂缺失时仍可向系统查询该窗口。 */
     private var splashEventRoot: AccessibilityNodeInfo? = null
-
-    /**
-     * 应用 -> 最后一次离开前台的时刻。
-     * 分享面板、输入法、系统弹层都会让前台包名短暂跳走再跳回来，
-     * 靠这个时间戳把「刚离开又回来」的抖动排除掉。
-     */
-    private val leftAt = HashMap<String, Long>()
 
     /** 输入法弹起不是用户切换到别的应用，包名在运行时读取，不写死厂商 */
     private val imePackages: Set<String> by lazy {
@@ -87,9 +76,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private var lastSkipTryAt = 0L
     private var skipTryCount = 0
 
-    private var lastJumpBlockAt = 0L
-
     private val pauseAdGuard by lazy { BiliPauseAdGuard(this) }
+    private val jumpGuard by lazy { JumpGuard(this) }
 
     @Volatile
     private var screenCache: Point? = null
@@ -100,7 +88,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         StatsStore.init(this)
         foregroundPkg = null
         stopSplashScan()
-        lastWindowEventAt = SystemClock.elapsedRealtime()
+        jumpGuard.stop()
         Log.i(TAG, "无障碍服务已连接")
         // 服务在线时顺带拉起常驻通知，提高进程优先级
         if (Prefs.keepAlive) KeepAliveService.start(this)
@@ -114,6 +102,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (pkg == BiliPauseAdRule.PACKAGE || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             pauseAdGuard.onEvent(event)
         }
+        jumpGuard.onEvent(event)
         // 两个能力都关闭时，不再读取节点树或维护前台状态。
         if (!Prefs.skipSplash) stopSplashScan()
         if (!Prefs.skipSplash && !Prefs.jumpGuard) return
@@ -149,11 +138,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         stopSplashScan()
         pauseAdGuard.stop()
+        jumpGuard.stop()
     }
 
     override fun onDestroy() {
         stopSplashScan()
         pauseAdGuard.stop()
+        jumpGuard.stop()
         handler.removeCallbacksAndMessages(null)
         InterceptNotifier.cancel(this)
         super.onDestroy()
@@ -169,24 +160,14 @@ class AdSkipAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------ 窗口切换
 
     private fun onWindowChanged(pkg: String) {
-        val now = SystemClock.elapsedRealtime()
         val prev = foregroundPkg
-        val gap = now - lastWindowEventAt
-        lastWindowEventAt = now
 
         if (pkg != prev) {
-            prev?.let { leftAt[it] = now }
             foregroundPkg = pkg
             stopSplashScan()
 
-            if (prev != null && gap in 0..Prefs.jumpWindowMs) {
-                if (shouldBlockJump(pkg, prev, now)) {
-                    blockJump(pkg)
-                    return
-                }
-            }
             if (Prefs.skipSplash && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
-                splashSession.start(pkg, now)
+                splashSession.start(pkg, SystemClock.elapsedRealtime())
                 lastSkipTryAt = 0L
                 skipTryCount = 0
             }
@@ -254,6 +235,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
             return
         }
         val now = SystemClock.elapsedRealtime()
+        if (jumpGuard.isReturningFrom(pkg)) {
+            scheduleSplashScan(250L)
+            return
+        }
         val remaining = 70L - (now - lastSkipTryAt)
         if (remaining > 0L) {
             // 事件不能在节流期内被丢掉，否则只能等下一轮 150ms 轮询。
@@ -301,39 +286,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     overlap.height() > targetBounds.height() / 6
             }
         }
-    }
-
-    // ------------------------------------------------------------------ 跳转拦截
-
-    private fun shouldBlockJump(target: String, from: String, now: Long): Boolean {
-        if (!Prefs.jumpGuard) return false
-        // 从桌面/系统界面启动属于用户主动行为，不拦
-        if (AppInfoHelper.isHomeOrSystem(this, from)) return false
-        // 目标应用刚离开又回来，说明是窗口抖动（分享面板、输入法、系统弹层），不是被广告拉起
-        val left = leftAt[target]
-        if (left != null && now - left < RETURN_GRACE_MS) return false
-        return target in Prefs.jumpTargets
-    }
-
-    private fun blockJump(target: String) {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastJumpBlockAt < 1500) return
-        lastJumpBlockAt = now
-
-        StatsStore.record(target, StatsStore.Kind.JUMP)
-        Log.i(TAG, "拦截误触跳转 -> $target")
-        InterceptNotifier.notify(this, AppInfoHelper.label(this, target), StatsStore.Kind.JUMP)
-
-        // 稍等目标应用完成启动再返回，否则返回事件可能被丢弃
-        handler.postDelayed({
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            // 部分应用会连续拉起两层页面，第二下前先确认仍停在目标应用
-            handler.postDelayed({
-                if (foregroundPkg == target) {
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                }
-            }, 500L)
-        }, 250L)
     }
 
     // ------------------------------------------------------------------ 开屏跳过
@@ -391,6 +343,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (SkipRule.match(label) != SkipRule.STRONG) return null
             val rect = Rect().also(node::getBoundsInScreen)
             if (rect.isEmpty || scoreOf(SkipRule.STRONG, rect, screen, false) != 100) return null
+            if (node.isVisibleToUser) jumpGuard.onAdCandidate(pkg, label)
             return Candidate(copyNode(node), label, 100, false)
         }
         fun click(node: AccessibilityNodeInfo): Candidate? {
@@ -504,6 +457,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     if (rect.width() > 0 && rect.height() > 0) {
                         val score = scoreOf(strength, rect, screen, allowAnywhere)
                         if (score > 0) {
+                            if (strength == SkipRule.STRONG && score >= 85 && node.isVisibleToUser) {
+                                node.packageName?.toString()?.let { jumpGuard.onAdCandidate(it, label) }
+                            }
                             candidates.add(
                                 Candidate(copyNode(node), label, score, strength == SkipRule.WEAK)
                             )
@@ -661,9 +617,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         /** 开屏页结构简单，节点数通常很少；小程序、列表页动辄上百个 */
         private const val SPLASH_MAX_NODES = 60
-
-        /** 目标应用离开前台不超过这个时间又回来，视为窗口抖动，不拦截 */
-        private const val RETURN_GRACE_MS = 5_000L
 
         /** 出现这些文字才说明当前页确实是开屏广告 */
         private val AD_HINT = Regex("广告|跳过|\\d+\\s*[sS秒]")
