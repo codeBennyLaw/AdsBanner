@@ -114,6 +114,7 @@
         <!-- 统计 -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardStats"
+            android:transitionName="@string/transition_stats"
             style="@style/Card.AdsBanner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -447,6 +448,7 @@
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardTargets"
+            android:transitionName="@string/transition_targets"
             style="@style/Card.AdsBanner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
