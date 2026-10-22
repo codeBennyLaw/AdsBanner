@@ -4,5 +4,5 @@
     <string name="app_slogan">开屏广告自动跳过 · 误触跳转即时拦截</string>
 
     <string name="accessibility_label">AdsBanner · 广告拦截服务</string>
-    <string name="accessibility_description">AdsBanner 需要无障碍权限来完成两件事：\n1. 识别并点击其他应用开屏广告上的「跳过」按钮；\n2. 当你误触广告被强行拉起淘宝、京东等应用时，立即返回原应用。\n\nAdsBanner 不会上传、不会记录你的密码或聊天内容，所有拦截数据只保存在本机。</string>
+    <string name="accessibility_description">AdsBanner 需要无障碍权限来完成两件事：\n1. 识别并点击其他应用开屏广告上的「跳过」按钮；\n2. 检测开屏广告期间的可疑自动拉起，优先放行主动点击、滚动和系统导航，减少打断正常购物。\n\nAdsBanner 不会上传、不会记录你的密码或聊天内容，所有拦截数据只保存在本机。</string>
 </resources>

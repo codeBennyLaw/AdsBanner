@@ -120,7 +120,7 @@ object Prefs {
             sp.edit().putLong(KEY_SPLASH_WINDOW, value).apply()
         }
 
-    /** 应用切换间隔小于该值时，才认为是一次"被拉起"的跳转 */
+    /** 跳转前多久内观察到开屏广告，才仍作为可疑自动拉起的证据 */
     var jumpWindowMs: Long
         get() = ensure().let { sp.getLong(KEY_JUMP_WINDOW, 2_000L) }
         set(value) {
