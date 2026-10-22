@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AdsBanner</string>
+    <string name="transition_stats" translatable="false">adsbanner_stats_container</string>
+    <string name="transition_targets" translatable="false">adsbanner_targets_container</string>
     <string name="app_slogan">开屏广告自动跳过 · 误触跳转即时拦截</string>
 
     <string name="accessibility_label">AdsBanner · 广告拦截服务</string>

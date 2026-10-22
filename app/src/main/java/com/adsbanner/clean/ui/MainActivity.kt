@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchInAppAd: MaterialSwitch
 
     private var binding = false
+    private var openingPage = false
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+        Motion.prepareHome(this)
         applySystemBarAppearance()
         // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
@@ -83,6 +85,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        openingPage = false
         AppForeground.visible = true
         refresh()
     }
@@ -253,13 +256,15 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnService).setOnClickListener {
             AccessibilityHelper.openAccessibilitySettings(this)
         }
-        findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener {
-            startActivity(Intent(this, StatsActivity::class.java))
-            overridePendingTransition(android.R.anim.slide_in_left, android.R.anim.fade_out)
+        findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener { card ->
+            if (openingPage) return@setOnClickListener
+            openingPage = true
+            Motion.openPage(this, card, StatsActivity::class.java)
         }
-        findViewById<MaterialCardView>(R.id.cardTargets).setOnClickListener {
-            startActivity(Intent(this, TargetListActivity::class.java))
-            overridePendingTransition(android.R.anim.slide_in_left, android.R.anim.fade_out)
+        findViewById<MaterialCardView>(R.id.cardTargets).setOnClickListener { card ->
+            if (openingPage) return@setOnClickListener
+            openingPage = true
+            Motion.openPage(this, card, TargetListActivity::class.java)
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }

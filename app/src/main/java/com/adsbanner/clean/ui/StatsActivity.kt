@@ -65,7 +65,7 @@ class StatsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_stats)
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
-        Motion.enter(findViewById(R.id.root))
+        Motion.preparePage(this, getString(R.string.transition_stats), R.color.brand_light)
         // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -104,8 +104,7 @@ class StatsActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.btnBack).setOnClickListener {
-            finish()
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.slide_out_right)
+            onBackPressedDispatcher.onBackPressed()
         }
         btnHeatmap.setOnClickListener { toggleView() }
         btnType.setOnClickListener { showTypeMenu() }
@@ -129,7 +128,7 @@ class StatsActivity : AppCompatActivity() {
 
         val showing = if (heatmapVisible) heatmapScroll else listScroll
         val hiding = if (heatmapVisible) listScroll else heatmapScroll
-        Motion.crossfade(showing, hiding)
+        Motion.switchViews(showing, hiding, forward = heatmapVisible)
         filterRow.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
         statsOverview.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
 

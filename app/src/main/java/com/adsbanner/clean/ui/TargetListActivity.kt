@@ -52,7 +52,7 @@ class TargetListActivity : AppCompatActivity() {
         etSearch = findViewById(R.id.etSearch)
         tvSelectionSummary = findViewById(R.id.tvSelectionSummary)
         tvAppListMeta = findViewById(R.id.tvAppListMeta)
-        Motion.enter(findViewById(R.id.root))
+        Motion.preparePage(this, getString(R.string.transition_targets), R.color.surface)
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsets(
@@ -64,8 +64,7 @@ class TargetListActivity : AppCompatActivity() {
         }
 
         findViewById<View>(R.id.btnBack).setOnClickListener {
-            finish()
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.slide_out_right)
+            onBackPressedDispatcher.onBackPressed()
         }
 
         selected.addAll(Prefs.jumpTargets)
