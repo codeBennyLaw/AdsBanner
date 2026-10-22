@@ -2,6 +2,7 @@ package com.adsbanner.clean.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.KeyguardManager
 import android.graphics.Path
 import android.graphics.Point
 import android.graphics.Rect
@@ -18,6 +19,7 @@ import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.BiliPauseAdRule
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.SkipRule
+import com.adsbanner.clean.core.SplashScanSession
 import com.adsbanner.clean.core.StatsStore
 
 /**
@@ -57,8 +59,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
     /** 上一次窗口切换事件的时间（elapsedRealtime），用于判断"是不是被突然拉起" */
     private var lastWindowEventAt = 0L
 
-    /** 应用 -> 首次进入时间 */
-    private val enterAt = HashMap<String, Long>()
+    private val splashSession = SplashScanSession()
+    private var nextSplashScanAt = Long.MAX_VALUE
+    private val splashScan = Runnable { scanSplashWindow() }
 
     /**
      * 应用 -> 最后一次离开前台的时刻。
@@ -78,8 +81,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }.getOrDefault(emptySet())
     }
 
-    private var splashDonePkg: String? = null
-    private var splashDoneAt = 0L
     private var lastSkipTryAt = 0L
     private var skipTryCount = 0
 
@@ -95,6 +96,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         Prefs.init(this)
         StatsStore.init(this)
         foregroundPkg = null
+        stopSplashScan()
         lastWindowEventAt = SystemClock.elapsedRealtime()
         Log.i(TAG, "无障碍服务已连接")
         // 服务在线时顺带拉起常驻通知，提高进程优先级
@@ -103,19 +105,36 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        val pkg = event.packageName?.toString() ?: return
         val type = event.eventType
+        val pkg = event.packageName?.toString()
         // B 站页面守护只需要自己的交互事件；窗口切换仍要转发一次，及时结束旧页面扫描。
         if (pkg == BiliPauseAdRule.PACKAGE || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             pauseAdGuard.onEvent(event)
         }
         // 两个能力都关闭时，不再读取节点树或维护前台状态。
+        if (!Prefs.skipSplash) stopSplashScan()
         if (!Prefs.skipSplash && !Prefs.jumpGuard) return
-        if (pkg == packageName) return
-        if (pkg in IGNORED_PACKAGES) return
-        // 输入法弹起会让前台包名短暂变成输入法，不能当成"切到别的应用"
-        if (pkg in imePackages) return
-
+        // 窗口集合变化可能没有包名。通知栏收起时即使应用内容不变，也需要补查。
+        if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            refreshSplashCache()
+            scheduleSplashScan(0L)
+            return
+        }
+        if (pkg == null) return
+        if (pkg == packageName) {
+            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                !splashSession.awaitingTarget(SystemClock.elapsedRealtime())) {
+                stopSplashScan()
+                foregroundPkg = null
+            } else scheduleSplashScan(0L)
+            return
+        }
+        // 通知栏和输入法不改变正在等待的应用，但展开、收起都要唤醒检测。
+        if (pkg in IGNORED_PACKAGES || pkg in imePackages) {
+            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) refreshSplashCache()
+            scheduleSplashScan(0L)
+            return
+        }
         when (type) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg)
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> onContentChanged(pkg)
@@ -124,10 +143,12 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        stopSplashScan()
         pauseAdGuard.stop()
     }
 
     override fun onDestroy() {
+        stopSplashScan()
         pauseAdGuard.stop()
         handler.removeCallbacksAndMessages(null)
         InterceptNotifier.cancel(this)
@@ -151,11 +172,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (pkg != prev) {
             prev?.let { leftAt[it] = now }
             foregroundPkg = pkg
-            enterAt[pkg] = now
-            splashDonePkg = null
-            skipTryCount = 0
-            // 刚切到新应用，不继承上一个应用的尝试节流，保证第一时间就能尝试
-            lastSkipTryAt = 0L
+            stopSplashScan()
 
             if (prev != null && gap in 0..Prefs.jumpWindowMs) {
                 if (shouldBlockJump(pkg, prev, now)) {
@@ -163,20 +180,77 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     return
                 }
             }
+            if (Prefs.skipSplash && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
+                splashSession.start(pkg, now)
+                lastSkipTryAt = 0L
+                skipTryCount = 0
+            }
         }
 
-        if (Prefs.skipSplash && isScreenInteractive()) attemptSkip(pkg, now)
+        scheduleSplashScan(0L)
     }
 
     private fun onContentChanged(pkg: String) {
-        val now = SystemClock.elapsedRealtime()
-        // 无障碍服务可能晚于应用启动，这里补一次进入时间，避免漏掉开屏
-        if (!enterAt.containsKey(pkg)) enterAt[pkg] = now
-        if (Prefs.skipSplash && isScreenInteractive()) attemptSkip(pkg, now)
+        // 服务晚于应用启动时，只为当前活动应用补建一次检测窗口，后台内容事件不启动扫描。
+        if (Prefs.skipSplash && foregroundPkg == null && rootInActiveWindow?.packageName?.toString() == pkg) {
+            onWindowChanged(pkg)
+        } else if (splashSession.packageName == pkg) {
+            scheduleSplashScan(0L)
+        }
     }
 
     private fun isScreenInteractive(): Boolean =
-        getSystemService(android.os.PowerManager::class.java)?.isInteractive != false
+        getSystemService(android.os.PowerManager::class.java)?.isInteractive != false &&
+            getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
+
+    private fun stopSplashScan() {
+        handler.removeCallbacks(splashScan)
+        nextSplashScanAt = Long.MAX_VALUE
+        splashSession.clear()
+    }
+
+    private fun refreshSplashCache() {
+        if (splashSession.packageName != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clearCache()
+        }
+    }
+
+    private fun scheduleSplashScan(delay: Long) {
+        if (!Prefs.skipSplash || splashSession.packageName == null) return
+        val due = SystemClock.elapsedRealtime() + delay
+        if (due >= nextSplashScanAt) return
+        handler.removeCallbacks(splashScan)
+        nextSplashScanAt = due
+        handler.postDelayed(splashScan, delay)
+    }
+
+    private fun scanSplashWindow() {
+        nextSplashScanAt = Long.MAX_VALUE
+        val pkg = splashSession.packageName ?: return
+        if (!Prefs.skipSplash || !isScreenInteractive()) {
+            stopSplashScan()
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        val activePkg = rootInActiveWindow?.packageName?.toString()
+        val covered = activePkg != pkg
+        if (activePkg != null && covered && activePkg !in IGNORED_PACKAGES && activePkg !in imePackages) {
+            if (splashSession.awaitingTarget(now)) {
+                splashSession.updateCoverage(now, true)
+                scheduleSplashScan(150L)
+            } else stopSplashScan()
+            return
+        }
+        if (activePkg == pkg) splashSession.observeTarget()
+        splashSession.updateCoverage(now, covered)
+        if (!splashSession.pending(now, Prefs.splashWindowMs) || skipTryCount >= 120) {
+            stopSplashScan()
+            return
+        }
+        // 活动窗口未知时只等待。SystemUI 遮挡时可以尝试应用节点动作，绝不透过通知栏模拟触摸。
+        if (activePkg != null) attemptSkip(pkg, now, covered)
+        scheduleSplashScan(if (covered) 300L else 150L)
+    }
 
     // ------------------------------------------------------------------ 跳转拦截
 
@@ -213,36 +287,30 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     // ------------------------------------------------------------------ 开屏跳过
 
-    private fun attemptSkip(pkg: String, now: Long) {
+    private fun attemptSkip(pkg: String, now: Long, covered: Boolean) {
         // 同一应用内的尝试间隔。系统事件本身已经按 notificationTimeout 节流，
         // 这里只是防止节点树遍历过于频繁，取一个比系统节流略大的值。
         if (now - lastSkipTryAt < 70L) return
-        if (skipTryCount >= 120) return
-        if (splashDonePkg == pkg && now - splashDoneAt < 3000L) return
-
-        val entered = enterAt[pkg] ?: return
-        val age = now - entered
-        if (age > Prefs.splashWindowMs) return
+        val age = splashSession.age(now)
 
         lastSkipTryAt = now
-        skipTryCount++
+        if (!covered) skipTryCount++
 
         // 刚进入应用的几秒内放宽位置限制，覆盖少数把跳过按钮放在底部的设计
         val allowAnywhere = age <= 6000L
         // 「关闭 / ×」只在刚启动那一瞬间才可能是开屏按钮，过了这段时间基本都是页面自己的按钮
-        val allowWeak = age <= 3000L
-        val candidate = findCandidate(pkg, allowAnywhere, allowWeak) ?: return
+        val allowWeak = splashSession.allowWeak(now)
+        val candidate = findCandidate(pkg, allowAnywhere, allowWeak, covered) ?: return
 
-        if (clickCandidate(candidate)) {
-            splashDonePkg = pkg
-            splashDoneAt = SystemClock.elapsedRealtime()
+        if (clickCandidate(candidate, pkg, allowGesture = !covered)) {
+            stopSplashScan()
             StatsStore.record(pkg, StatsStore.Kind.SPLASH)
             Log.i(TAG, "跳过开屏：\"${candidate.label}\" @ $pkg")
             InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
         }
     }
 
-    private fun findCandidate(pkg: String, allowAnywhere: Boolean, allowWeak: Boolean): Candidate? {
+    private fun findCandidate(pkg: String, allowAnywhere: Boolean, allowWeak: Boolean, covered: Boolean): Candidate? {
         val screen = screenSize()
         val roots = ArrayList<AccessibilityNodeInfo>()
 
@@ -265,7 +333,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         // 快路径：先查当前活动窗口，开屏广告基本都在这一层，命中就不用再遍历其它窗口
         val active = rootInActiveWindow
         if (active != null && active.packageName == pkg) {
-            findInTree(active, screen, allowAnywhere, weakAllowed)?.let { return it }
+            findInTree(active, screen, allowAnywhere, weakAllowed, covered)?.let { return it }
             if (roots.isEmpty()) roots.add(active)
         }
 
@@ -273,7 +341,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         var best: Candidate? = null
         for (root in roots) {
-            val found = findInTree(root, screen, allowAnywhere, weakAllowed) ?: continue
+            val found = findInTree(root, screen, allowAnywhere, weakAllowed, covered) ?: continue
             if (best == null || found.score > best.score) best = found
         }
         return best
@@ -289,7 +357,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         root: AccessibilityNodeInfo,
         screen: Point,
         allowAnywhere: Boolean,
-        weakAllowed: Boolean
+        weakAllowed: Boolean,
+        covered: Boolean
     ): Candidate? {
         val candidates = ArrayList<Candidate>(4)
         var visited = 0
@@ -299,9 +368,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (depth > 30 || visited > 700) return
             visited++
 
-            // 不可见节点的整棵子树都不可见，直接剪掉，避免在无效分支上耗时间；
-            // 根节点本身可能被判为不可见，所以 depth 0 不剪
-            if (depth > 0 && !node.isVisibleToUser) return
+            // 遮挡时只保留明确的跳过匹配供节点动作使用，不允许弱匹配或坐标点击。
+            if (!covered && depth > 0 && !node.isVisibleToUser) return
 
             val text = node.text?.toString()?.trim().orEmpty()
             val desc = node.contentDescription?.toString()?.trim().orEmpty()
@@ -364,7 +432,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun clickCandidate(candidate: Candidate): Boolean {
+    private fun clickCandidate(candidate: Candidate, pkg: String, allowGesture: Boolean): Boolean {
+        if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg) return false
         val self = Rect()
         candidate.node.getBoundsInScreen(self)
         val selfArea = self.width().toLong() * self.height()
@@ -374,7 +443,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         var node: AccessibilityNodeInfo? = candidate.node
         var depth = 0
         while (node != null && depth < 4) {
-            if (node.isEnabled && node.isClickable && node.isVisibleToUser) {
+            if (node.packageName?.toString() == pkg && node.isEnabled && node.isClickable &&
+                (node.isVisibleToUser || !allowGesture)) {
                 val parentRect = Rect()
                 node.getBoundsInScreen(parentRect)
                 val parentArea = parentRect.width().toLong() * parentRect.height()
@@ -386,8 +456,28 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
 
         // 自定义绘制的控件不暴露 clickable，退化为点击自身中心的坐标
-        if (self.width() <= 0 || self.height() <= 0) return false
+        if (!allowGesture || self.width() <= 0 || self.height() <= 0 ||
+            !canTapApplication(pkg, candidate.node.windowId, self.centerX(), self.centerY())) return false
         return tapAt(self.centerX().toFloat(), self.centerY().toFloat())
+    }
+
+    /** 触摸会落到最上层窗口，提交手势前再次确认目标窗口及点击点没有被系统界面遮住。 */
+    private fun canTapApplication(pkg: String, windowId: Int, x: Int, y: Int): Boolean {
+        // 节点遍历期间系统窗口可能已变化，而事件仍在主线程队列里，不能信任此前的窗口缓存。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clearCache()
+        } else if (SystemClock.elapsedRealtime() - lastSkipTryAt > 250L) {
+            return false
+        }
+        val active = rootInActiveWindow ?: return false
+        if (active.packageName?.toString() != pkg || active.windowId != windowId) return false
+        val screenWindows = windows.orEmpty()
+        val target = screenWindows.firstOrNull { it.id == windowId } ?: return false
+        return screenWindows.none { window ->
+            val bounds = Rect()
+            window.getBoundsInScreen(bounds)
+            window.layer > target.layer && bounds.contains(x, y)
+        }
     }
 
     private fun tapAt(x: Float, y: Float): Boolean = runCatching {
