@@ -26,14 +26,14 @@ internal class FakeReleaseConnection(address: URL, private val status: Int = 200
 
 class ReleaseHttpTest {
     private val api = "https://api.github.com/repos/example/app/releases/latest"
-    @Test fun credentialsAndEtagDoNotFollowRedirectsButRangeDoes() {
+    @Test fun publicRequestsNeverAuthenticateAndOnlyRangeFollowsRedirects() {
         val connections = mutableListOf<FakeReleaseConnection>()
-        val http = ReleaseHttp({ "test-token" }, { url ->
+        val http = ReleaseHttp({ url ->
             FakeReleaseConnection(url, if (connections.isEmpty()) 302 else 200,
                 mapOf("Location" to "https://release-assets.githubusercontent.com/file.apk")).also { connections += it }
         })
         val final = http.open(api, ReleaseHttp.BINARY, mapOf("If-None-Match" to "cached", "Range" to "bytes=100-"))
-        assertEquals("Bearer test-token", connections[0].getRequestProperty("Authorization"))
+        assertTrue(connections.all { it.getRequestProperty("Authorization") == null })
         assertNull(final.getRequestProperty("Authorization"))
         assertNull(final.getRequestProperty("If-None-Match"))
         assertEquals("bytes=100-", final.getRequestProperty("Range"))
@@ -41,13 +41,13 @@ class ReleaseHttpTest {
         final.disconnect()
     }
     @Test fun credentialsAreNeverSentToTheBrowserRoute() {
-        val http = ReleaseHttp({ "secret" }, { FakeReleaseConnection(it) })
+        val http = ReleaseHttp({ FakeReleaseConnection(it) })
         val response = http.open("https://github.com/example/app/file.apk", ReleaseHttp.BINARY)
         assertNull(response.getRequestProperty("Authorization"))
     }
     @Test fun rejectsInsecureRedirectsAndClosesTheFirstConnection() {
         val first = FakeReleaseConnection(URL(api), 302, mapOf("Location" to "http://example.com/file"))
-        val http = ReleaseHttp({ "secret" }, { first })
+        val http = ReleaseHttp({ first })
         assertThrows(IllegalArgumentException::class.java) { http.open(api, ReleaseHttp.BINARY) }
         assertTrue(first.disconnected)
     }
@@ -55,27 +55,37 @@ class ReleaseHttpTest {
         val first = FakeReleaseConnection(URL(api), payload = { throw SocketTimeoutException("read") })
         val second = FakeReleaseConnection(URL(api), headers = mapOf("ETag" to "new"), payload = { "{}".byteInputStream() })
         val queue = ArrayDeque(listOf(first, second))
-        val http = ReleaseHttp({ "" }, { queue.removeFirst() }, {})
+        val http = ReleaseHttp({ queue.removeFirst() }, {})
         assertEquals("{}", http.text(api).body)
         assertTrue(first.disconnected && second.disconnected)
         assertTrue(queue.isEmpty())
     }
     @Test fun nonTransientHttpFailuresAreNotRetried() {
         var calls = 0
-        val http = ReleaseHttp({ "" }, { calls++; FakeReleaseConnection(it, 403) }, {})
+        val http = ReleaseHttp({ calls++; FakeReleaseConnection(it, 403) }, {})
         assertEquals(403, assertThrows(ReleaseHttp.Failure::class.java) { http.text(api) }.status)
         assertEquals(1, calls)
     }
+    @Test fun anonymousRateLimitsAreReportedWithoutImmediateRetries() {
+        for (status in listOf(403, 429)) {
+            var calls = 0
+            val http = ReleaseHttp({ calls++; FakeReleaseConnection(it, status, mapOf("X-RateLimit-Remaining" to "0")) }, {})
+            val error = assertThrows(ReleaseHttp.Failure::class.java) { http.text(api) }
+            assertTrue(error.rateLimited)
+            assertTrue(ReleaseHttp.reason(error).contains("访问次数已达上限"))
+            assertEquals(1, calls)
+        }
+    }
     @Test fun conditional304DoesNotReadTheBody() {
         val response = FakeReleaseConnection(URL(api), 304, payload = { error("must not read") })
-        val http = ReleaseHttp({ "" }, { response })
+        val http = ReleaseHttp({ response })
         assertTrue(http.text(api, "previous").notModified)
         assertEquals("previous", response.getRequestProperty("If-None-Match"))
         assertTrue(response.disconnected)
     }
     @Test fun cancellationDisconnectsTheActiveConnectionAndPreventsNewRequests() {
         val response = FakeReleaseConnection(URL(api))
-        val http = ReleaseHttp({ "" }, { response })
+        val http = ReleaseHttp({ response })
         val cancellation = ReleaseHttp.Cancellation()
         http.open(api, ReleaseHttp.BINARY, cancellation = cancellation)
         cancellation.cancel()
@@ -86,7 +96,7 @@ class ReleaseHttpTest {
     }
     @Test fun redirectLoopsHaveABound() {
         var calls = 0
-        val http = ReleaseHttp({ "" }, { calls++; FakeReleaseConnection(it, 302, mapOf("Location" to api)) })
+        val http = ReleaseHttp({ calls++; FakeReleaseConnection(it, 302, mapOf("Location" to api)) })
         assertThrows(IOException::class.java) { http.open(api, ReleaseHttp.BINARY) }
         assertEquals(5, calls)
     }

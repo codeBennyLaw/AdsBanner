@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.io.File
 import java.time.Instant
 
-/** Only release text and ETags are stored; request headers and access tokens stay out of the cache. */
+/** Only release text and ETags are stored; request headers stay out of the cache. */
 internal class ReleaseNotesDiskCache(file: File) {
     private val storage = AtomicFile(file)
     fun read(): Map<Int, ReleaseNotesRepository.Saved> = runCatching {

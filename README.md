@@ -68,13 +68,7 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 ./gradlew assembleRelease
 ```
 
-公开 Release 可直接访问；若需要仓库访问凭据，在 `local.properties` 里配置（该文件不入库）：
-
-```properties
-github.token=github_pat_xxx
-```
-
-构建时会注入到 `BuildConfig.GITHUB_TOKEN`，只用于 `api.github.com` 的初始请求，不转发给下载重定向地址。不配置时使用未认证的公开接口，仍受 GitHub 的访问频率与网络条件限制。
+更新检查、历史日志与安装包下载均使用 GitHub 的公开接口，无需配置 key，APK 不注入 GitHub 访问凭据。匿名 API 访问受 GitHub 的 IP 额度与网络条件限制；额度用尽时会明确提示，已缓存的更新日志仍可查看。
 
 产物位于 `app/build/outputs/apk/`，文件名形如：
 
