@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.SystemClock
 import android.widget.TextView
 import android.widget.Toast
-import com.adsbanner.clean.BuildConfig
 import com.adsbanner.clean.R
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
@@ -30,7 +29,7 @@ import java.time.Instant
 /**
  * 通过 GitHub Release 检查更新。
  *
- * 共享请求配置与 ETag 缓存；凭据只用于 GitHub API，不跟随附件重定向。
+ * 使用公开接口与 ETag 缓存，不依赖 GitHub 访问凭据。
  */
 object ReleaseUpdates {
 
@@ -41,8 +40,7 @@ object ReleaseUpdates {
 
     const val REPOSITORY_URL = "https://github.com/$OWNER/$REPO"
 
-    private val TOKEN: String get() = BuildConfig.GITHUB_TOKEN
-    internal val http = ReleaseHttp({ TOKEN })
+    internal val http = ReleaseHttp()
     @Volatile private var diskCache: ReleaseNotesDiskCache? = null
     private data class Latest(val body: JSONObject, val etag: String?)
     @Volatile private var latest: Latest? = null

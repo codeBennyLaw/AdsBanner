@@ -28,7 +28,7 @@ class ReleaseAssetDownloaderTest {
     }
     @Test fun interruptedDownloadsResumeFromTheWrittenOffset() {
         val connections = mutableListOf<FakeReleaseConnection>()
-        val http = ReleaseHttp({ "token" }, { url ->
+        val http = ReleaseHttp({ url ->
             (if (connections.isEmpty()) FakeReleaseConnection(url, payload = ::partial)
             else FakeReleaseConnection(url, 206, mapOf("Content-Range" to "bytes 700-2047/2048"),
                 { ByteArrayInputStream(data, 700, data.size - 700) })).also { connections += it }
@@ -47,7 +47,7 @@ class ReleaseAssetDownloaderTest {
     }
     @Test fun aServerIgnoringRangeRestartsRatherThanAppending() {
         var attempts = 0
-        val http = ReleaseHttp({ "" }, { url ->
+        val http = ReleaseHttp({ url ->
             if (attempts++ == 0) FakeReleaseConnection(url, payload = ::partial)
             else FakeReleaseConnection(url, payload = { data.inputStream() })
         })
@@ -57,7 +57,7 @@ class ReleaseAssetDownloaderTest {
     }
     @Test fun aDeniedApiRouteFallsBackWithoutSendingCredentials() {
         val connections = mutableListOf<FakeReleaseConnection>()
-        val http = ReleaseHttp({ "token" }, { url ->
+        val http = ReleaseHttp({ url ->
             FakeReleaseConnection(url, if (connections.isEmpty()) 403 else 200, payload = { data.inputStream() })
                 .also { connections += it }
         })
@@ -67,7 +67,7 @@ class ReleaseAssetDownloaderTest {
     }
     @Test fun aWrongResumePositionCannotProduceAnInstallableFile() {
         var attempts = 0
-        val http = ReleaseHttp({ "" }, { url ->
+        val http = ReleaseHttp({ url ->
             if (attempts++ == 0) FakeReleaseConnection(url, payload = ::partial)
             else FakeReleaseConnection(url, 206, mapOf("Content-Range" to "bytes 0-2047/2048"), { data.inputStream() })
         })
@@ -78,7 +78,7 @@ class ReleaseAssetDownloaderTest {
     }
     @Test fun truncatedFilesCannotBeCompletedAndRetriesAreBounded() {
         var attempts = 0
-        val http = ReleaseHttp({ "" }, { url -> attempts++; FakeReleaseConnection(url, payload = { data.copyOf(600).inputStream() }) })
+        val http = ReleaseHttp({ url -> attempts++; FakeReleaseConnection(url, payload = { data.copyOf(600).inputStream() }) })
         assertThrows(IOException::class.java) {
             ReleaseAssetDownloader(http, {}).download(asset(), folder.root, "app.apk", ReleaseHttp.Cancellation(), {}) { error("must not validate") }
         }
@@ -87,7 +87,7 @@ class ReleaseAssetDownloaderTest {
     }
     @Test fun digestOrApkValidationFailureDoesNotReplaceAnExistingFile() {
         val original = folder.newFile("app.apk").apply { writeText("previous") }
-        val http = ReleaseHttp({ "" }, { FakeReleaseConnection(it, payload = { data.inputStream() }) })
+        val http = ReleaseHttp({ FakeReleaseConnection(it, payload = { data.inputStream() }) })
         val progress = mutableListOf<Int>()
         assertThrows(IllegalStateException::class.java) {
             ReleaseAssetDownloader(http, {}).download(asset().copy(sha256 = "0".repeat(64)), folder.root, "app.apk",
@@ -102,7 +102,7 @@ class ReleaseAssetDownloaderTest {
     }
     @Test fun cancellationCleansThePartialFileAndDoesNotReportSuccess() {
         val cancellation = ReleaseHttp.Cancellation()
-        val http = ReleaseHttp({ "" }, { FakeReleaseConnection(it, payload = { data.inputStream() }) })
+        val http = ReleaseHttp({ FakeReleaseConnection(it, payload = { data.inputStream() }) })
         assertThrows(IOException::class.java) {
             ReleaseAssetDownloader(http, {}).download(asset(), folder.root, "app.apk", cancellation,
                 { cancellation.cancel() }) { error("must not validate") }

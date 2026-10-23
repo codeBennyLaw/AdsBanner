@@ -6,13 +6,12 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 
-/** Shared GitHub transport. Credentials and conditional headers never follow a redirect. */
+/** Public GitHub transport; conditional headers never follow a redirect. */
 internal class ReleaseHttp(
-    private val token: () -> String,
     private val connect: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
     private val pause: (Long) -> Unit = Thread::sleep
 ) {
-    class Failure(val status: Int) : IOException("GitHub HTTP $status")
+    class Failure(val status: Int, val rateLimited: Boolean = false) : IOException("GitHub HTTP $status")
     class Cancellation {
         @Volatile var cancelled = false
             private set
@@ -52,7 +51,6 @@ internal class ReleaseHttp(
                 connection.setRequestProperty("Accept", accept)
                 connection.setRequestProperty("User-Agent", "AdsBanner")
                 if (hop == 0 && url.host.equals("api.github.com", true)) {
-                    token().takeIf { it.isNotBlank() }?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
                     connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
                 }
                 headers.forEach { (key, value) ->
@@ -63,7 +61,8 @@ internal class ReleaseHttp(
                 if (status in REDIRECTS) {
                     url = URL(url, connection.getHeaderField("Location") ?: throw IOException("缺少下载地址"))
                 } else {
-                    if (status !in 200..299 && !(status == 304 && hop == 0 && "If-None-Match" in headers)) throw Failure(status)
+                    if (status !in 200..299 && !(status == 304 && hop == 0 && "If-None-Match" in headers))
+                        throw Failure(status, status == 429 || (status == 403 && connection.getHeaderField("X-RateLimit-Remaining") == "0"))
                     return connection
                 }
             } catch (error: Exception) {
@@ -105,10 +104,10 @@ internal class ReleaseHttp(
         private val REDIRECTS = setOf(301, 302, 303, 307, 308)
         fun retryable(error: IOException) = !Thread.currentThread().isInterrupted &&
             (error !is InterruptedIOException || error is SocketTimeoutException) &&
-            (error !is Failure || error.status in setOf(408, 429, 500, 502, 503, 504))
+            (error !is Failure || (!error.rateLimited && error.status in setOf(408, 500, 502, 503, 504)))
         fun reason(error: Throwable) = when (error) {
             is SocketTimeoutException -> "连接 GitHub 超时，请检查网络后重试"
-            is Failure -> when (error.status) {
+            is Failure -> if (error.rateLimited) "GitHub 访问次数已达上限，请稍后重试" else when (error.status) {
                 401, 403 -> "暂时无法访问更新，请稍后重试"
                 404 -> "该版本的安装包暂时不可用"
                 429 -> "请求过于频繁，请稍后重试"
