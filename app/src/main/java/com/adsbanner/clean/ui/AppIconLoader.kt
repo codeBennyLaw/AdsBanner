@@ -8,6 +8,8 @@ import android.os.Process
 import android.util.LruCache
 import android.widget.ImageView
 import androidx.core.graphics.drawable.toBitmap
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
+import com.adsbanner.clean.R
 import java.util.IdentityHashMap
 import java.util.concurrent.Future
 import java.util.concurrent.LinkedBlockingQueue
@@ -33,7 +35,7 @@ internal class AppIconLoader(
     fun bind(view: ImageView, pkg: String) {
         cancel(view)
         val key = "$configurationKey:$pkg"
-        cache.get(key)?.let { view.setImageBitmap(it); return }
+        cache.get(key)?.let { showIcon(view, it); return }
         view.setImageDrawable(null)
         if (closed) return
         val request = Request()
@@ -48,11 +50,19 @@ internal class AppIconLoader(
                 deliver(view) {
                     if (!closed && requests[view] === request) {
                         requests.remove(view)
-                        if (bitmap != null) view.setImageBitmap(bitmap)
+                        if (bitmap != null) showIcon(view, bitmap)
                     }
                 }
             }
         }
+    }
+
+    private fun showIcon(view: ImageView, bitmap: Bitmap) {
+        view.setImageDrawable(RoundedBitmapDrawableFactory.create(view.resources, bitmap).apply {
+            cornerRadius = view.resources.getDimension(R.dimen.corner_icon)
+            setAntiAlias(true)
+            setFilterBitmap(true)
+        })
     }
 
     fun cancel(view: ImageView) {
