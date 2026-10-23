@@ -1,5 +1,6 @@
 package com.adsbanner.clean.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,11 +8,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -41,16 +44,25 @@ class UpdateDownloadService : Service() {
         private const val EXTRA_URL = "url"
         private const val EXTRA_FILE = "file"
         private const val EXTRA_VERSION = "version"
+        private const val EXTRA_ASSET = "asset_id"
+        private const val EXTRA_SIZE = "asset_size"
+        private const val EXTRA_DIGEST = "asset_digest"
+        @Volatile var isDownloading = false
+            private set
 
         /** MainActivity 读取：下载完成后待安装的文件路径 */
         const val EXTRA_INSTALL_PATH = "install_path"
 
-        fun start(context: Context, url: String, fileName: String, version: String) {
+        fun start(context: Context, url: String, fileName: String, version: String,
+            assetId: Long, assetSize: Long, assetDigest: String) {
             val appContext = context.applicationContext
             val intent = Intent(appContext, UpdateDownloadService::class.java).apply {
                 putExtra(EXTRA_URL, url)
                 putExtra(EXTRA_FILE, fileName)
                 putExtra(EXTRA_VERSION, version)
+                putExtra(EXTRA_ASSET, assetId)
+                putExtra(EXTRA_SIZE, assetSize)
+                putExtra(EXTRA_DIGEST, assetDigest)
             }
             runCatching {
                 ContextCompat.startForegroundService(appContext, intent)
@@ -61,6 +73,8 @@ class UpdateDownloadService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var handle: UpdateDownloader.Handle? = null
     private var version = ""
+    private var generation = 0
+    private var lastNotificationAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -70,6 +84,8 @@ class UpdateDownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // A second tap must not start another writer or replace the active task's version.
+        if (handle != null) return START_NOT_STICKY
         val url = intent?.getStringExtra(EXTRA_URL)
         val fileName = intent?.getStringExtra(EXTRA_FILE)
         version = intent?.getStringExtra(EXTRA_VERSION).orEmpty()
@@ -79,29 +95,50 @@ class UpdateDownloadService : Service() {
             return START_NOT_STICKY
         }
 
-        startForegroundWithProgress(0)
+        try { startForegroundWithProgress(0) } catch (error: Exception) {
+            Log.w(TAG, "无法启动更新下载: ${error.javaClass.simpleName}")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val ticket = ++generation
+        isDownloading = true
+        lastNotificationAt = 0L
 
         handle = UpdateDownloader.download(
             context = this,
             url = url,
             fileName = fileName,
-            onProgress = { percent -> handler.post { updateProgress(percent) } },
-            onComplete = { file -> handler.post { onDownloaded(file) } },
-            onError = { reason -> handler.post { onFailed(reason) } }
+            assetId = intent.getLongExtra(EXTRA_ASSET, 0L),
+            assetSize = intent.getLongExtra(EXTRA_SIZE, 0L),
+            assetDigest = intent.getStringExtra(EXTRA_DIGEST).orEmpty(),
+            version = version,
+            onProgress = { percent -> handler.post { if (generation == ticket) updateProgress(percent) } },
+            onComplete = { file -> handler.post { if (generation == ticket) onDownloaded(file) } },
+            onError = { reason -> handler.post { if (generation == ticket) onFailed(reason) } }
         )
 
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        generation++
+        isDownloading = false
         handle?.cancel()
         handle = null
+        handler.removeCallbacksAndMessages(null)
         super.onDestroy()
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        generation++
+        handle?.cancel()
+        onFailed("下载耗时过长，请重新下载")
     }
 
     // ------------------------------------------------------------------ 下载结果
 
     private fun onDownloaded(file: File) {
+        isDownloading = false
         handle = null
         stopForeground(STOP_FOREGROUND_REMOVE)
 
@@ -116,19 +153,18 @@ class UpdateDownloadService : Service() {
     }
 
     private fun onFailed(reason: String) {
+        isDownloading = false
         handle = null
         stopForeground(STOP_FOREGROUND_REMOVE)
-        runCatching {
-            NotificationManagerCompat.from(this).notify(
-                READY_ID,
-                NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_notify)
-                    .setContentTitle("更新下载失败")
-                    .setContentText(reason)
-                    .setAutoCancel(true)
-                    .build()
-            )
-        }
+        postNotification(
+            READY_ID,
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notify)
+                .setContentTitle("更新下载失败")
+                .setContentText(reason)
+                .setAutoCancel(true)
+                .build()
+        )
         stopSelf()
     }
 
@@ -155,7 +191,7 @@ class UpdateDownloadService : Service() {
             .setContentIntent(pending)
             .build()
 
-        runCatching { NotificationManagerCompat.from(this).notify(READY_ID, notification) }
+        postNotification(READY_ID, notification)
     }
 
     // ------------------------------------------------------------------ 通知
@@ -170,10 +206,15 @@ class UpdateDownloadService : Service() {
     }
 
     private fun updateProgress(percent: Int) {
-        runCatching {
-            NotificationManagerCompat.from(this)
-                .notify(PROGRESS_ID, buildProgressNotification(percent))
-        }
+        val now = SystemClock.elapsedRealtime()
+        if (percent < 100 && now - lastNotificationAt < 600L) return
+        lastNotificationAt = now
+        postNotification(PROGRESS_ID, buildProgressNotification(percent))
+    }
+
+    private fun postNotification(id: Int, notification: Notification) {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        runCatching { NotificationManagerCompat.from(this).notify(id, notification) }
     }
 
     private fun buildProgressNotification(percent: Int): Notification {

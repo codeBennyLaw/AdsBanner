@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.SystemClock
 import android.widget.TextView
 import android.widget.Toast
-import com.adsbanner.clean.BuildConfig
 import com.adsbanner.clean.R
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
@@ -23,20 +22,14 @@ import io.noties.markwon.image.destination.ImageDestinationProcessor
 import io.noties.markwon.linkify.LinkifyPlugin
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
+import java.io.File
 import java.net.URI
-import java.net.URL
 import java.time.Instant
 
 /**
  * 通过 GitHub Release 检查更新。
  *
- * 仓库是私有的，请求需要携带凭据。用的是细粒度 Personal Access Token，
- * 只勾了 Metadata 的只读权限 —— 能读 Release 与仓库公开信息，改不了代码、动不了 Issue。
- *
- * 凭据由构建时从 local.properties 注入 BuildConfig，随 APK 一起分发：
- * 应用没有服务端，检查更新只能直连 api.github.com，所以 token 必须打进包里；
- * 但不能写进源码 —— GitHub 的推送保护会直接拒绝包含有效 token 的提交。
+ * 使用公开接口与 ETag 缓存，不依赖 GitHub 访问凭据。
  */
 object ReleaseUpdates {
 
@@ -47,36 +40,28 @@ object ReleaseUpdates {
 
     const val REPOSITORY_URL = "https://github.com/$OWNER/$REPO"
 
-    private val TOKEN: String get() = BuildConfig.GITHUB_TOKEN
+    internal val http = ReleaseHttp()
+    @Volatile private var diskCache: ReleaseNotesDiskCache? = null
+    private data class Latest(val body: JSONObject, val etag: String?)
+    @Volatile private var latest: Latest? = null
 
-    private val notesRepository = ReleaseNotesRepository(SystemClock::elapsedRealtime) { page, etag ->
-        val connection = (URL("$REPOSITORY_API/releases?per_page=${ReleaseNotesRepository.PAGE_SIZE}&page=$page")
-            .openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10_000
-            readTimeout = 15_000
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("Authorization", "Bearer $TOKEN")
-            setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            setRequestProperty("User-Agent", "AdsBanner")
-            etag?.let { setRequestProperty("If-None-Match", it) }
-        }
-        try {
-            when (val code = connection.responseCode) {
-                HttpURLConnection.HTTP_NOT_MODIFIED -> ReleaseNotesRepository.Response(
-                    etag = connection.getHeaderField("ETag"), notModified = true)
-                HttpURLConnection.HTTP_OK -> ReleaseNotesRepository.Response(
-                    page = parseNotes(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }, page),
-                    etag = connection.getHeaderField("ETag"))
-                else -> error("服务返回 $code")
-            }
-        } finally { connection.disconnect() }
-    }
+    private val notesRepository = ReleaseNotesRepository(SystemClock::elapsedRealtime,
+        fetch = { page, etag ->
+            val response = http.text("$REPOSITORY_API/releases?per_page=${ReleaseNotesRepository.PAGE_SIZE}&page=$page", etag)
+            ReleaseNotesRepository.Response(response.body?.let { parseNotes(it, page) }, response.etag, response.notModified)
+        }, restore = { diskCache?.read().orEmpty() }, persist = { diskCache?.write(it) })
 
     private const val REPOSITORY_API = "https://api.github.com/repos/$OWNER/$REPO"
 
+    fun init(context: Context) {
+        diskCache = ReleaseNotesDiskCache(File(context.cacheDir, "release-notes-v1.json"))
+        Thread({ notesRepository.cached(1) }, "AdsBanner-release-cache").apply { isDaemon = true }.start()
+    }
+
+    internal fun cachedReleaseNotes(page: Int = 1) = notesRepository.cached(page)
+
     /** Blocking; the dialog requests subsequent pages only while it remains open. */
     internal fun releaseNotes(page: Int = 1): ReleaseNotesRepository.NotesPage {
-        check(TOKEN.isNotBlank()) { "构建时未注入仓库凭据" }
         return notesRepository.load(page)
     }
 
@@ -103,7 +88,10 @@ object ReleaseUpdates {
             val title: String,
             val notes: String,
             val downloadUrl: String?,
-            val pageUrl: String
+            val pageUrl: String,
+            val assetId: Long = 0L,
+            val assetSize: Long = 0L,
+            val assetDigest: String = ""
         ) : Result
 
         data object Current : Result
@@ -113,34 +101,16 @@ object ReleaseUpdates {
 
     /** 阻塞请求，必须放在工作线程调用 */
     fun check(currentVersion: String): Result {
-        if (TOKEN.isBlank()) return Result.Failed("构建时未注入仓库凭据")
-
-        val connection = runCatching {
-            (URL(API).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 10_000
-                readTimeout = 15_000
-                setRequestProperty("Accept", "application/vnd.github+json")
-                setRequestProperty("Authorization", "Bearer $TOKEN")
-                setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-                setRequestProperty("User-Agent", "AdsBanner")
-            }
-        }.getOrElse { return Result.Failed("无法建立连接") }
-
         return try {
-            when (val code = connection.responseCode) {
-                200 -> {
-                    val body = connection.inputStream.bufferedReader().use { it.readText() }
-                    parse(JSONObject(body), currentVersion)
-                }
-                // 还没有发布过 Release，视为最新
-                404 -> Result.Current
-                else -> Result.Failed("服务返回 $code")
-            }
-        } catch (t: Throwable) {
-            Result.Failed(t.message ?: "网络异常")
-        } finally {
-            runCatching { connection.disconnect() }
+            val cached = latest
+            val response = http.text(API, cached?.etag)
+            val body = if (response.notModified) checkNotNull(cached).body else JSONObject(checkNotNull(response.body))
+            val result = parse(body, currentVersion)
+            latest = Latest(body, response.etag ?: cached?.etag.takeIf { response.notModified })
+            result
+        } catch (error: Exception) {
+            if (error is ReleaseHttp.Failure && error.status == 404) Result.Current
+            else Result.Failed(ReleaseHttp.reason(error))
         }
     }
 
@@ -151,11 +121,13 @@ object ReleaseUpdates {
         val expected = "AdsBanner-release-v-${version.replace('.', '-')}.apk"
         val assets = json.optJSONArray("assets")
         var downloadUrl: String? = null
+        var selected: JSONObject? = null
         if (assets != null) {
             for (i in 0 until assets.length()) {
                 val asset = assets.optJSONObject(i) ?: continue
                 if (asset.optString("name") == expected) {
                     downloadUrl = asset.optString("browser_download_url").ifBlank { null }
+                    selected = asset
                     break
                 }
             }
@@ -166,7 +138,10 @@ object ReleaseUpdates {
             title = json.optString("name").ifBlank { version },
             notes = json.optString("body"),
             downloadUrl = downloadUrl,
-            pageUrl = json.optString("html_url").ifBlank { "$REPOSITORY_URL/releases" }
+            pageUrl = json.optString("html_url").ifBlank { "$REPOSITORY_URL/releases" },
+            assetId = selected?.optLong("id") ?: 0L,
+            assetSize = selected?.optLong("size") ?: 0L,
+            assetDigest = selected?.optString("digest")?.removePrefix("sha256:").orEmpty()
         )
     }
 
