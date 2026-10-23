@@ -12,15 +12,15 @@
     <color name="divider">#E7EBF2</color>
 
     <color name="text_primary">#1A1D24</color>
-    <color name="text_secondary">#6B7280</color>
-    <color name="text_tertiary">#9AA1AE</color>
+    <color name="text_secondary">#586477</color>
+    <color name="text_tertiary">#5C687B</color>
 
-    <color name="success">#12B76A</color>
-    <color name="danger">#F04438</color>
-    <color name="warning">#F79009</color>
+    <color name="success">#087443</color>
+    <color name="danger">#C43226</color>
+    <color name="warning">#945200</color>
     <color name="white">#FFFFFF</color>
 
-    <!-- 热力图色阶：0 次到 10 次以上 -->
+    <!-- 热力图：无记录颜色与连续色阶的四个端点 -->
     <color name="heat_empty">#EAEEF5</color>
     <color name="heat_1">#D3E0FF</color>
     <color name="heat_2">#A6C2FF</color>

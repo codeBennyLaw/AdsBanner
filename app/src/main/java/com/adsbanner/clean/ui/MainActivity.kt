@@ -1,6 +1,7 @@
 package com.adsbanner.clean.ui
 
 import android.Manifest
+import android.app.Dialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -9,12 +10,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.Layout
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -56,6 +58,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchInAppAd: MaterialSwitch
 
     private var binding = false
+    private var openingPage = false
+    private var releaseNotesDialog: Dialog? = null
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -66,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+        Motion.prepareHome(this)
         applySystemBarAppearance()
         // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
@@ -74,7 +79,7 @@ class MainActivity : AppCompatActivity() {
 
         bindViews()
         applyInsets()
-        Motion.enter(content)
+        if (savedInstanceState == null) Motion.enter(content)
         setupClicks()
         setupSwitches()
         requestNotificationPermissionIfNeeded()
@@ -83,6 +88,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        openingPage = false
         AppForeground.visible = true
         refresh()
     }
@@ -125,6 +131,39 @@ class MainActivity : AppCompatActivity() {
 
         btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
         btnCheckUpdate.setOnClickListener { checkForUpdates() }
+        findViewById<View>(R.id.btnReleaseNotes).setOnClickListener {
+            if (releaseNotesDialog?.isShowing != true) releaseNotesDialog = ReleaseNotesDialog.show(this)
+        }
+        configureFooter()
+    }
+
+    private fun configureFooter() {
+        val footer = findViewById<LinearLayout>(R.id.versionLinks)
+        val labels = (0 until footer.childCount).map { footer.getChildAt(it) as TextView }
+        footer.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left == oldRight - oldLeft) return@addOnLayoutChangeListener
+            val needed = labels.maxOf {
+                kotlin.math.ceil(Layout.getDesiredWidth(it.text, it.paint).toDouble()).toInt() +
+                    it.paddingLeft + it.paddingRight
+            } * labels.size
+            val stacked = needed > right - left - footer.paddingLeft - footer.paddingRight
+            val orientation = if (stacked) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            if (footer.orientation != orientation) {
+                footer.orientation = orientation
+                labels.forEach { label ->
+                    label.layoutParams = (label.layoutParams as LinearLayout.LayoutParams).apply {
+                        width = if (stacked) LinearLayout.LayoutParams.MATCH_PARENT else 0
+                        weight = if (stacked) 0f else 1f
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        releaseNotesDialog?.dismiss()
+        releaseNotesDialog = null
+        super.onDestroy()
     }
 
     // ------------------------------------------------------------------ 检查更新
@@ -168,7 +207,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        AlertDialog.Builder(this)
+        OriginDialog.Builder(this, btnCheckUpdate)
             .setTitle("发现新版本")
             .setView(view)
             .setNegativeButton("稍后", null)
@@ -205,7 +244,7 @@ class MainActivity : AppCompatActivity() {
 
         // Android 8 起安装未知来源应用需要单独授权
         if (!ApkInstaller.hasInstallPermission(this)) {
-            AlertDialog.Builder(this)
+            OriginDialog.Builder(this, null)
                 .setTitle("需要安装权限")
                 .setMessage("系统还没有允许 AdsBanner 安装应用。开启后回到应用即可继续安装。")
                 .setNegativeButton("取消", null)
@@ -253,13 +292,15 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnService).setOnClickListener {
             AccessibilityHelper.openAccessibilitySettings(this)
         }
-        findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener {
-            startActivity(Intent(this, StatsActivity::class.java))
-            overridePendingTransition(android.R.anim.slide_in_left, android.R.anim.fade_out)
+        findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener { card ->
+            if (openingPage) return@setOnClickListener
+            openingPage = true
+            Motion.openPage(this, card, StatsActivity::class.java)
         }
-        findViewById<MaterialCardView>(R.id.cardTargets).setOnClickListener {
-            startActivity(Intent(this, TargetListActivity::class.java))
-            overridePendingTransition(android.R.anim.slide_in_left, android.R.anim.fade_out)
+        findViewById<MaterialCardView>(R.id.cardTargets).setOnClickListener { card ->
+            if (openingPage) return@setOnClickListener
+            openingPage = true
+            Motion.openPage(this, card, TargetListActivity::class.java)
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }
@@ -268,7 +309,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onNotifyRowClick() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
-        AlertDialog.Builder(this)
+        OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
             .setMessage(InterceptNotifier.describe(this))
             .setPositiveButton("发一条测试") { _, _ -> sendTestNotification() }
@@ -332,7 +373,7 @@ class MainActivity : AppCompatActivity() {
     private fun guidePromotionIfNeeded() {
         if (!InterceptNotifier.canOpenPromotionSettings(this)) return
         if (InterceptNotifier.canPostPromoted(this)) return
-        AlertDialog.Builder(this)
+        OriginDialog.Builder(this, switchNotify)
             .setTitle("开启实时通知")
             .setMessage(
                 "本机支持实时通知（状态栏胶囊 / 灵动岛），但系统还没有对本应用开放。\n\n" +
@@ -376,7 +417,7 @@ class MainActivity : AppCompatActivity() {
         switchInAppAd.isChecked = Prefs.inAppAdGuard
         binding = false
 
-        tvTargetHint.text = "已启用 ${Prefs.jumpTargets.size} 个应用"
+        tvTargetHint.text = "已设置 ${Prefs.jumpTargets.size} 个拦截目标"
 
         // 实时通知状态直接显示出来，不用猜卡在哪一步
         when {
@@ -448,7 +489,7 @@ class MainActivity : AppCompatActivity() {
             · 无障碍服务本身由系统守护，即使进程被杀，系统通常会自动重新绑定
         """.trimIndent()
 
-        AlertDialog.Builder(this)
+        OriginDialog.Builder(this, findViewById(R.id.rowRom))
             .setTitle("后台保活设置指引")
             .setMessage(message)
             .setPositiveButton("知道了", null)

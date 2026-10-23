@@ -41,7 +41,8 @@ object SkipRule {
     )
 
     /** 明显不是开屏按钮的短语，包含这些词直接否决 */
-    private val denyWords = listOf("片头", "片尾", "跳过此", "跳过下", "剧情", "会员", "付费", "订阅")
+    private val denyWords = listOf("片头", "片尾", "跳过此", "跳过下", "剧情", "会员", "付费", "订阅",
+        "闹钟", "响铃", "来电", "通话", "alarm", "snooze")
 
     fun match(raw: String): Int {
         val text = raw.replace('\u00A0', ' ')
@@ -50,7 +51,7 @@ object SkipRule {
             .replace(Regex("\\s+"), " ")
             .trim()
         if (text.isEmpty() || text.length > 16) return NONE
-        if (denyWords.any { text.contains(it) }) return NONE
+        if (denyWords.any { text.contains(it, ignoreCase = true) }) return NONE
 
         for (p in strongPatterns) {
             if (p.matches(text)) return STRONG
@@ -64,4 +65,7 @@ object SkipRule {
         }
         return NONE
     }
+
+    /** A plain countdown also belongs to alarms/timers; it cannot authorize a generic close. */
+    fun hasAdEvidence(raw: String): Boolean = raw.contains("广告") || JumpAdRule.isAdSkip(raw)
 }

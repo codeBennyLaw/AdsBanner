@@ -1,6 +1,8 @@
 package com.adsbanner.clean.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
@@ -18,5 +20,20 @@ class SkipRuleTest {
     fun keepsGenericCloseAsWeakMatchAndRejectsUnrelatedSkipText() {
         assertEquals(SkipRule.WEAK, SkipRule.match("\u5173\u95ED"))
         assertEquals(SkipRule.NONE, SkipRule.match("\u8DF3\u8FC7\u6B64\u5267\u60C5"))
+    }
+
+    @Test fun alarmAndCallActionsCannotUseGenericSkipFallback() {
+        listOf("跳过本次闹钟", "跳过响铃", "跳过来电", "skip alarm", "Skip Alarm", "snooze")
+            .forEach { assertEquals(it, SkipRule.NONE, SkipRule.match(it)) }
+    }
+
+    @Test fun timerCountdownAloneCannotAuthorizeGenericClose() {
+        listOf("10秒", "5s", "30 秒后自动关闭", "稍后提醒", "再睡 5 分钟", "跳过")
+            .forEach { assertFalse(it, SkipRule.hasAdEvidence(it)) }
+    }
+
+    @Test fun explicitAdsAndSkipCountdownsStillAuthorizeAdClose() {
+        listOf("广告", "关闭广告", "跳过 5", "3s skip ad")
+            .forEach { assertTrue(it, SkipRule.hasAdEvidence(it)) }
     }
 }

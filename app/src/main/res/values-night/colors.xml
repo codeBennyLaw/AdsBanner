@@ -14,14 +14,14 @@
 
     <color name="text_primary">#EDF1F7</color>
     <color name="text_secondary">#A3ACBB</color>
-    <color name="text_tertiary">#6D7686</color>
+    <color name="text_tertiary">#9AA6B8</color>
 
     <color name="success">#38D39F</color>
     <color name="danger">#FF6B5E</color>
     <color name="warning">#F7B955</color>
     <color name="white">#FFFFFF</color>
 
-    <!-- 热力图色阶：0 次到 10 次以上 -->
+    <!-- 热力图：无记录颜色与连续色阶的四个端点 -->
     <color name="heat_empty">#232A34</color>
     <color name="heat_1">#1E3358</color>
     <color name="heat_2">#2B4C88</color>
