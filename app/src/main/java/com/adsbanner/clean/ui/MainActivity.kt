@@ -1,6 +1,7 @@
 package com.adsbanner.clean.ui
 
 import android.Manifest
+import android.app.Dialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -9,7 +10,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.Layout
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -57,6 +60,7 @@ class MainActivity : AppCompatActivity() {
 
     private var binding = false
     private var openingPage = false
+    private var releaseNotesDialog: Dialog? = null
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -128,6 +132,41 @@ class MainActivity : AppCompatActivity() {
 
         btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
         btnCheckUpdate.setOnClickListener { checkForUpdates() }
+        findViewById<View>(R.id.btnReleaseNotes).setOnClickListener {
+            if (releaseNotesDialog?.isShowing != true) releaseNotesDialog = ReleaseNotesDialog.show(this)
+        }
+        configureFooter()
+    }
+
+    private fun configureFooter() {
+        val footer = findViewById<LinearLayout>(R.id.versionLinks)
+        val labels = (0 until footer.childCount).map { footer.getChildAt(it) as TextView }
+        footer.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+            if (right - left == oldRight - oldLeft) return@addOnLayoutChangeListener
+            val needed = labels.sumOf {
+                kotlin.math.ceil(Layout.getDesiredWidth(it.text, it.paint).toDouble()).toInt() +
+                    it.paddingLeft + it.paddingRight
+            }
+            val stacked = needed > right - left - footer.paddingLeft - footer.paddingRight
+            val orientation = if (stacked) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+            if (footer.orientation != orientation) {
+                footer.orientation = orientation
+                labels.forEach { label ->
+                    val separator = label !== tvVersion && !label.isClickable
+                    label.visibility = if (separator && stacked) View.GONE else View.VISIBLE
+                    if (!separator) label.layoutParams = (label.layoutParams as LinearLayout.LayoutParams).apply {
+                        width = if (stacked) LinearLayout.LayoutParams.MATCH_PARENT else 0
+                        weight = if (stacked) 0f else 1f
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        releaseNotesDialog?.dismiss()
+        releaseNotesDialog = null
+        super.onDestroy()
     }
 
     // ------------------------------------------------------------------ 检查更新
