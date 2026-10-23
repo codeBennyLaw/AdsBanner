@@ -73,7 +73,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
 
     /** 开屏引擎已经读取过的按钮直接复用，不在广告关闭前增加一次树遍历。 */
     fun onAdCandidate(pkg: String, label: String) {
-        if (Prefs.jumpGuard && JumpAdRule.isAdSkip(label)) {
+        if (Prefs.jumpGuard && !isTrusted(pkg) && JumpAdRule.isAdSkip(label)) {
             session.observeAd(pkg, SystemClock.elapsedRealtime(), Prefs.splashWindowMs)
         }
     }
@@ -114,7 +114,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
                 cancelInspection()
                 lastInspectAt = 0L
                 val ticket = session.enter(
-                    pkg, now, pkg in Prefs.jumpTargets,
+                    pkg, now, pkg in Prefs.jumpTargets && !isTrusted(pkg),
                     from == null || isTrusted(from), Prefs.splashWindowMs, Prefs.jumpWindowMs
                 )
                 if (ticket != null) {
@@ -187,7 +187,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
         val ticket = pending ?: return
         pending = null
         val now = SystemClock.elapsedRealtime()
-        if (!Prefs.jumpGuard || ticket.target !in Prefs.jumpTargets || !session.mayReturn(ticket, now) ||
+        if (!Prefs.jumpGuard || ticket.target !in Prefs.jumpTargets || isTrusted(ticket.target) || !session.mayReturn(ticket, now) ||
             now - lastReturnAt < 1_500L || !interactive()) return
         // 延迟期间用户可能已离开购物应用或拉下通知栏，不能向其它窗口发送返回。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) service.clearCache()
