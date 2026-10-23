@@ -1,7 +1,11 @@
 package com.adsbanner.clean.ui
 
 import android.content.pm.ActivityInfo
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ImageSpan
 import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.TextView
@@ -45,6 +49,7 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatScroll: HorizontalScrollView
     private lateinit var heatmap: HeatmapView
     private lateinit var heatMeta: TextView
+    private lateinit var heatLegend: TextView
     private lateinit var heatDetail: TextView
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var renderedKey: RenderKey? = null
@@ -93,6 +98,7 @@ class StatsActivity : AppCompatActivity() {
             if (x != previousX) heatmap.invalidate()
         }
         heatMeta = findViewById(R.id.tvHeatMeta)
+        heatLegend = findViewById(R.id.tvHeatLegend)
         heatDetail = findViewById(R.id.tvHeatDetail)
         heatmapButton = findViewById(R.id.btnHeatmap)
         heatmap.onCellClick = { date, total ->
@@ -274,11 +280,32 @@ class StatsActivity : AppCompatActivity() {
         worker.submit({ Triple(StatsStore.dailyCounts(), StatsStore.installedOn(), LocalDate.now()) }) { result ->
             result.onSuccess { (counts, installed, today) ->
                 val changed = heatmap.submit(counts, installed, today)
+                if (changed) showHeatmapLegend()
                 val span = ChronoUnit.DAYS.between(installed, today) + 1
                 heatMeta.text = "自 $installed 起 · $span 天 · ${counts.count { it.value > 0 }} 天有拦截 · 共 ${counts.values.sum()} 次"
                 if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
             }.onFailure { heatMeta.text = "加载失败，请返回后重试" }
         }
+    }
+
+    private fun showHeatmapLegend() {
+        val entries = heatmap.legendEntries()
+        val text = SpannableStringBuilder("次数  ")
+        val size = (12 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        entries.forEachIndexed { index, (value, color) ->
+            if (index > 0) text.append("   ")
+            val start = text.length
+            text.append('\uFFFC')
+            val swatch = GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = 2.5f * resources.displayMetrics.density
+                setBounds(0, 0, size, size)
+            }
+            text.setSpan(ImageSpan(swatch, ImageSpan.ALIGN_BASELINE), start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            text.append("\u00A0$value")
+        }
+        heatLegend.text = text
+        heatLegend.contentDescription = "颜色参考，" + entries.joinToString("，") { "${it.first} 次" }
     }
 
     override fun onEnterAnimationComplete() {

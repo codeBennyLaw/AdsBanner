@@ -9,6 +9,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import com.adsbanner.clean.R
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -62,6 +63,7 @@ class HeatmapView @JvmOverloads constructor(
     )
 
     private var cells: List<Cell> = emptyList()
+    private var colorScale = HeatmapScale(0)
     private var weeks = 1
     private var selected: LocalDate? = null
     private var previousCounts: Map<LocalDate, Int>? = null
@@ -113,12 +115,16 @@ class HeatmapView @JvmOverloads constructor(
         val lastMonday = until.minusDays((until.dayOfWeek.value - 1).toLong())
         val oldWeeks = weeks
         weeks = (ChronoUnit.DAYS.between(firstMonday, lastMonday) / 7).toInt() + 1
+        val peak = counts.asSequence()
+            .filter { (date, _) -> !date.isBefore(start) && !date.isAfter(until) }
+            .maxOfOrNull { it.value } ?: 0
+        colorScale = HeatmapScale(peak)
 
         val list = ArrayList<Cell>()
         var day = start
         while (!day.isAfter(until)) {
             val week = (ChronoUnit.DAYS.between(firstMonday, day) / 7).toInt()
-            val count = counts[day] ?: 0
+            val count = (counts[day] ?: 0).coerceAtLeast(0)
             list.add(Cell(day, week, day.dayOfWeek.value - 1, count, levelOf(count)))
             day = day.plusDays(1)
         }
@@ -169,11 +175,13 @@ class HeatmapView @JvmOverloads constructor(
         return cells.getOrNull(column * 7 + row - firstWeekday)
     }
 
-    private fun levelOf(count: Int): Int = when {
-        count <= 0 -> scale[0]
-        count <= 2 -> scale[1]
-        count <= 5 -> scale[2]
-        count <= 9 -> scale[3]
-        else -> scale[4]
+    /** Each numeric reference uses exactly the same color calculation as a calendar cell. */
+    fun legendEntries(): List<Pair<Int, Int>> = colorScale.references().map { it to levelOf(it) }
+
+    private fun levelOf(count: Int): Int {
+        if (count <= 0) return scale[0]
+        val position = colorScale.fraction(count) * 3f
+        val lower = position.toInt().coerceIn(0, 3)
+        return ColorUtils.blendARGB(scale[lower + 1], scale[(lower + 2).coerceAtMost(4)], position - lower)
     }
 }
