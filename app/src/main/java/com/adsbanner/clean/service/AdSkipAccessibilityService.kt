@@ -230,7 +230,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun scanSplashWindow() {
         nextSplashScanAt = Long.MAX_VALUE
         val pkg = splashSession.packageName ?: return
-        if (!Prefs.skipSplash || !isScreenInteractive()) {
+        if (!Prefs.skipSplash || !isScreenInteractive() || AppInfoHelper.isProtectedFromAutomation(this, pkg)) {
             stopSplashScan()
             return
         }
@@ -448,7 +448,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val label = nodeLabel(node)
 
             if (label.isNotEmpty()) {
-                if (AD_HINT.containsMatchIn(label)) adHints++
+                if (SkipRule.hasAdEvidence(label)) adHints++
 
                 val strength = SkipRule.match(label)
                 if (strength != SkipRule.NONE) {
@@ -511,6 +511,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun clickCandidate(candidate: Candidate, pkg: String, covered: Boolean, allowGesture: Boolean): Boolean {
+        if (AppInfoHelper.isProtectedFromAutomation(this, pkg)) return false
         if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg ||
             !candidate.node.isEnabled) return false
         // 页面可能已更新；旧节点不能仅凭之前读到的文案继续点击。
@@ -617,9 +618,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         /** 开屏页结构简单，节点数通常很少；小程序、列表页动辄上百个 */
         private const val SPLASH_MAX_NODES = 60
-
-        /** 出现这些文字才说明当前页确实是开屏广告 */
-        private val AD_HINT = Regex("广告|跳过|\\d+\\s*[sS秒]")
 
         /** 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点 */
         private val WEAK_MATCH_BLOCKED = setOf(
