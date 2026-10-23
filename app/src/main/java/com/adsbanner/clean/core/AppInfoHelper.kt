@@ -6,6 +6,8 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Build
+import android.os.SystemClock
+import android.provider.AlarmClock
 
 /**
  * 应用名 / 图标 / 是否桌面，带内存缓存。
@@ -19,13 +21,31 @@ object AppInfoHelper {
     @Volatile
     private var homePackages: Set<String>? = null
 
-    private val systemPackages = setOf(
-        "android",
-        "com.android.systemui",
-        "com.android.settings",
-        "com.android.permissioncontroller",
-        "com.google.android.permissioncontroller"
-    )
+    private data class AlarmHandlers(val packages: Set<String>, val loadedAt: Long)
+    @Volatile private var alarmHandlers: AlarmHandlers? = null
+    private val alarmLock = Any()
+
+    /** Read handlers without launching an alarm action; all checks between refreshes are set lookups. */
+    fun isProtectedFromAutomation(context: Context, pkg: String): Boolean {
+        if (SystemAppSafety.isProtected(pkg)) return true
+        val now = SystemClock.elapsedRealtime()
+        val cached = alarmHandlers
+        val handlers = if (cached != null && now - cached.loadedAt in 0 until 120_000L) cached else {
+            synchronized(alarmLock) {
+                alarmHandlers?.takeIf { now - it.loadedAt in 0 until 120_000L } ?: run {
+                    val packages = listOf(AlarmClock.ACTION_SHOW_ALARMS, AlarmClock.ACTION_SET_ALARM,
+                        AlarmClock.ACTION_SHOW_TIMERS, AlarmClock.ACTION_SET_TIMER).flatMap { action ->
+                        runCatching {
+                            context.packageManager.queryIntentActivities(Intent(action), 0)
+                                .mapNotNull { it.activityInfo?.packageName }
+                        }.getOrDefault(emptyList())
+                    }.toSet()
+                    AlarmHandlers(packages, now).also { alarmHandlers = it }
+                }
+            }
+        }
+        return SystemAppSafety.isProtected(pkg, handlers.packages)
+    }
 
     fun appInfo(context: Context, pkg: String): ApplicationInfo? = try {
         val pm = context.packageManager
@@ -60,7 +80,7 @@ object AppInfoHelper {
 
     /** 桌面 / 最近任务 / 系统界面 —— 从这些地方启动应用属于用户主动行为，不应拦截 */
     fun isHomeOrSystem(context: Context, pkg: String): Boolean {
-        if (pkg in systemPackages) return true
+        if (isProtectedFromAutomation(context, pkg)) return true
         val homes = homePackages ?: loadHomePackages(context).also { homePackages = it }
         return pkg in homes
     }

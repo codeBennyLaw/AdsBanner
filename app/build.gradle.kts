@@ -13,8 +13,8 @@ android {
         applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.0.0"
+        versionCode = 8
+        versionName = "2.0.1"
 
         // 检查更新用的 GitHub 凭据从 local.properties 注入。
         // GitHub 的推送保护不允许有效 token 进入提交历史，但 APK 里需要带上它。
@@ -82,6 +82,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
+    implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")
 
     // 更新说明按 Markdown 渲染
     implementation("io.noties.markwon:core:4.6.2")
@@ -89,4 +91,5 @@ dependencies {
     implementation("io.noties.markwon:ext-tables:4.6.2")
     implementation("io.noties.markwon:ext-tasklist:4.6.2")
     implementation("io.noties.markwon:linkify:4.6.2")
+    implementation("io.noties.markwon:image:4.6.2")
 }
