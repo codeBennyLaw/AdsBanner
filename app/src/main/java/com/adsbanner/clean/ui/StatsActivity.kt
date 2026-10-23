@@ -18,7 +18,6 @@ import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.StatsStore
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.chip.ChipGroup
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -29,8 +28,10 @@ import java.util.Locale
 class StatsActivity : AppCompatActivity() {
     private enum class Range { TODAY, ALL }
     private enum class Type { ALL, SPLASH, JUMP, PAGE }
-    private data class RenderKey(val snapshot: StatsStore.Snapshot, val range: Range, val type: Type)
-    private data class Rows(val key: RenderKey, val rows: List<StatAppRow>)
+    private data class RenderKey(val snapshot: StatsStore.Snapshot, val range: Range, val type: Type, val day: LocalDate)
+    private data class Rows(val key: RenderKey, val rows: List<StatAppRow>) {
+        val total = rows.sumOf { it.count }
+    }
     private lateinit var list: RecyclerView
     private lateinit var adapter: StatAppAdapter
     private lateinit var icons: AppIconLoader
@@ -46,7 +47,12 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatMeta: TextView
     private lateinit var heatDetail: TextView
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
-    @Volatile private var renderedKey: RenderKey? = null
+    private var renderedKey: RenderKey? = null
+    private var pendingKey: RenderKey? = null
+    private val cachedRows = mutableMapOf<Pair<Range, Type>, Rows>()
+    private var cachedSnapshot: StatsStore.Snapshot? = null
+    private var cachedDay: LocalDate? = null
+    private var loadingType: Type? = null
     private var range = Range.TODAY
     private var type = Type.ALL
     private var heatmapVisible = false
@@ -72,6 +78,7 @@ class StatsActivity : AppCompatActivity() {
         count = header.findViewById(R.id.tvStatCount)
         caption = header.findViewById(R.id.tvStatCaption)
         count.text = "—"
+        count.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         summary.text = "正在加载统计…"
         typeButton = header.findViewById(R.id.btnType)
         typeButton.text = typeLabel(type)
@@ -102,10 +109,10 @@ class StatsActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnBack).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
         heatmapButton.setOnClickListener { toggleView() }
         typeButton.setOnClickListener { showTypeMenu() }
-        val toggle = header.findViewById<ChipGroup>(R.id.toggleTime)
+        val toggle = header.findViewById<StatsRangeSelector>(R.id.toggleTime)
         toggle.check(if (range == Range.TODAY) R.id.btnTimeToday else R.id.btnTimeAll)
-        toggle.setOnCheckedStateChangeListener { _, checkedIds ->
-            val selectedRange = if (R.id.btnTimeToday in checkedIds) Range.TODAY else Range.ALL
+        toggle.setOnCheckedChangeListener { _, id ->
+            val selectedRange = if (id == R.id.btnTimeToday) Range.TODAY else Range.ALL
             if (range != selectedRange) {
                 range = selectedRange
                 if (!heatmapVisible) render()
@@ -118,6 +125,7 @@ class StatsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        invalidateRows()
         if (heatmapVisible) renderHeatmap() else render()
     }
 
@@ -143,63 +151,93 @@ class StatsActivity : AppCompatActivity() {
         }.show()
     }
 
+    private fun invalidateRows() {
+        cachedRows.clear()
+        cachedSnapshot = null
+        cachedDay = LocalDate.now()
+        loadingType = null
+    }
+
     private fun render() {
-        val requestedRange = range
+        if (cachedDay != LocalDate.now() ||
+            cachedSnapshot?.let { it.revision != StatsStore.revision } == true) invalidateRows()
+        cachedRows[range to type]?.let { showRows(it); return }
+        // One background pass prepares both ranges. Rapid taps only change the desired range.
+        if (loadingType == type) return
         val requestedType = type
-        worker.submit({
-            val key = RenderKey(StatsStore.snapshot(), requestedRange, requestedType)
-            if (key == renderedKey) null else {
-                val recentFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-                val olderFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                val year = Calendar.getInstance().get(Calendar.YEAR)
-                val calendar = Calendar.getInstance()
-                val rows = key.snapshot.apps.mapNotNull { stat ->
-                    if (Thread.currentThread().isInterrupted) throw InterruptedException()
-                    val today = requestedRange == Range.TODAY
-                    val total = when (requestedType) {
-                        Type.ALL -> if (today) stat.todayTotal else stat.total
-                        Type.SPLASH -> if (today) stat.todaySplash else stat.splash
-                        Type.JUMP -> if (today) stat.todayJump else stat.jump
-                        Type.PAGE -> if (today) stat.todayPage else stat.page
-                    }
-                    if (total <= 0) null else {
-                        val detail = when (requestedType) {
-                            Type.ALL -> "开屏 ${if (today) stat.todaySplash else stat.splash} · 跳转 ${if (today) stat.todayJump else stat.jump} · 页面 ${if (today) stat.todayPage else stat.page}"
-                            Type.SPLASH -> "开屏广告跳过"
-                            Type.JUMP -> "误触跳转拦截"
-                            Type.PAGE -> "页面内广告关闭"
-                        }
-                        val last = when (requestedType) {
-                            Type.ALL -> stat.lastAt
-                            Type.SPLASH -> stat.lastSplashAt
-                            Type.JUMP -> stat.lastJumpAt
-                            Type.PAGE -> stat.lastPageAt
-                        }
-                        val recent = if (last <= 0) "" else {
-                            calendar.timeInMillis = last
-                            "最近 " + (if (calendar.get(Calendar.YEAR) == year) recentFormat else olderFormat).format(Date(last))
-                        }
-                        StatAppRow(stat.pkg, AppInfoHelper.label(applicationContext, stat.pkg), detail, recent, total)
-                    }
-                }.sortedByDescending { it.count }
-                Rows(key, rows)
-            }
-        }) { result ->
-            result.onSuccess { data ->
-                if (data != null) {
-                    renderedKey = data.key
-                    val total = data.rows.sumOf { it.count }
-                    caption.text = if (data.key.range == Range.TODAY) "今日拦截" else "累计拦截"
-                    count.text = total.toString()
-                    count.contentDescription = "${caption.text} $total 次"
-                    summary.text = "${typeLabel(data.key.type)} · ${data.rows.size} 个应用"
-                    empty.text = if (data.key.snapshot.total > 0) "当前筛选下暂无记录\n试试切换时间范围或广告类型"
-                        else "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
-                    adapter.submitList(data.rows) {
-                        empty.visibility = if (data.rows.isEmpty()) View.VISIBLE else View.GONE
-                    }
-                }
+        val snapshot = cachedSnapshot
+        loadingType = requestedType
+        worker.submit({ buildRows(snapshot ?: StatsStore.snapshot(), requestedType) }) { result ->
+            loadingType = null
+            result.onSuccess { models ->
+                cachedSnapshot = models.first().key.snapshot
+                models.forEach { cachedRows[it.key.range to it.key.type] = it }
+                if (!heatmapVisible) render()
             }.onFailure { summary.text = "加载失败，请返回后重试" }
+        }
+    }
+
+    private fun buildRows(snapshot: StatsStore.Snapshot, requestedType: Type): List<Rows> {
+        val recentFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+        val olderFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        val year = Calendar.getInstance().get(Calendar.YEAR)
+        val calendar = Calendar.getInstance()
+        val day = LocalDate.now()
+        return Range.entries.map { requestedRange ->
+            val key = RenderKey(snapshot, requestedRange, requestedType, day)
+            val rows = key.snapshot.apps.mapNotNull { stat ->
+                if (Thread.currentThread().isInterrupted) throw InterruptedException()
+                val today = requestedRange == Range.TODAY
+                val total = when (requestedType) {
+                    Type.ALL -> if (today) stat.todayTotal else stat.total
+                    Type.SPLASH -> if (today) stat.todaySplash else stat.splash
+                    Type.JUMP -> if (today) stat.todayJump else stat.jump
+                    Type.PAGE -> if (today) stat.todayPage else stat.page
+                }
+                if (total <= 0) null else {
+                    val detail = when (requestedType) {
+                        Type.ALL -> "开屏 ${if (today) stat.todaySplash else stat.splash} · 跳转 ${if (today) stat.todayJump else stat.jump} · 页面 ${if (today) stat.todayPage else stat.page}"
+                        Type.SPLASH -> "开屏广告跳过"
+                        Type.JUMP -> "误触跳转拦截"
+                        Type.PAGE -> "页面内广告关闭"
+                    }
+                    val last = when (requestedType) {
+                        Type.ALL -> stat.lastAt
+                        Type.SPLASH -> stat.lastSplashAt
+                        Type.JUMP -> stat.lastJumpAt
+                        Type.PAGE -> stat.lastPageAt
+                    }
+                    val recent = if (last <= 0) "" else {
+                        calendar.timeInMillis = last
+                        "最近 " + (if (calendar.get(Calendar.YEAR) == year) recentFormat else olderFormat).format(Date(last))
+                    }
+                    StatAppRow(stat.pkg, AppInfoHelper.label(applicationContext, stat.pkg), detail, recent, total)
+                }
+            }.sortedByDescending { it.count }
+            Rows(key, rows)
+        }
+    }
+
+    private fun showRows(data: Rows) {
+        if ((pendingKey ?: renderedKey) == data.key) return
+        pendingKey = data.key
+        // Even a return to the currently displayed range must supersede an in-flight diff.
+        adapter.submitList(data.rows) {
+            Motion.whenPageReady(this, summary) {
+                pendingKey = null
+                renderedKey = data.key
+                val total = data.total
+                caption.text = if (data.key.range == Range.TODAY) "今日拦截" else "累计拦截"
+                count.text = total.toString()
+                count.contentDescription = "${caption.text} $total 次"
+                summary.text = "${typeLabel(data.key.type)} · ${data.rows.size} 个应用"
+                empty.text = when {
+                    data.key.snapshot.total == 0 -> "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
+                    data.key.range == Range.TODAY -> "今天暂无这类拦截记录\n可以切换“全部时间”查看历史记录"
+                    else -> "当前类型暂无拦截记录\n试试切换其他广告类型"
+                }
+                empty.visibility = if (data.rows.isEmpty()) View.VISIBLE else View.GONE
+            }
         }
     }
 
@@ -211,6 +249,7 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun renderHeatmap() {
+        loadingType = null
         worker.submit({ Triple(StatsStore.dailyCounts(), StatsStore.installedOn(), LocalDate.now()) }) { result ->
             result.onSuccess { (counts, installed, today) ->
                 val changed = heatmap.submit(counts, installed, today)
