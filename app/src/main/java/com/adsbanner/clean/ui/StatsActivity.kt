@@ -77,9 +77,7 @@ class StatsActivity : AppCompatActivity() {
         summary = header.findViewById(R.id.tvSummary)
         count = header.findViewById(R.id.tvStatCount)
         caption = header.findViewById(R.id.tvStatCaption)
-        count.text = "—"
         count.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
-        summary.text = "正在加载统计…"
         typeButton = header.findViewById(R.id.btnType)
         typeButton.text = typeLabel(type)
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
@@ -161,6 +159,21 @@ class StatsActivity : AppCompatActivity() {
     private fun render() {
         if (cachedDay != LocalDate.now() ||
             cachedSnapshot?.let { it.revision != StatsStore.revision } == true) invalidateRows()
+        if (renderedKey == null) {
+            // Bind the inexpensive in-memory overview before the first draw. App labels,
+            // icons and list layouts still wait for the page transition to finish.
+            val snapshot = cachedSnapshot ?: StatsStore.snapshot().also { cachedSnapshot = it }
+            var total = 0
+            var apps = 0
+            snapshot.apps.forEach {
+                val value = countOf(it, range, type)
+                if (value > 0) {
+                    total += value
+                    apps++
+                }
+            }
+            showOverview(snapshot, range, type, total, apps)
+        }
         cachedRows[range to type]?.let { showRows(it); return }
         // One background pass prepares both ranges. Rapid taps only change the desired range.
         if (loadingType == type) return
@@ -188,12 +201,7 @@ class StatsActivity : AppCompatActivity() {
             val rows = key.snapshot.apps.mapNotNull { stat ->
                 if (Thread.currentThread().isInterrupted) throw InterruptedException()
                 val today = requestedRange == Range.TODAY
-                val total = when (requestedType) {
-                    Type.ALL -> if (today) stat.todayTotal else stat.total
-                    Type.SPLASH -> if (today) stat.todaySplash else stat.splash
-                    Type.JUMP -> if (today) stat.todayJump else stat.jump
-                    Type.PAGE -> if (today) stat.todayPage else stat.page
-                }
+                val total = countOf(stat, requestedRange, requestedType)
                 if (total <= 0) null else {
                     val detail = when (requestedType) {
                         Type.ALL -> "开屏 ${if (today) stat.todaySplash else stat.splash} · 跳转 ${if (today) stat.todayJump else stat.jump} · 页面 ${if (today) stat.todayPage else stat.page}"
@@ -226,19 +234,32 @@ class StatsActivity : AppCompatActivity() {
             Motion.whenPageReady(this, summary) {
                 pendingKey = null
                 renderedKey = data.key
-                val total = data.total
-                caption.text = if (data.key.range == Range.TODAY) "今日拦截" else "累计拦截"
-                count.text = total.toString()
-                count.contentDescription = "${caption.text} $total 次"
-                summary.text = "${typeLabel(data.key.type)} · ${data.rows.size} 个应用"
-                empty.text = when {
-                    data.key.snapshot.total == 0 -> "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
-                    data.key.range == Range.TODAY -> "今天暂无这类拦截记录\n可以切换“全部时间”查看历史记录"
-                    else -> "当前类型暂无拦截记录\n试试切换其他广告类型"
-                }
-                empty.visibility = if (data.rows.isEmpty()) View.VISIBLE else View.GONE
+                showOverview(data.key.snapshot, data.key.range, data.key.type, data.total, data.rows.size)
             }
         }
+    }
+
+    private fun countOf(stat: StatsStore.AppStat, selectedRange: Range, selectedType: Type): Int {
+        val today = selectedRange == Range.TODAY
+        return when (selectedType) {
+            Type.ALL -> if (today) stat.todayTotal else stat.total
+            Type.SPLASH -> if (today) stat.todaySplash else stat.splash
+            Type.JUMP -> if (today) stat.todayJump else stat.jump
+            Type.PAGE -> if (today) stat.todayPage else stat.page
+        }
+    }
+
+    private fun showOverview(snapshot: StatsStore.Snapshot, selectedRange: Range, selectedType: Type, total: Int, apps: Int) {
+        caption.text = if (selectedRange == Range.TODAY) "今日拦截" else "累计拦截"
+        count.text = total.toString()
+        count.contentDescription = "${caption.text} $total 次"
+        summary.text = "${typeLabel(selectedType)} · $apps 个应用"
+        empty.text = when {
+            snapshot.total == 0 -> "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
+            selectedRange == Range.TODAY -> "今天暂无这类拦截记录\n可以切换“全部时间”查看历史记录"
+            else -> "当前类型暂无拦截记录\n试试切换其他广告类型"
+        }
+        empty.visibility = if (apps == 0) View.VISIBLE else View.GONE
     }
 
     private fun typeLabel(value: Type) = when (value) {
