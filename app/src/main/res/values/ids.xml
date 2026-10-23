@@ -1,3 +1,4 @@
 <resources>
     <item name="motion_press_feedback" type="id" />
+    <item name="motion_page_work" type="id" />
 </resources>

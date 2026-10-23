@@ -11,7 +11,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.ConcatAdapter
-import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
@@ -45,7 +44,7 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatmap: HeatmapView
     private lateinit var heatMeta: TextView
     private lateinit var heatDetail: TextView
-    private val worker = UiWorker()
+    private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     @Volatile private var renderedKey: RenderKey? = null
     private var range = Range.TODAY
     private var type = Type.ALL
@@ -57,7 +56,7 @@ class StatsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_stats)
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
-        Motion.preparePage(this, getString(R.string.transition_stats), R.color.brand_light)
+        Motion.preparePage(this, getString(R.string.transition_stats), R.color.brand_light, savedInstanceState != null)
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
@@ -75,16 +74,12 @@ class StatsActivity : AppCompatActivity() {
         summary.text = "正在加载统计…"
         typeButton = header.findViewById(R.id.btnType)
         typeButton.text = typeLabel(type)
-        icons = AppIconLoader(this)
+        icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = StatAppAdapter(icons)
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
         list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
-        (list.itemAnimator as? DefaultItemAnimator)?.apply {
-            supportsChangeAnimations = false
-            addDuration = 120
-            removeDuration = 100
-            moveDuration = 160
-        }
+        // Navigation owns the motion; list updates should settle in one layout.
+        list.itemAnimator = null
         heatmapScroll = findViewById(R.id.heatmapScroll)
         heatScroll = findViewById(R.id.heatScroll)
         heatmap = findViewById(R.id.heatmap)
@@ -222,6 +217,11 @@ class StatsActivity : AppCompatActivity() {
                 if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
             }.onFailure { heatMeta.text = "加载失败，请返回后重试" }
         }
+    }
+
+    override fun onEnterAnimationComplete() {
+        super.onEnterAnimationComplete()
+        Motion.pageEnterComplete(this)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
