@@ -70,9 +70,37 @@ internal object MiniAppAdRule {
         val strongActivity = knownActivity && pkg != "com.eg.android.AlipayGphone"
         if (!strongActivity && !(exits.isNotEmpty() && ((explicitShell && menu.isNotEmpty()) || (knownActivity && namedHeaders.isNotEmpty()))) &&
             !(knownActivity && retainedSource?.hostPackage == pkg)) return null
-        fun shell(index: Int) = index in exits || index in menu || headers.any { inside(index, it) } ||
+        // A full-width header can also contain the ad/skip bar on its left. Only the right capsule is navigation.
+        val capsules = exits.flatMap { exit -> ancestors(exit).filter { p ->
+            val b = nodes[p].bounds
+            native(p) && b.width <= screen.width * .5 && b.height <= screen.height * .15 &&
+                b.left > screen.left + screen.width * .5 && menu.any { inside(it, p) }
+        }.toList() }.toSet()
+        fun shell(index: Int) = index in exits || index in menu || capsules.any { inside(index, it) } ||
             nodes[index].shortId in SHELL_CLOSE_IDS || nodes[index].shortId.contains("appbrand_actionbar")
-        val nameNodes = namedHeaders + nodes.indices.filter { i ->
+        val markers = nodes.indices.filter { i -> shown(i) && !shell(i) && nodes[i].labels(::adLabel) }.take(24)
+        val topMarkers = markers.filter { i -> atTop(i) && small(i) && nodes[i].bounds.right <= screen.left + screen.width * .6 }
+        val trackingTopBar = knownPanelKey?.startsWith(WECHAT_TOP_BAR) == true
+        fun protectedWithin(scope: Int) = nodes.indices.any { i -> shown(i) && inside(i, scope) &&
+            (nodes[i].className.endsWith("EditText") || nodes[i].labels { it.contains(PROTECTED_DIALOG) }) }
+        fun rootOf(index: Int) = ancestors(index).lastOrNull() ?: index
+        val topPair = if (pkg == "com.tencent.mm") nodes.indices.asSequence().filter { i ->
+            small(i) && nodes[i].enabled && !shell(i) && nodes[i].labels { SKIP_LABEL.matches(it) } &&
+                nodes[i].bounds.right <= screen.left + screen.width * .6 && atTop(i)
+        }.mapNotNull { skip ->
+            val b = nodes[skip].bounds
+            topMarkers.firstOrNull { marker ->
+                val a = nodes[marker].bounds
+                marker != skip && rootOf(marker) == rootOf(skip) && a.x < b.x &&
+                    a.right <= b.left + screen.width * .025 && b.left - a.right <= screen.width * .12 &&
+                    kotlin.math.abs(a.y - b.y) <= screen.height * .025
+            }?.let { marker ->
+                val common = (sequenceOf(skip) + ancestors(skip)).firstOrNull { inside(marker, it) }
+                common?.takeUnless(::protectedWithin)?.let { Triple(skip, marker, it) }
+            }
+        }.firstOrNull() else null
+        // During a full-page ad, nearby native text can be its countdown or campaign copy, not an app title.
+        val fallbackNames = if (topPair != null || (trackingTopBar && topMarkers.isNotEmpty())) emptyList() else nodes.indices.filter { i ->
             shown(i) && native(i) && !shell(i) && nodes[i].className.endsWith("TextView") &&
                 exits.any { exit ->
                     kotlin.math.abs(nodes[i].bounds.y - nodes[exit].bounds.y) < screen.height * .035 &&
@@ -81,19 +109,35 @@ internal object MiniAppAdRule {
         } + headers.flatMap { h -> nodes.indices.filter { i ->
             i != h && inside(i, h) && native(i) && nodes[i].className.endsWith("TextView") && i !in menu && i !in exits
         } }
+        val nameNodes = namedHeaders + fallbackNames
         val name = nameNodes.asSequence().mapNotNull { i ->
             nodes[i].text.trim().ifEmpty { nodes[i].desc.trim() }.takeIf {
                 it.isNotBlank() && MiniAppSource.create(pkg, it)?.name != null
             }
         }.firstOrNull()
         val source = MiniAppSource.create(pkg, name ?: retainedSource?.name) ?: return null
-        val markers = nodes.indices.filter { i -> shown(i) && !shell(i) && nodes[i].labels(::adLabel) }.take(24)
         val adButtons = nodes.indices.filter { i -> small(i) && !shell(i) && nodes[i].labels(::explicitClose) }
         val anyAd = markers.isNotEmpty() || adButtons.isNotEmpty()
         val known = nodes.indices.firstOrNull { nodes[it].key == knownPanelKey && shown(it) }
         var panelKey = known?.takeIf { scope -> markers.any { inside(it, scope) } || adButtons.any { inside(it, scope) } }?.let { nodes[it].key }
         // If a panel's path changed during a render, remaining ad evidence prevents a false success.
-        if (knownPanelKey != null && known == null && anyAd) panelKey = knownPanelKey
+        if (trackingTopBar) panelKey = knownPanelKey?.takeIf { topMarkers.isNotEmpty() }
+        else if (knownPanelKey != null && known == null && anyAd) panelKey = knownPanelKey
+
+        fun preciseAction(icon: Int, scope: Int): Int? {
+            val button = nodes[icon]
+            val selfArea = button.bounds.width.toLong() * button.bounds.height
+            return (sequenceOf(icon) + ancestors(icon).takeWhile { it != scope }.take(3)).firstOrNull { i ->
+                val n = nodes[i]
+                n.enabled && n.clickable && shown(i) && !shell(i) && n.bounds.contains(button.bounds) &&
+                    n.bounds.width.toLong() * n.bounds.height <= selfArea * 2
+            }
+        }
+        if (topPair != null) {
+            val (icon, marker, scope) = topPair
+            return Match(source, WECHAT_TOP_BAR + nodes[marker].key,
+                Target(icon, preciseAction(icon, scope), nodes[icon].bounds, "跳过"), true)
+        }
 
         for (icon in nodes.indices.filter { i -> small(i) && nodes[i].enabled && !shell(i) &&
             (nodes[i].labels(::closeLabel) || nodes[i].shortId.matches(CLOSE_ID)) }.take(24)) {
@@ -109,28 +153,22 @@ internal object MiniAppAdRule {
                     (skip || explicit || b.height <= screen.height * .85 || parent.shortId.contains("ad_container")) &&
                     (skip || explicit || (button.bounds.x > b.left + b.width * .65 && button.bounds.y < b.top + b.height * .3) ||
                         button.bounds.y > b.top + b.height * .8) &&
-                    nodes.indices.none { i -> shown(i) && inside(i, p) &&
-                        (nodes[i].className.endsWith("EditText") || nodes[i].labels {
-                            it.contains(PROTECTED_DIALOG)
-                        }) }
+                    !protectedWithin(p)
             } ?: continue
-            val selfArea = button.bounds.width.toLong() * button.bounds.height
-            val action = (sequenceOf(icon) + ancestors(icon).takeWhile { it != scope }.take(3)).firstOrNull { i ->
-                val n = nodes[i]
-                n.enabled && n.clickable && shown(i) && !shell(i) && n.bounds.contains(button.bounds) &&
-                    n.bounds.width.toLong() * n.bounds.height <= selfArea * 2
-            }
-            return Match(source, nodes[scope].key, Target(icon, action, button.bounds,
+            return Match(source, nodes[scope].key, Target(icon, preciseAction(icon, scope), button.bounds,
                 button.text.ifBlank { button.desc }.ifBlank { "关闭广告" }), anyAd)
         }
         return Match(source, panelKey, null, anyAd)
     }
 
-    private fun adLabel(text: String) = text in AD_LABELS
+    private fun adLabel(text: String) = text in AD_LABELS || AD_BADGE.matches(text)
     private fun explicitClose(text: String) = EXPLICIT_CLOSE.matches(text)
     private fun closeLabel(text: String) = explicitClose(text) || CLOSE_LABEL.matches(text)
 
     private val AD_LABELS = setOf("广告", "廣告", "AD", "Ad", "ad", "全屏广告", "插屏广告", "推荐广告")
+    private const val WECHAT_TOP_BAR = "wechat-top-ad:"
+    private val AD_BADGE = Regex("^(?:广告|廣告)\\s*[∨⌄▾▼﹀︾]$")
+    private val SKIP_LABEL = Regex("^(?:跳过(?:\\s*[|丨/·•]?\\s*\\d{1,2}\\s*[sS秒]?)?|\\d{1,2}\\s*[sS秒]\\s*跳过|skip(?:\\s*\\d{1,2}\\s*s)?)$", RegexOption.IGNORE_CASE)
     private val MENU_LABELS = setOf("更多", "更多选项", "菜单", "more", "…", "⋮")
     private val MINI_CLOSE_LABELS = setOf("关闭小程序", "关闭当前小程序", "退出小程序")
     private val PLAIN_CLOSE_LABELS = setOf("关闭", "×", "x", "close")

@@ -50,7 +50,8 @@ class MiniAppAdSessionTest {
         val second = session.update(shown(), 400).action!!
         assertTrue(second.gesture)
         session.complete(second, false)
-        val third = session.update(shown(), 800).action!!
+        assertNull(session.update(shown(), 800).action)
+        val third = session.update(shown(), 1200).action!!
         session.complete(third, false)
         assertNull(session.update(shown(), 2000).action)
     }
@@ -74,5 +75,37 @@ class MiniAppAdSessionTest {
         val session = MiniAppAdSession()
         val result = session.update(shown().copy(target = null), 0)
         assertFalse(result.urgent)
+    }
+    @Test fun revealingTheNativeTitleAfterClosingDoesNotLoseTheCount() {
+        val unnamed = MiniAppSource.create(source.hostPackage, null)!!
+        val session = MiniAppAdSession()
+        val action = session.update(shown(unnamed), 0).action!!
+        session.complete(action, true)
+        assertNull(session.update(gone(source), 200).record)
+        assertEquals(source.key, session.update(gone(source), 600).record!!.key)
+        assertNull(session.update(gone(source), 1000).record)
+    }
+    @Test fun lateOrCrossHostNamesCannotReattributeAnOldClick() {
+        val unnamed = MiniAppSource.create(source.hostPackage, null)!!
+        for ((next, appearedAt) in listOf(source to 3000L, MiniAppSource.create("com.tencent.mobileqq", "铁路出行")!! to 200L)) {
+            val session = MiniAppAdSession()
+            val action = session.update(shown(unnamed), 0).action!!
+            session.complete(action, true)
+            session.update(gone(next), appearedAt)
+            assertNull(session.update(gone(next), appearedAt + 600).record)
+        }
+    }
+    @Test fun sdkWarmupDoesNotConsumeAllAttemptsInTheFirstSecond() {
+        val session = MiniAppAdSession()
+        val first = session.update(shown(), 0).action!!
+        session.complete(first, true) // ACTION_CLICK was accepted, but the ad remains.
+        val second = session.update(shown(), 400).action!!
+        session.complete(second, true)
+        assertNull(session.update(shown(), 800).action)
+        val final = session.update(shown(), 1200).action!!
+        assertTrue(final.gesture)
+        session.complete(final, true)
+        session.update(gone(), 1300)
+        assertEquals(source.key, session.update(gone(), 1700).record!!.key)
     }
 }
