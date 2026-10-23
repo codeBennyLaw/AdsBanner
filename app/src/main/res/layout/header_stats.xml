@@ -50,27 +50,28 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
         android:orientation="vertical">
-        <com.google.android.material.chip.ChipGroup
+        <com.adsbanner.clean.ui.StatsRangeSelector
             android:id="@+id/toggleTime"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:chipSpacingHorizontal="8dp"
-            app:chipSpacingVertical="4dp"
-            app:selectionRequired="true"
-            app:singleSelection="true">
-            <com.google.android.material.chip.Chip
+            android:background="@drawable/bg_range_track"
+            android:padding="4dp"
+            android:orientation="horizontal">
+            <androidx.appcompat.widget.AppCompatRadioButton
                 android:id="@+id/btnTimeToday"
-                style="@style/Chip.AdsBanner.Filter"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                style="@style/Widget.AdsBanner.RangeOption"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
                 android:text="今天" />
-            <com.google.android.material.chip.Chip
+            <androidx.appcompat.widget.AppCompatRadioButton
                 android:id="@+id/btnTimeAll"
-                style="@style/Chip.AdsBanner.Filter"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                style="@style/Widget.AdsBanner.RangeOption"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
                 android:text="全部时间" />
-        </com.google.android.material.chip.ChipGroup>
+        </com.adsbanner.clean.ui.StatsRangeSelector>
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnType"
             style="@style/Widget.Material3.Button.TonalButton"

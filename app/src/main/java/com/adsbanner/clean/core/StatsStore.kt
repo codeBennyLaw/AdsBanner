@@ -65,13 +65,16 @@ object StatsStore {
     data class Snapshot(
         val apps: List<AppStat>,
         val todayTotal: Int,
-        val total: Int
+        val total: Int,
+        val revision: Long
     )
 
     private lateinit var sp: SharedPreferences
     private val lock = Any()
     private var root: JSONObject = JSONObject()
     private var loaded = false
+    @Volatile var revision = 0L
+        private set
 
     private val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
@@ -120,6 +123,7 @@ object StatsStore {
                     item.put(F_TP, 0)
                 }
             }
+            revision++
         }
     }
 
@@ -158,6 +162,7 @@ object StatsStore {
             daily.put(today, daily.optInt(today) + 1)
             root.put(F_DAILY, daily)
 
+            revision++
             persist()
         }
     }
@@ -170,7 +175,7 @@ object StatsStore {
         synchronized(lock) {
             rolloverIfNeeded()
             val apps = root.optJSONObject("apps")
-            if (apps == null) return Snapshot(emptyList(), 0, 0)
+            if (apps == null) return Snapshot(emptyList(), 0, 0, revision)
 
             val list = ArrayList<AppStat>(apps.length())
             var total = 0
@@ -198,7 +203,7 @@ object StatsStore {
                 list.add(stat)
             }
             list.sortWith(compareByDescending<AppStat> { it.total }.thenByDescending { it.lastAt })
-            return Snapshot(list, todayTotal, total)
+            return Snapshot(list, todayTotal, total, revision)
         }
     }
 
@@ -243,6 +248,7 @@ object StatsStore {
             root = JSONObject()
             root.put("day", dayFormat.format(Date()))
             if (installed.isNotBlank()) root.put(F_INSTALLED, installed)
+            revision++
             persist()
         }
     }
