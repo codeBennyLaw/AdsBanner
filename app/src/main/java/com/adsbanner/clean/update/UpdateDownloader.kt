@@ -1,121 +1,42 @@
 package com.adsbanner.clean.update
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
+import com.adsbanner.clean.BuildConfig
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
-/**
- * 在应用内下载 Release 里的 APK。
- *
- * 下载地址取 Release asset 的 browser_download_url，仓库目前是公开的，
- * 因此不需要再带凭据；接口凭据只用于 api.github.com，不跟到下载重定向。
- *
- * 文件落在 cacheDir/updates，先写 .part 再改名，避免中断后留下半截安装包。
- */
+/** Front-end for the resumable asset download; cancellation disconnects pending network reads. */
 object UpdateDownloader {
-
-    private const val TAG = "AdsBanner"
-    private const val TIMEOUT_CONNECT = 15_000
-    private const val TIMEOUT_READ = 30_000
-    private const val BUFFER_SIZE = 8 * 1024
-    private const val MIN_APK_BYTES = 1024L
-
-    class Handle {
-        @Volatile
-        internal var cancelled = false
-
-        fun cancel() {
-            cancelled = true
-        }
+    class Handle internal constructor(internal val cancellation: ReleaseHttp.Cancellation = ReleaseHttp.Cancellation()) {
+        internal val cancelled get() = cancellation.cancelled
+        fun cancel() = cancellation.cancel()
     }
 
-    fun download(
-        context: Context,
-        url: String,
-        fileName: String,
-        onProgress: (Int) -> Unit,
-        onComplete: (File) -> Unit,
-        onError: (String) -> Unit
-    ): Handle {
+    fun download(context: Context, url: String, fileName: String,
+        assetId: Long, assetSize: Long, assetDigest: String, version: String,
+        onProgress: (Int) -> Unit, onComplete: (File) -> Unit, onError: (String) -> Unit): Handle {
         val handle = Handle()
-        val appContext = context.applicationContext
-
-        Thread {
-            var connection: HttpURLConnection? = null
+        val app = context.applicationContext
+        Thread({
             try {
-                val dir = File(appContext.cacheDir, "updates").apply { mkdirs() }
-                val target = File(dir, fileName)
-                val temp = File(dir, "$fileName.part")
-                temp.delete()
-
-                connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = TIMEOUT_CONNECT
-                    readTimeout = TIMEOUT_READ
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "AdsBanner")
+                val asset = ReleaseAsset(assetId, assetSize, assetDigest, url)
+                val file = ReleaseAssetDownloader(ReleaseUpdates.http).download(asset, File(app.cacheDir, "updates"),
+                    fileName, handle.cancellation, onProgress) { part ->
+                    val info = app.packageManager.getPackageArchiveInfo(part.absolutePath, 0)
+                    @Suppress("DEPRECATION")
+                    val code = if (Build.VERSION.SDK_INT >= 28) info?.longVersionCode else info?.versionCode?.toLong()
+                    check(info?.packageName == app.packageName && code != null && code > BuildConfig.VERSION_CODE &&
+                        info.versionName == version) { "安装包版本或包名不符" }
                 }
-
-                val code = connection.responseCode
-                if (code !in 200..299) {
-                    onError("服务返回 $code")
-                    return@Thread
+                if (!handle.cancelled) onComplete(file)
+            } catch (error: Exception) {
+                if (!handle.cancelled) {
+                    Log.w("AdsBanner", "更新下载失败: ${error.javaClass.simpleName}")
+                    onError(ReleaseHttp.reason(error))
                 }
-
-                val total = connection.contentLengthLong
-                connection.inputStream.use { input ->
-                    temp.outputStream().use { output ->
-                        val buffer = ByteArray(BUFFER_SIZE)
-                        var written = 0L
-                        var lastPercent = -1
-                        while (true) {
-                            if (handle.cancelled) {
-                                temp.delete()
-                                return@Thread
-                            }
-                            val read = input.read(buffer)
-                            if (read <= 0) break
-                            output.write(buffer, 0, read)
-                            written += read
-                            if (total > 0) {
-                                val percent = (written * 100 / total).toInt().coerceIn(0, 100)
-                                if (percent != lastPercent) {
-                                    lastPercent = percent
-                                    onProgress(percent)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (handle.cancelled) {
-                    temp.delete()
-                    return@Thread
-                }
-                if (temp.length() < MIN_APK_BYTES) {
-                    temp.delete()
-                    onError("安装包内容不完整")
-                    return@Thread
-                }
-
-                target.delete()
-                if (!temp.renameTo(target)) {
-                    temp.delete()
-                    onError("保存安装包失败")
-                    return@Thread
-                }
-                onProgress(100)
-                onComplete(target)
-            } catch (t: Throwable) {
-                Log.w(TAG, "下载更新失败: ${t.message}")
-                onError(t.message ?: "网络异常")
-            } finally {
-                runCatching { connection?.disconnect() }
             }
-        }.apply { isDaemon = true }.start()
-
+        }, "AdsBanner-update").apply { isDaemon = true }.start()
         return handle
     }
 }
