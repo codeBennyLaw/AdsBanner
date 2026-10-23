@@ -9,11 +9,14 @@ import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
-import androidx.activity.addCallback
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.doOnPreDraw
 import androidx.transition.TransitionManager
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import com.adsbanner.clean.R
 import com.google.android.material.transition.MaterialSharedAxis
 import com.google.android.material.transition.platform.MaterialContainerTransform
@@ -27,6 +30,8 @@ object Motion {
     private const val PAGE_RETURN_MS = 260L
 
     fun prepareHome(activity: Activity) {
+        bindPressFeedback(activity.findViewById(R.id.cardStats))
+        bindPressFeedback(activity.findViewById(R.id.cardTargets))
         activity.setExitSharedElementCallback(MaterialContainerTransformSharedElementCallback())
         activity.window.apply {
             sharedElementsUseOverlay = false
@@ -36,6 +41,7 @@ object Motion {
     }
 
     fun openPage(activity: Activity, source: View, destination: Class<out Activity>) {
+        resetPressFeedback(source)
         val options = ActivityOptions.makeSceneTransitionAnimation(
             activity, source, source.transitionName
         )
@@ -69,15 +75,33 @@ object Motion {
         activity.postponeEnterTransition()
         content.doOnPreDraw { activity.startPostponedEnterTransition() }
         var returning = false
-        activity.onBackPressedDispatcher.addCallback(activity) {
-            if (returning || activity.isFinishing) return@addCallback
-            returning = true
-            if (!pageAnimationsEnabled(activity)) {
-                activity.window.sharedElementReturnTransition?.duration = 0L
+        var gestureAnimations = false
+        val backMotion = BackProgressMotion(activity.findViewById(R.id.root))
+        activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) = backMotion.reset()
+        })
+        activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                gestureAnimations = !returning && pageAnimationsEnabled(activity)
+                if (gestureAnimations) backMotion.start(backEvent)
             }
-            activity.finishAfterTransition()
-        }
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                if (!returning && gestureAnimations) backMotion.update(backEvent)
+            }
+            override fun handleOnBackCancelled() { backMotion.settle(pageAnimationsEnabled(activity)) }
+            override fun handleOnBackPressed() {
+                if (returning || activity.isFinishing) return
+                returning = true
+                val animated = pageAnimationsEnabled(activity)
+                backMotion.settle(animated)
+                if (!animated) activity.window.sharedElementReturnTransition?.duration = 0L
+                activity.finishAfterTransition()
+            }
+        })
     }
+
+    fun bindPressFeedback(view: View) = PressFeedback.bind(view)
+    fun resetPressFeedback(view: View) = PressFeedback.reset(view)
 
     private fun pageAnimationsEnabled(activity: Activity): Boolean =
         ValueAnimator.areAnimatorsEnabled() && Settings.Global.getFloat(
@@ -124,19 +148,4 @@ object Motion {
         show.visibility = View.VISIBLE
     }
 
-    fun staggerChildren(container: ViewGroup) {
-        if (!ValueAnimator.areAnimatorsEnabled()) return
-        for (i in 0 until container.childCount) {
-            val child = container.getChildAt(i)
-            child.alpha = 0f
-            child.translationY = 8f
-            child.animate()
-                .alpha(1f)
-                .translationY(0f)
-                .setStartDelay((i * 18L).coerceAtMost(180L))
-                .setDuration(180L)
-                .setInterpolator(DecelerateInterpolator())
-                .start()
-        }
-    }
 }

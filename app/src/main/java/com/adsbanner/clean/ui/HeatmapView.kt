@@ -3,6 +3,7 @@ package com.adsbanner.clean.ui
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -11,6 +12,7 @@ import androidx.core.content.ContextCompat
 import com.adsbanner.clean.R
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlin.math.floor
 
 /**
  * 按天拦截量的热力图。列是一周，行是周一到周日，从安装日期那天开始画，
@@ -32,7 +34,8 @@ class HeatmapView @JvmOverloads constructor(
         val date: LocalDate,
         val week: Int,
         val weekday: Int,
-        val count: Int
+        val count: Int,
+        val color: Int
     )
 
     /** 点击某一天时回调：日期与该天拦截次数 */
@@ -61,6 +64,11 @@ class HeatmapView @JvmOverloads constructor(
     private var cells: List<Cell> = emptyList()
     private var weeks = 1
     private var selected: LocalDate? = null
+    private var previousCounts: Map<LocalDate, Int>? = null
+    private var previousStart: LocalDate? = null
+    private var previousEnd: LocalDate? = null
+    private var firstWeekday = 0
+    private val visibleBounds = Rect()
 
     private val gesture = GestureDetector(
         context,
@@ -70,6 +78,8 @@ class HeatmapView @JvmOverloads constructor(
             override fun onSingleTapUp(e: MotionEvent): Boolean {
                 val hit = hitTest(e.x, e.y) ?: return false
                 selected = hit.date
+                contentDescription = "${hit.date}，拦截 ${hit.count} 次"
+                performClick()
                 invalidate()
                 onCellClick?.invoke(hit.date, hit.count)
                 return true
@@ -83,26 +93,39 @@ class HeatmapView @JvmOverloads constructor(
         return true
     }
 
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
     fun submit(
         counts: Map<LocalDate, Int>,
         installedOn: LocalDate,
         until: LocalDate = LocalDate.now()
-    ) {
+    ): Boolean {
         val start = if (until.isBefore(installedOn)) until else installedOn
+        if (previousStart == start && previousEnd == until && previousCounts == counts) return false
+        previousStart = start
+        previousEnd = until
+        previousCounts = counts.toMap()
+        firstWeekday = start.dayOfWeek.value - 1
         val firstMonday = start.minusDays((start.dayOfWeek.value - 1).toLong())
         val lastMonday = until.minusDays((until.dayOfWeek.value - 1).toLong())
+        val oldWeeks = weeks
         weeks = (ChronoUnit.DAYS.between(firstMonday, lastMonday) / 7).toInt() + 1
 
         val list = ArrayList<Cell>()
         var day = start
         while (!day.isAfter(until)) {
             val week = (ChronoUnit.DAYS.between(firstMonday, day) / 7).toInt()
-            list.add(Cell(day, week, day.dayOfWeek.value - 1, counts[day] ?: 0))
+            val count = counts[day] ?: 0
+            list.add(Cell(day, week, day.dayOfWeek.value - 1, count, levelOf(count)))
             day = day.plusDays(1)
         }
         cells = list
-        requestLayout()
+        if (oldWeeks != weeks) requestLayout()
         invalidate()
+        return true
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -116,13 +139,20 @@ class HeatmapView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        for (cell in cells) {
+        if (!getLocalVisibleRect(visibleBounds)) return
+        val stride = cellSize + gap
+        val firstWeek = floor((visibleBounds.left - paddingLeft) / stride).toInt().coerceAtLeast(0)
+        val lastWeek = floor((visibleBounds.right - paddingLeft) / stride).toInt().coerceAtMost(weeks - 1)
+        val first = (firstWeek * 7 - firstWeekday).coerceAtLeast(0)
+        val end = ((lastWeek + 1) * 7 - firstWeekday).coerceAtMost(cells.size)
+        for (index in first until end) {
+            val cell = cells[index]
             val left = paddingLeft + cell.week * (cellSize + gap)
             val top = paddingTop + cell.weekday * (cellSize + gap)
             val right = left + cellSize
             val bottom = top + cellSize
 
-            fillPaint.color = levelOf(cell.count)
+            fillPaint.color = cell.color
             canvas.drawRoundRect(left, top, right, bottom, corner, corner, fillPaint)
 
             if (cell.date == selected) {
@@ -132,10 +162,11 @@ class HeatmapView @JvmOverloads constructor(
     }
 
     private fun hitTest(x: Float, y: Float): Cell? {
+        if (x < paddingLeft || y < paddingTop) return null
         val column = ((x - paddingLeft) / (cellSize + gap)).toInt()
         val row = ((y - paddingTop) / (cellSize + gap)).toInt()
         if (column < 0 || row !in 0..6) return null
-        return cells.firstOrNull { it.week == column && it.weekday == row }
+        return cells.getOrNull(column * 7 + row - firstWeekday)
     }
 
     private fun levelOf(count: Int): Int = when {

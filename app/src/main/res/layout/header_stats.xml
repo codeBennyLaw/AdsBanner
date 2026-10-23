@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/statsOverview"
+        style="@style/Card.AdsBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        app:cardBackgroundColor="@color/brand_light"
+        app:strokeWidth="0dp">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp">
+            <TextView
+                android:id="@+id/tvStatCaption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="今日拦截"
+                android:textSize="14sp"
+                android:textColor="@color/brand_dark" />
+            <TextView
+                android:id="@+id/tvStatCount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="0"
+                android:textSize="44sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"
+                android:textColor="@color/brand_dark" />
+            <TextView
+                android:id="@+id/tvSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textSize="13sp"
+                android:textColor="@color/brand_dark" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+    <LinearLayout
+        android:id="@+id/filterRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:orientation="vertical">
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toggleTime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:selectionRequired="true"
+            app:singleSelection="true">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTimeToday"
+                style="@style/Button.AdsBanner.Filter"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="今天" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnTimeAll"
+                style="@style/Button.AdsBanner.Filter"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="全部时间" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnType"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="48dp"
+            android:text="全部类型"
+            app:icon="@drawable/ic_expand_more"
+            app:iconGravity="textEnd" />
+    </LinearLayout>
+    <TextView
+        style="@style/Text.Section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="应用明细 · 按拦截次数排序"
+        android:layout_marginTop="24dp" />
+</LinearLayout>

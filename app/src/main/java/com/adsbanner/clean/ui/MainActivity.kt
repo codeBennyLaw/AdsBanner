@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
 
         bindViews()
         applyInsets()
-        Motion.enter(content)
+        if (savedInstanceState == null) Motion.enter(content)
         setupClicks()
         setupSwitches()
         requestNotificationPermissionIfNeeded()
