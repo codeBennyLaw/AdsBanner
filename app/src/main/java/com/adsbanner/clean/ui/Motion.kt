@@ -78,8 +78,9 @@ object Motion {
             sharedElementsUseOverlay = false
             sharedElementEnterTransition = transform(true).apply {
                 addListener(object : TransitionListenerAdapter() {
-                    override fun onTransitionEnd(transition: Transition) = work.completeEnter()
-                    override fun onTransitionCancel(transition: Transition) = work.completeEnter()
+                    override fun onTransitionStart(transition: Transition) = work.beginEnter()
+                    override fun onTransitionEnd(transition: Transition) = work.endEnter()
+                    override fun onTransitionCancel(transition: Transition) = work.endEnter()
                 })
             }
             sharedElementReturnTransition = transform(false)
