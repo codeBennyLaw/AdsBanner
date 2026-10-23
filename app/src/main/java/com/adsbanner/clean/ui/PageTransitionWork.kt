@@ -7,7 +7,20 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     private val pending = LinkedHashMap<Any, () -> Unit>()
     private var returning = false
     private var closed = false
-    private val release = Runnable { completeImmediately() }
+    private var transitionRunning = false
+    private val release = Runnable { if (!transitionRunning) completeImmediately() }
+
+    fun beginEnter() {
+        if (closed || returning) return
+        entering = true
+        transitionRunning = true
+        view.removeCallbacks(release)
+    }
+
+    fun endEnter() {
+        transitionRunning = false
+        completeEnter()
+    }
 
     fun submit(key: Any, task: () -> Unit) {
         if (closed || returning) return
@@ -15,7 +28,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     }
 
     fun completeEnter() {
-        if (!entering || closed || returning) return
+        if (!entering || transitionRunning || closed || returning) return
         view.removeCallbacks(release)
         view.postOnAnimation(release)
     }
@@ -23,6 +36,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     fun completeImmediately() {
         view.removeCallbacks(release)
         if (closed || returning) return
+        transitionRunning = false
         entering = false
         val tasks = pending.values.toList()
         pending.clear()
