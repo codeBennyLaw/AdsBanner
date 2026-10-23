@@ -4,9 +4,10 @@ import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.View
 import android.widget.HorizontalScrollView
-import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.view.ContextThemeWrapper
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -17,7 +18,7 @@ import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.StatsStore
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.chip.ChipGroup
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -101,11 +102,12 @@ class StatsActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnBack).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
         heatmapButton.setOnClickListener { toggleView() }
         typeButton.setOnClickListener { showTypeMenu() }
-        val toggle = header.findViewById<MaterialButtonToggleGroup>(R.id.toggleTime)
+        val toggle = header.findViewById<ChipGroup>(R.id.toggleTime)
         toggle.check(if (range == Range.TODAY) R.id.btnTimeToday else R.id.btnTimeAll)
-        toggle.addOnButtonCheckedListener { _, id, checked ->
-            if (checked) {
-                range = if (id == R.id.btnTimeToday) Range.TODAY else Range.ALL
+        toggle.setOnCheckedStateChangeListener { _, checkedIds ->
+            val selectedRange = if (R.id.btnTimeToday in checkedIds) Range.TODAY else Range.ALL
+            if (range != selectedRange) {
+                range = selectedRange
                 if (!heatmapVisible) render()
             }
         }
@@ -128,7 +130,7 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun showTypeMenu() {
-        PopupMenu(this, typeButton).apply {
+        PopupMenu(ContextThemeWrapper(this, R.style.ThemeOverlay_AdsBanner_Popup), typeButton).apply {
             Type.entries.forEach { menu.add(0, it.ordinal, it.ordinal, typeLabel(it)) }
             menu.setGroupCheckable(0, true, true)
             menu.findItem(type.ordinal).isChecked = true
