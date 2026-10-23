@@ -620,14 +620,6 @@
                 android:textSize="13sp" />
 
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" · "
-                android:importantForAccessibility="no"
-                android:textColor="@color/text_tertiary"
-                android:textSize="13sp" />
-
-            <TextView
                 android:id="@+id/btnCheckUpdate"
                 android:minHeight="48dp"
                 android:gravity="center"
@@ -641,14 +633,6 @@
                 android:paddingVertical="6dp"
                 android:text="检查更新"
                 android:textColor="@color/brand"
-                android:textSize="13sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:importantForAccessibility="no"
-                android:text=" · "
-                android:textColor="@color/text_tertiary"
                 android:textSize="13sp" />
 
             <TextView

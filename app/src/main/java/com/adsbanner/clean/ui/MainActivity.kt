@@ -33,7 +33,6 @@ import com.adsbanner.clean.service.UpdateDownloadService
 import com.adsbanner.clean.update.ApkInstaller
 import com.adsbanner.clean.update.ReleaseUpdates
 import com.google.android.material.card.MaterialCardView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import java.io.File
 
@@ -143,18 +142,16 @@ class MainActivity : AppCompatActivity() {
         val labels = (0 until footer.childCount).map { footer.getChildAt(it) as TextView }
         footer.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
             if (right - left == oldRight - oldLeft) return@addOnLayoutChangeListener
-            val needed = labels.sumOf {
+            val needed = labels.maxOf {
                 kotlin.math.ceil(Layout.getDesiredWidth(it.text, it.paint).toDouble()).toInt() +
                     it.paddingLeft + it.paddingRight
-            }
+            } * labels.size
             val stacked = needed > right - left - footer.paddingLeft - footer.paddingRight
             val orientation = if (stacked) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             if (footer.orientation != orientation) {
                 footer.orientation = orientation
                 labels.forEach { label ->
-                    val separator = label !== tvVersion && !label.isClickable
-                    label.visibility = if (separator && stacked) View.GONE else View.VISIBLE
-                    if (!separator) label.layoutParams = (label.layoutParams as LinearLayout.LayoutParams).apply {
+                    label.layoutParams = (label.layoutParams as LinearLayout.LayoutParams).apply {
                         width = if (stacked) LinearLayout.LayoutParams.MATCH_PARENT else 0
                         weight = if (stacked) 0f else 1f
                     }
@@ -210,7 +207,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        MaterialAlertDialogBuilder(this)
+        OriginDialog.Builder(this, btnCheckUpdate)
             .setTitle("发现新版本")
             .setView(view)
             .setNegativeButton("稍后", null)
@@ -247,7 +244,7 @@ class MainActivity : AppCompatActivity() {
 
         // Android 8 起安装未知来源应用需要单独授权
         if (!ApkInstaller.hasInstallPermission(this)) {
-            MaterialAlertDialogBuilder(this)
+            OriginDialog.Builder(this, null)
                 .setTitle("需要安装权限")
                 .setMessage("系统还没有允许 AdsBanner 安装应用。开启后回到应用即可继续安装。")
                 .setNegativeButton("取消", null)
@@ -312,7 +309,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onNotifyRowClick() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
-        MaterialAlertDialogBuilder(this)
+        OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
             .setMessage(InterceptNotifier.describe(this))
             .setPositiveButton("发一条测试") { _, _ -> sendTestNotification() }
@@ -376,7 +373,7 @@ class MainActivity : AppCompatActivity() {
     private fun guidePromotionIfNeeded() {
         if (!InterceptNotifier.canOpenPromotionSettings(this)) return
         if (InterceptNotifier.canPostPromoted(this)) return
-        MaterialAlertDialogBuilder(this)
+        OriginDialog.Builder(this, switchNotify)
             .setTitle("开启实时通知")
             .setMessage(
                 "本机支持实时通知（状态栏胶囊 / 灵动岛），但系统还没有对本应用开放。\n\n" +
@@ -492,7 +489,7 @@ class MainActivity : AppCompatActivity() {
             · 无障碍服务本身由系统守护，即使进程被杀，系统通常会自动重新绑定
         """.trimIndent()
 
-        MaterialAlertDialogBuilder(this)
+        OriginDialog.Builder(this, findViewById(R.id.rowRom))
             .setTitle("后台保活设置指引")
             .setMessage(message)
             .setPositiveButton("知道了", null)
