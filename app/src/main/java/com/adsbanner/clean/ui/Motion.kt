@@ -6,6 +6,8 @@ import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Color
 import android.provider.Settings
+import android.transition.Transition
+import android.transition.TransitionListenerAdapter
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
@@ -14,6 +16,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.doOnPreDraw
+import androidx.core.view.descendants
+import androidx.recyclerview.widget.RecyclerView
 import androidx.transition.TransitionManager
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -28,6 +32,7 @@ object Motion {
     private const val SWITCH_MS = 180L
     private const val PAGE_ENTER_MS = 320L
     private const val PAGE_RETURN_MS = 260L
+    private const val EXTRA_CARD_TRANSITION = "com.adsbanner.clean.CARD_TRANSITION"
 
     fun prepareHome(activity: Activity) {
         bindPressFeedback(activity.findViewById(R.id.cardStats))
@@ -45,16 +50,20 @@ object Motion {
         val options = ActivityOptions.makeSceneTransitionAnimation(
             activity, source, source.transitionName
         )
-        activity.startActivity(Intent(activity, destination), options.toBundle())
+        activity.startActivity(Intent(activity, destination).putExtra(EXTRA_CARD_TRANSITION, true), options.toBundle())
     }
 
     /** Expand the clicked home card into the page, then reverse that same path on back. */
-    fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int) {
+    fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int, restored: Boolean = false) {
         val content = activity.findViewById<View>(android.R.id.content)
         content.transitionName = name
         val background = ContextCompat.getColor(activity, R.color.bg)
         val origin = ContextCompat.getColor(activity, sourceColor)
         val enabled = pageAnimationsEnabled(activity)
+        val work = PageTransitionWork(content,
+            enabled && !restored && activity.intent.getBooleanExtra(EXTRA_CARD_TRANSITION, false))
+        content.setTag(R.id.motion_page_work, work)
+        val root = activity.findViewById<View>(R.id.root)
         fun transform(entering: Boolean) = MaterialContainerTransform().apply {
             addTarget(android.R.id.content)
             duration = if (!enabled) 0L else if (entering) PAGE_ENTER_MS else PAGE_RETURN_MS
@@ -67,7 +76,12 @@ object Motion {
         activity.setEnterSharedElementCallback(MaterialContainerTransformSharedElementCallback())
         activity.window.apply {
             sharedElementsUseOverlay = false
-            sharedElementEnterTransition = transform(true)
+            sharedElementEnterTransition = transform(true).apply {
+                addListener(object : TransitionListenerAdapter() {
+                    override fun onTransitionEnd(transition: Transition) = work.completeEnter()
+                    override fun onTransitionCancel(transition: Transition) = work.completeEnter()
+                })
+            }
             sharedElementReturnTransition = transform(false)
             enterTransition = null
             returnTransition = null
@@ -76,9 +90,18 @@ object Motion {
         content.doOnPreDraw { activity.startPostponedEnterTransition() }
         var returning = false
         var gestureAnimations = false
-        val backMotion = BackProgressMotion(activity.findViewById(R.id.root))
+        val backMotion = BackProgressMotion(root)
+        val frozenLists = mutableListOf<RecyclerView>()
         activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStop(owner: LifecycleOwner) = backMotion.reset()
+            override fun onStop(owner: LifecycleOwner) {
+                backMotion.reset()
+                work.completeImmediately()
+            }
+            override fun onDestroy(owner: LifecycleOwner) {
+                work.close()
+                frozenLists.forEach { it.suppressLayout(false) }
+                content.setTag(R.id.motion_page_work, null)
+            }
         })
         activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
             override fun handleOnBackStarted(backEvent: BackEventCompat) {
@@ -88,12 +111,30 @@ object Motion {
             override fun handleOnBackProgressed(backEvent: BackEventCompat) {
                 if (!returning && gestureAnimations) backMotion.update(backEvent)
             }
-            override fun handleOnBackCancelled() { backMotion.settle(pageAnimationsEnabled(activity)) }
+            override fun handleOnBackCancelled() {
+                gestureAnimations = false
+                if (!returning) backMotion.settle(pageAnimationsEnabled(activity))
+            }
             override fun handleOnBackPressed() {
                 if (returning || activity.isFinishing) return
                 returning = true
+                gestureAnimations = false
                 val animated = pageAnimationsEnabled(activity)
-                backMotion.settle(animated)
+                work.beginReturn()
+                // Keep the gesture pose stable while the shared container shrinks to its card.
+                // A simultaneous spring to full size fights the return transform.
+                backMotion.freeze()
+                if (!animated) backMotion.reset()
+                if (content is ViewGroup) {
+                    TransitionManager.endTransitions(content)
+                    content.descendants.filterIsInstance<RecyclerView>().forEach {
+                        (it.parent as? ViewGroup)?.let(TransitionManager::endTransitions)
+                        it.stopScroll()
+                        it.itemAnimator?.endAnimations()
+                        it.suppressLayout(true)
+                        frozenLists.add(it)
+                    }
+                }
                 if (!animated) activity.window.sharedElementReturnTransition?.duration = 0L
                 activity.finishAfterTransition()
             }
@@ -102,6 +143,15 @@ object Motion {
 
     fun bindPressFeedback(view: View) = PressFeedback.bind(view)
     fun resetPressFeedback(view: View) = PressFeedback.reset(view)
+
+    internal fun whenPageReady(activity: Activity, key: Any, task: () -> Unit) {
+        val work = activity.findViewById<View>(android.R.id.content).getTag(R.id.motion_page_work) as? PageTransitionWork
+        if (work == null) task() else work.submit(key, task)
+    }
+
+    fun pageEnterComplete(activity: Activity) {
+        (activity.findViewById<View>(android.R.id.content).getTag(R.id.motion_page_work) as? PageTransitionWork)?.completeEnter()
+    }
 
     private fun pageAnimationsEnabled(activity: Activity): Boolean =
         ValueAnimator.areAnimatorsEnabled() && Settings.Global.getFloat(

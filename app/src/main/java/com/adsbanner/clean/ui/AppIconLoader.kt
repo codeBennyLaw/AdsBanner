@@ -15,7 +15,10 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /** Visible rows only; icons are rasterized off the main thread and kept in a bounded cache. */
-internal class AppIconLoader(context: Context) : AutoCloseable {
+internal class AppIconLoader(
+    context: Context,
+    private val deliver: (Any, () -> Unit) -> Unit = { _, task -> task() }
+) : AutoCloseable {
     private val context = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
     private val size = (48 * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
@@ -42,9 +45,11 @@ internal class AppIconLoader(context: Context) : AutoCloseable {
                 drawable.toBitmap(size, size, Bitmap.Config.ARGB_8888)
             }.getOrNull()?.also { cache.put(key, it) }
             if (!Thread.currentThread().isInterrupted) handler.post {
-                if (!closed && requests[view] === request) {
-                    requests.remove(view)
-                    if (bitmap != null) view.setImageBitmap(bitmap)
+                deliver(view) {
+                    if (!closed && requests[view] === request) {
+                        requests.remove(view)
+                        if (bitmap != null) view.setImageBitmap(bitmap)
+                    }
                 }
             }
         }

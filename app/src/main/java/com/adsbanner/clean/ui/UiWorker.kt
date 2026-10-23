@@ -7,7 +7,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
 /** Latest request wins; leaving a page cancels its work and pending UI deliveries. */
-internal class UiWorker : AutoCloseable {
+internal class UiWorker(
+    private val deliver: (Any, () -> Unit) -> Unit = { _, task -> task() }
+) : AutoCloseable {
     private val handler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor { task ->
         Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); task.run() }, "AdsBanner-ui")
@@ -23,7 +25,9 @@ internal class UiWorker : AutoCloseable {
         pending = executor.submit {
             val result = runCatching(work)
             if (!Thread.currentThread().isInterrupted) handler.post {
-                if (!closed && generation == ticket) apply(result)
+                deliver(this) {
+                    if (!closed && generation == ticket) apply(result)
+                }
             }
         }
     }

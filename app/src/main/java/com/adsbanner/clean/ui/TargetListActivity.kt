@@ -12,7 +12,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.ConcatAdapter
-import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
@@ -29,7 +28,7 @@ class TargetListActivity : AppCompatActivity() {
     private lateinit var search: EditText
     private lateinit var selectionSummary: TextView
     private lateinit var listMeta: TextView
-    private val worker = UiWorker()
+    private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var allApps: List<TargetAppRow> = emptyList()
     private val selected = LinkedHashSet<String>()
     private var installedSelectedCount = 0
@@ -44,7 +43,7 @@ class TargetListActivity : AppCompatActivity() {
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-        Motion.preparePage(this, getString(R.string.transition_targets), R.color.surface)
+        Motion.preparePage(this, getString(R.string.transition_targets), R.color.surface, savedInstanceState != null)
         list = findViewById(R.id.appList)
         list.layoutManager = LinearLayoutManager(this)
         val header = layoutInflater.inflate(R.layout.header_targets, list, false)
@@ -53,7 +52,7 @@ class TargetListActivity : AppCompatActivity() {
         selectionSummary = header.findViewById(R.id.tvSelectionSummary)
         listMeta = header.findViewById(R.id.tvAppListMeta)
         selected.addAll(Prefs.jumpTargets)
-        icons = AppIconLoader(this)
+        icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = TargetAppAdapter(icons, selected) { pkg ->
             if (selected.remove(pkg)) installedSelectedCount-- else {
                 selected.add(pkg)
@@ -64,12 +63,8 @@ class TargetListActivity : AppCompatActivity() {
         }
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
         list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
-        (list.itemAnimator as? DefaultItemAnimator)?.apply {
-            supportsChangeAnimations = false
-            addDuration = 120
-            removeDuration = 100
-            moveDuration = 160
-        }
+        // Navigation owns the motion; list updates should settle in one layout.
+        list.itemAnimator = null
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or
                 WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
@@ -110,6 +105,11 @@ class TargetListActivity : AppCompatActivity() {
 
     private fun updateSelectionSummary() {
         selectionSummary.text = "已选择 $installedSelectedCount 个已安装应用"
+    }
+
+    override fun onEnterAnimationComplete() {
+        super.onEnterAnimationComplete()
+        Motion.pageEnterComplete(this)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

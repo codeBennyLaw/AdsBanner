@@ -68,13 +68,16 @@ internal class BackProgressMotion(private val view: View) {
     }
 
     fun reset() {
-        springs.forEach { it.cancel() }
+        freeze()
         view.scaleX = 1f
         view.scaleY = 1f
         view.translationX = 0f
         view.translationY = 0f
         restoreOutline()
     }
+
+    /** The container return takes over this pose; only a cancelled gesture springs back. */
+    fun freeze() { springs.forEach { it.cancel() } }
 
     private fun restoreOutline() {
         view.outlineProvider = originalOutline
