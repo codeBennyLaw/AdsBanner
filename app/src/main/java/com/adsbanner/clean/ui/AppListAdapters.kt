@@ -72,7 +72,10 @@ internal class TargetAppAdapter(
     }
 }
 
-internal data class StatAppRow(val pkg: String, val name: String, val detail: String, val recent: String, val count: Int)
+internal data class StatAppRow @JvmOverloads constructor(
+    val pkg: String, val name: String, val detail: String, val recent: String, val count: Int,
+    val iconPackage: String = pkg
+)
 
 internal class StatAppAdapter(private val icons: AppIconLoader) : ListAdapter<StatAppRow, StatAppAdapter.Holder>(
     object : DiffUtil.ItemCallback<StatAppRow>() {
@@ -97,7 +100,7 @@ internal class StatAppAdapter(private val icons: AppIconLoader) : ListAdapter<St
         holder.recent.text = row.recent
         holder.recent.visibility = if (row.recent.isEmpty()) View.GONE else View.VISIBLE
         holder.count.text = row.count.toString()
-        icons.bind(holder.icon, row.pkg)
+        icons.bind(holder.icon, row.iconPackage)
     }
     override fun onViewRecycled(holder: Holder) { icons.cancel(holder.icon) }
 }

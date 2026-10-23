@@ -70,7 +70,11 @@ object InterceptNotifier {
         if (!Prefs.interceptNotify) return
 
         val app = context.applicationContext
-        val title = if (kind == StatsStore.Kind.SPLASH) "已跳过开屏广告" else "已拦截误触跳转"
+        val title = when (kind) {
+            StatsStore.Kind.SPLASH -> "已跳过开屏广告"
+            StatsStore.Kind.JUMP -> "已拦截误触跳转"
+            StatsStore.Kind.PAGE_AD -> "已关闭页面内广告"
+        }
         val session = Session(allocateId(), title, appLabel, SystemClock.elapsedRealtime())
 
         ensureChannel(app)
