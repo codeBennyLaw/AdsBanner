@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,20 +11,9 @@ android {
         applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.0.1"
+        versionCode = 9
+        versionName = "2.1.0"
 
-        // 检查更新用的 GitHub 凭据从 local.properties 注入。
-        // GitHub 的推送保护不允许有效 token 进入提交历史，但 APK 里需要带上它。
-        val secrets = Properties().apply {
-            val file = rootProject.file("local.properties")
-            if (file.exists()) file.inputStream().use { load(it) }
-        }
-        buildConfigField(
-            "String",
-            "GITHUB_TOKEN",
-            "\"${secrets.getProperty("github.token", "")}\""
-        )
     }
 
     buildFeatures {

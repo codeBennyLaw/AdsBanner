@@ -96,4 +96,59 @@ class ReleaseNotesRepositoryTest {
         val repository = ReleaseNotesRepository({ 0L }) { _, _ -> Response(notModified = true) }
         assertThrows(IllegalStateException::class.java) { repository.load(1) }
     }
+
+    @Test fun cachedNotesSurviveAProcessRestartAndAreRevalidated() {
+        var disk: Map<Int, ReleaseNotesRepository.Saved> = emptyMap()
+        val first = ReleaseNotesRepository({ 0L }, persist = { disk = it }) { _, _ -> Response(page("v2.0.1"), "saved") }
+        val expected = first.load(1)
+        var requests = 0
+        val restarted = ReleaseNotesRepository({ 0L }, restore = { disk }) { _, etag ->
+            requests++
+            assertEquals("saved", etag)
+            Response(notModified = true)
+        }
+        assertEquals(expected, restarted.cached(1))
+        assertEquals(0, requests)
+        assertEquals(expected, restarted.load(1))
+        assertEquals(1, requests)
+    }
+
+    @Test fun offlineRefreshKeepsTheSavedDirectory() {
+        val saved = mapOf(1 to ReleaseNotesRepository.Saved(page("v2.0.1"), "old"))
+        val repository = ReleaseNotesRepository({ 0L }, restore = { saved }) { _, _ -> error("offline") }
+        assertEquals(saved[1]!!.page, repository.cached(1))
+        assertThrows(IllegalStateException::class.java) { repository.load(1) }
+        assertEquals(saved[1]!!.page, repository.cached(1))
+    }
+
+    @Test fun cachedReadsDoNotWaitForAStalledNetworkRefresh() {
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val saved = mapOf(1 to ReleaseNotesRepository.Saved(page("v2.0.1"), "old"))
+        val repository = ReleaseNotesRepository({ 0L }, restore = { saved }) { _, _ ->
+            started.countDown()
+            check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            Response(notModified = true)
+        }
+        val worker = Thread { repository.load(1) }.apply { start() }
+        val localReader = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(saved[1]!!.page, localReader.submit<NotesPage?> { repository.cached(1) }
+                .get(500, java.util.concurrent.TimeUnit.MILLISECONDS))
+        } finally { release.countDown(); worker.join(2000); localReader.shutdownNow() }
+    }
+
+    @Test fun changedFirstPageAlsoRemovesObsoletePagesFromDisk() {
+        var disk = mapOf(1 to ReleaseNotesRepository.Saved(page("v1", 2), "one"),
+            2 to ReleaseNotesRepository.Saved(page("v0"), "two"))
+        val repository = ReleaseNotesRepository({ 0L }, restore = { disk }, persist = { disk = it }) { _, _ ->
+            Response(page("v2"), "new")
+        }
+        repository.load(1)
+        assertEquals(setOf(1), disk.keys)
+        val restarted = ReleaseNotesRepository({ 0L }, restore = { disk }) { _, _ -> error("offline") }
+        assertNull(restarted.cached(2))
+        assertEquals("v2", restarted.cached(1)!!.notes.single().version)
+    }
 }

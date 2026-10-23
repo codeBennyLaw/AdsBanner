@@ -169,6 +169,7 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ 检查更新
 
     private fun checkForUpdates() {
+        if (UpdateDownloadService.isDownloading) { toast("正在下载更新，进度见通知栏"); return }
         if (!btnCheckUpdate.isEnabled) return
         btnCheckUpdate.isEnabled = false
         btnCheckUpdate.text = "检查中…"
@@ -180,8 +181,10 @@ class MainActivity : AppCompatActivity() {
         Thread {
             val result = ReleaseUpdates.check(current)
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 btnCheckUpdate.isEnabled = true
                 btnCheckUpdate.text = "检查更新"
+                if (UpdateDownloadService.isDownloading) { toast("正在下载更新，进度见通知栏"); return@runOnUiThread }
                 when (result) {
                     is ReleaseUpdates.Result.New -> showUpdateDialog(result)
                     ReleaseUpdates.Result.Current -> toast("当前已是最新版本")
@@ -218,13 +221,15 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ 应用内下载更新
 
     private fun startDownload(info: ReleaseUpdates.Result.New) {
+        if (UpdateDownloadService.isDownloading) { toast("正在下载更新，进度见通知栏"); return }
         val url = info.downloadUrl
         if (url.isNullOrBlank()) {
             toast("该版本没有提供安装包")
             return
         }
         // 交给前台服务，切出应用也能继续下载
-        UpdateDownloadService.start(this, url, "AdsBanner-${info.version}.apk", info.version)
+        UpdateDownloadService.start(this, url, "AdsBanner-${info.version}.apk", info.version,
+            info.assetId, info.assetSize, info.assetDigest)
         toast("已开始下载，进度见通知栏")
     }
 
