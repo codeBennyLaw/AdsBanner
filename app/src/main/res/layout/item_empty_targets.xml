@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvEmpty"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_empty"
+    android:padding="28dp"
+    android:gravity="center"
+    android:drawableTop="@drawable/ic_search"
+    android:drawablePadding="16dp"
+    android:lineSpacingExtra="6dp"
+    android:text="没有找到匹配的应用\n试试其他名称或包名"
+    android:textColor="@color/text_secondary"
+    android:textSize="14sp"
+    android:visibility="gone" />

@@ -4,37 +4,36 @@ import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.LayoutInflater
 import android.view.View
-import android.widget.CheckBox
 import android.widget.EditText
-import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.ConcatAdapter
+import androidx.recyclerview.widget.DefaultItemAnimator
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.Prefs
-import com.google.android.material.card.MaterialCardView
+import java.util.Locale
 
-/**
- * 跳转拦截名单。列出所有带桌面图标的应用，勾选即加入名单。
- */
+/** Searching never rebuilds the header or reloads every application icon. */
 class TargetListActivity : AppCompatActivity() {
-
-    private lateinit var container: LinearLayout
-    private lateinit var tvEmpty: TextView
-    private lateinit var etSearch: EditText
-    private lateinit var tvSelectionSummary: TextView
-    private lateinit var tvAppListMeta: TextView
-
-    private var allApps: List<Pair<String, String>> = emptyList()
+    private lateinit var list: RecyclerView
+    private lateinit var adapter: TargetAppAdapter
+    private lateinit var icons: AppIconLoader
+    private lateinit var empty: TextView
+    private lateinit var search: EditText
+    private lateinit var selectionSummary: TextView
+    private lateinit var listMeta: TextView
+    private val worker = UiWorker()
+    private var allApps: List<TargetAppRow> = emptyList()
     private val selected = LinkedHashSet<String>()
-    private var query: String = ""
+    private var installedSelectedCount = 0
+    private var query = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,114 +41,86 @@ class TargetListActivity : AppCompatActivity() {
         setContentView(R.layout.activity_target_list)
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
-        // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-
-        container = findViewById(R.id.listContainer)
-        tvEmpty = findViewById(R.id.tvEmpty)
-        etSearch = findViewById(R.id.etSearch)
-        tvSelectionSummary = findViewById(R.id.tvSelectionSummary)
-        tvAppListMeta = findViewById(R.id.tvAppListMeta)
         Motion.preparePage(this, getString(R.string.transition_targets), R.color.surface)
-
+        list = findViewById(R.id.appList)
+        list.layoutManager = LinearLayoutManager(this)
+        val header = layoutInflater.inflate(R.layout.header_targets, list, false)
+        empty = layoutInflater.inflate(R.layout.item_empty_targets, list, false) as TextView
+        search = header.findViewById(R.id.etSearch)
+        selectionSummary = header.findViewById(R.id.tvSelectionSummary)
+        listMeta = header.findViewById(R.id.tvAppListMeta)
+        selected.addAll(Prefs.jumpTargets)
+        icons = AppIconLoader(this)
+        adapter = TargetAppAdapter(icons, selected) { pkg ->
+            if (selected.remove(pkg)) installedSelectedCount-- else {
+                selected.add(pkg)
+                installedSelectedCount++
+            }
+            Prefs.jumpTargets = selected
+            updateSelectionSummary()
+        }
+        adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
+        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
+        (list.itemAnimator as? DefaultItemAnimator)?.apply {
+            supportsChangeAnimations = false
+            addDuration = 120
+            removeDuration = 100
+            moveDuration = 160
+        }
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
-            val bars = insets.getInsets(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or
-                    WindowInsetsCompat.Type.ime()
-            )
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or
+                WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
-
-        findViewById<View>(R.id.btnBack).setOnClickListener {
-            onBackPressedDispatcher.onBackPressed()
-        }
-
-        selected.addAll(Prefs.jumpTargets)
-        updateSelectionSummary()
-
-        etSearch.addTextChangedListener(object : TextWatcher {
+        findViewById<View>(R.id.btnBack).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+        query = savedInstanceState?.getString("query").orEmpty()
+        search.setText(query)
+        search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
-                query = s?.toString()?.trim().orEmpty()
+                query = s?.toString().orEmpty()
                 render()
             }
         })
-
-        loadApps()
-    }
-
-    private fun loadApps() {
-        Thread {
-            val apps = AppInfoHelper.launchableApps(applicationContext)
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                allApps = apps
+        worker.submit({
+            AppInfoHelper.launchableApps(applicationContext).map { (pkg, name) -> TargetAppRow(pkg, name) }
+        }) { result ->
+            result.onSuccess {
+                allApps = it
+                installedSelectedCount = allApps.count { row -> row.pkg in selected }
                 updateSelectionSummary()
                 render()
-            }
-        }.start()
-    }
-
-    private fun filtered(): List<Pair<String, String>> {
-        if (query.isEmpty()) return allApps
-        val q = query.lowercase()
-        return allApps.filter {
-            it.second.lowercase().contains(q) || it.first.lowercase().contains(q)
+            }.onFailure { listMeta.text = "加载失败，请返回后重试" }
         }
     }
 
     private fun render() {
-        container.removeAllViews()
-        val list = filtered()
-        tvAppListMeta.text = if (query.isEmpty()) "全部应用 · ${list.size}" else "搜索结果 · ${list.size}"
-
-        tvEmpty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
-        container.visibility = if (list.isEmpty()) View.GONE else View.VISIBLE
-
-        val inflater = LayoutInflater.from(this)
-        for ((pkg, name) in list) {
-            val item = inflater.inflate(R.layout.item_app_check, container, false) as MaterialCardView
-            item.findViewById<TextView>(R.id.tvName).text = name
-            item.findViewById<TextView>(R.id.tvPkg).text = pkg
-            item.findViewById<ImageView>(R.id.ivIcon).setImageDrawable(
-                AppInfoHelper.icon(this, pkg)
-            )
-            val checkBox = item.findViewById<CheckBox>(R.id.cbChecked)
-            item.isCheckable = true
-            item.checkedIcon = null
-            fun updateCheckedState() {
-                val checked = pkg in selected
-                item.isChecked = checked
-                checkBox.isChecked = checked
-                item.strokeColor = ContextCompat.getColor(
-                    this, if (checked) R.color.brand else R.color.card_stroke
-                )
-                item.setCardBackgroundColor(ContextCompat.getColor(
-                    this, if (checked) R.color.brand_light else R.color.surface
-                ))
-            }
-            updateCheckedState()
-
-            item.setOnClickListener {
-                if (selected.contains(pkg)) selected.remove(pkg) else selected.add(pkg)
-                updateCheckedState()
-                persist()
-                updateSelectionSummary()
-            }
-            container.addView(item)
+        val key = query.trim().lowercase(Locale.ROOT)
+        val rows = if (key.isEmpty()) allApps else allApps.filter { key in it.searchKey }
+        listMeta.text = if (key.isEmpty()) "全部应用 · ${rows.size}" else "搜索结果 · ${rows.size}"
+        adapter.submitList(rows) {
+            empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
         }
     }
 
-    private fun persist() {
-        Prefs.jumpTargets = selected
+    private fun updateSelectionSummary() {
+        selectionSummary.text = "已选择 $installedSelectedCount 个已安装应用"
     }
 
-    private fun updateSelectionSummary() {
-        val installedCount = allApps.count { it.first in selected }
-        tvSelectionSummary.text = "已选择 $installedCount 个已安装应用"
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("query", query)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        worker.close()
+        icons.close()
+        list.adapter = null
+        super.onDestroy()
     }
 }

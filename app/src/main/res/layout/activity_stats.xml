@@ -1,224 +1,124 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
-    android:fillViewport="true"
-    android:clipToPadding="false"
-    android:scrollbars="none">
+    android:orientation="vertical">
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingBottom="28dp">
-        <LinearLayout
-            android:layout_width="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="8dp">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBack"
+            style="@style/Button.AdsBanner.Back"
+            android:layout_width="48dp"
+            android:layout_height="wrap_content" />
+        <TextView
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="8dp">
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBack"
-                style="@style/Button.AdsBanner.Back"
-                android:layout_width="48dp"
-                android:layout_height="wrap_content" />
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:id="@+id/tvPageTitle"
-                android:text="拦截统计"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:textColor="@color/text_primary" />
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnHeatmap"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="48dp"
-                android:minHeight="48dp"
-                android:text="热力图" />
-        </LinearLayout>
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/statsOverview"
-            style="@style/Card.AdsBanner"
-            android:layout_width="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:id="@+id/tvPageTitle"
+            android:text="拦截统计"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHeatmap"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginTop="8dp"
-            app:cardBackgroundColor="@color/brand_light"
-            app:strokeWidth="0dp">
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:text="热力图" />
+    </LinearLayout>
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/listScroll"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="28dp"
+            android:clipToPadding="false"
+            android:scrollbars="none" />
+        <ScrollView
+            android:id="@+id/heatmapScroll"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="24dp">
+                android:paddingHorizontal="20dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="28dp">
                 <TextView
-                    android:id="@+id/tvStatCaption"
+                    style="@style/Text.PageTitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="今日拦截"
-                    android:textSize="14sp"
-                    android:textColor="@color/brand_dark" />
-                <TextView
-                    android:id="@+id/tvStatCount"
+                    android:layout_marginBottom="16dp"
+                    android:text="每天少一点打扰" />
+                <com.google.android.material.card.MaterialCardView
+                    style="@style/Card.AdsBanner"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="0"
-                    android:textSize="44sp"
-                    android:textStyle="bold"
-                    android:fontFamily="sans-serif-medium"
-                    android:textColor="@color/brand_dark" />
-                <TextView
-                    android:id="@+id/tvSummary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textSize="13sp"
-                    android:textColor="@color/brand_dark" />
+                    android:layout_height="wrap_content">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+                        <TextView
+                            style="@style/Text.RowTitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="每日拦截"
+                            android:textStyle="bold" />
+                        <TextView
+                            android:id="@+id/tvHeatMeta"
+                            style="@style/Text.RowSub"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp" />
+                        <HorizontalScrollView
+                            android:id="@+id/heatScroll"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="24dp"
+                            android:scrollbars="none">
+                            <com.adsbanner.clean.ui.HeatmapView
+                                android:id="@+id/heatmap"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content" />
+                        </HorizontalScrollView>
+                        <TextView
+                            android:id="@+id/tvHeatDetail"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:textColor="@color/brand"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
+                        <TextView
+                            style="@style/Text.RowSub"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="16dp"
+                            android:text="每格一天，颜色越深拦截越多\n点击格子查看日期与次数，可左右滑动查看历史" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-        <LinearLayout
-            android:id="@+id/filterRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginTop="20dp"
-            android:orientation="vertical">
-            <com.google.android.material.button.MaterialButtonToggleGroup
-                android:id="@+id/toggleTime"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:selectionRequired="true"
-                app:singleSelection="true">
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnTimeToday"
-                    style="@style/Button.AdsBanner.Filter"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="今天" />
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnTimeAll"
-                    style="@style/Button.AdsBanner.Filter"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="全部时间" />
-            </com.google.android.material.button.MaterialButtonToggleGroup>
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnType"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:minHeight="48dp"
-                android:text="全部类型"
-                app:icon="@drawable/ic_expand_more"
-                app:iconGravity="textEnd" />
-        </LinearLayout>
-        <LinearLayout
-            android:id="@+id/listScroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="24dp">
-            <TextView
-                style="@style/Text.Section"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="应用明细 · 按拦截次数排序" />
-            <LinearLayout
-                android:id="@+id/listContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-            <TextView
-                android:id="@+id/tvEmpty"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="@drawable/bg_empty"
-                android:padding="28dp"
-                android:gravity="center"
-                android:lineSpacingExtra="6dp"
-                android:drawableTop="@drawable/ic_shield"
-                android:drawablePadding="16dp"
-                android:text="还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
-                android:textColor="@color/text_secondary"
-                android:textSize="14sp"
-                android:visibility="gone" />
-        </LinearLayout>
-        <LinearLayout
-            android:id="@+id/heatmapScroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:paddingTop="8dp"
-            android:visibility="gone">
-            <TextView
-                style="@style/Text.PageTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                android:text="每天少一点打扰" />
-            <com.google.android.material.card.MaterialCardView
-                style="@style/Card.AdsBanner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="20dp">
-                    <TextView
-                        style="@style/Text.RowTitle"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="每日拦截"
-                        android:textStyle="bold" />
-                    <TextView
-                        android:id="@+id/tvHeatMeta"
-                        style="@style/Text.RowSub"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp" />
-                    <HorizontalScrollView
-                        android:id="@+id/heatScroll"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="24dp"
-                        android:scrollbars="none">
-                        <com.adsbanner.clean.ui.HeatmapView
-                            android:id="@+id/heatmap"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" />
-                    </HorizontalScrollView>
-                    <TextView
-                        android:id="@+id/tvHeatDetail"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:textColor="@color/brand"
-                        android:textSize="14sp"
-                        android:visibility="gone" />
-                    <TextView
-                        style="@style/Text.RowSub"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="每格一天，颜色越深拦截越多\n点击格子查看日期与次数，可左右滑动查看历史" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-        </LinearLayout>
-    </LinearLayout>
-</ScrollView>
+        </ScrollView>
+    </FrameLayout>
+</LinearLayout>

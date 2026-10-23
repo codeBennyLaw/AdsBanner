@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvEmpty"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_empty"
+    android:padding="28dp"
+    android:gravity="center"
+    android:lineSpacingExtra="6dp"
+    android:drawableTop="@drawable/ic_shield"
+    android:drawablePadding="16dp"
+    android:text="还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
+    android:textColor="@color/text_secondary"
+    android:textSize="14sp"
+    android:visibility="gone" />
