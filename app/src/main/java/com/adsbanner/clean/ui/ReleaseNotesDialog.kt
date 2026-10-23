@@ -16,7 +16,6 @@ import com.adsbanner.clean.R
 import com.adsbanner.clean.update.ReleaseNotesRepository.NotesPage
 import com.adsbanner.clean.update.ReleaseNotesRepository.ReleaseNote
 import com.adsbanner.clean.update.ReleaseUpdates
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 /** Keep the directory mounted behind details, preserving its scroll position. */
 internal object ReleaseNotesDialog {
@@ -30,20 +29,20 @@ internal object ReleaseNotesDialog {
         }
         list.layoutManager = LinearLayoutManager(activity)
         list.itemAnimator = null
-        val worker = UiWorker()
+        val dialog = OriginDialog.Builder(activity, activity.findViewById(R.id.btnReleaseNotes))
+            .setTitle("更新日志")
+            .setView(content)
+            .setPositiveButton("关闭", null)
+            .create()
+        val worker = UiWorker { key, task -> dialog.whenReady(key, task) }
         var details: Dialog? = null
-        val adapter = NotesAdapter { release ->
-            if (details?.isShowing != true) details = showDetails(activity, release)
+        val adapter = NotesAdapter { release, source ->
+            if (details?.isShowing != true) details = showDetails(activity, release, source)
         }
         list.adapter = adapter
         var nextPage: Int? = 1
         var loading = false
         var closed = false
-        val dialog = MaterialAlertDialogBuilder(activity)
-            .setTitle("更新日志")
-            .setView(content)
-            .setPositiveButton("关闭", null)
-            .create()
 
         fun loadNext() {
             val page = nextPage ?: return
@@ -75,10 +74,12 @@ internal object ReleaseNotesDialog {
             }
         }
         retry.setOnClickListener { loadNext() }
-        dialog.setOnDismissListener {
+        dialog.onClosing = {
             closed = true
             worker.close()
-            details?.dismiss()
+            (details as? OriginDialog)?.dismissImmediately()
+        }
+        dialog.setOnDismissListener {
             list.adapter = null
         }
         dialog.show()
@@ -86,7 +87,7 @@ internal object ReleaseNotesDialog {
         return dialog
     }
 
-    private fun showDetails(activity: AppCompatActivity, release: ReleaseNote): Dialog {
+    private fun showDetails(activity: AppCompatActivity, release: ReleaseNote, source: View): Dialog {
         val content = activity.layoutInflater.inflate(R.layout.dialog_update, null)
         content.findViewById<View>(R.id.tvUpdateVersion).visibility = View.GONE
         content.findViewById<TextView>(R.id.tvUpdatePublished).apply {
@@ -100,14 +101,14 @@ internal object ReleaseNotesDialog {
         scroll.layoutParams = scroll.layoutParams.apply {
             height = (activity.resources.displayMetrics.heightPixels * .5f).toInt()
         }
-        return MaterialAlertDialogBuilder(activity)
+        return OriginDialog.Builder(activity, source)
             .setTitle("${release.version} 更新日志")
             .setView(content)
             .setPositiveButton("关闭", null)
             .show()
     }
 
-    private class NotesAdapter(private val open: (ReleaseNote) -> Unit) : RecyclerView.Adapter<NotesAdapter.Holder>() {
+    private class NotesAdapter(private val open: (ReleaseNote, View) -> Unit) : RecyclerView.Adapter<NotesAdapter.Holder>() {
         private val notes = mutableListOf<ReleaseNote>()
         private val seen = mutableSetOf<String>()
 
@@ -132,7 +133,7 @@ internal object ReleaseNotesDialog {
             holder.version.text = release.version + badge
             holder.time.text = time
             holder.itemView.contentDescription = "查看 ${release.version}$badge 更新日志，$time"
-            holder.itemView.setOnClickListener { open(release) }
+            holder.itemView.setOnClickListener { open(release, it) }
         }
 
         class Holder(view: View) : RecyclerView.ViewHolder(view) {
