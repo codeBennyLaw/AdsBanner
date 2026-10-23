@@ -18,6 +18,14 @@
         android:textSize="14sp"
         android:textStyle="bold" />
     <TextView
+        android:id="@+id/tvUpdatePublished"
+        style="@style/Text.RowSub"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:visibility="gone" />
+    <TextView
+        android:id="@+id/tvUpdateHeading"
         style="@style/Text.Section"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -28,6 +36,7 @@
         android:id="@+id/updateScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_weight="1"
         android:scrollbars="vertical">
         <TextView
             android:id="@+id/tvUpdateBody"

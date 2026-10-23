@@ -602,6 +602,7 @@
 
         <!-- 版本与仓库 -->
         <LinearLayout
+            android:id="@+id/versionLinks"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
@@ -610,8 +611,11 @@
 
             <TextView
                 android:id="@+id/tvVersion"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
+                android:layout_weight="1"
                 android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:gravity="center"
                 android:textColor="@color/text_tertiary"
                 android:textSize="13sp" />
 
@@ -619,6 +623,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text=" · "
+                android:importantForAccessibility="no"
                 android:textColor="@color/text_tertiary"
                 android:textSize="13sp" />
 
@@ -626,7 +631,8 @@
                 android:id="@+id/btnCheckUpdate"
                 android:minHeight="48dp"
                 android:gravity="center"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
+                android:layout_weight="1"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_round_feedback"
                 android:clickable="true"
@@ -634,6 +640,30 @@
                 android:paddingHorizontal="4dp"
                 android:paddingVertical="6dp"
                 android:text="检查更新"
+                android:textColor="@color/brand"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:importantForAccessibility="no"
+                android:text=" · "
+                android:textColor="@color/text_tertiary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btnReleaseNotes"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:gravity="center"
+                android:background="@drawable/bg_round_feedback"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="6dp"
+                android:text="更新日志"
                 android:textColor="@color/brand"
                 android:textSize="13sp" />
         </LinearLayout>
