@@ -27,7 +27,14 @@ internal class MiniAppAdSession {
 
     fun update(match: MiniAppAdRule.Match?, now: Long): Step {
         if (match == null) { reset(); return Step() }
-        if (source?.key != match.source.key) { reset(); source = match.source }
+        if (source?.key != match.source.key) {
+            // Full-page ads may hide the native title. Resolve it when the accepted close reveals the same host's page.
+            val resolvingName = source?.hostPackage == match.source.hostPackage && source?.name == null &&
+                match.source.name != null && panelKey != null && match.panelKey == null && accepted && inFlight == null &&
+                acceptedAt?.let { now - it in 0..2_500L } == true
+            if (!resolvingName) reset()
+            source = match.source
+        }
         if (panelKey == null && match.panelKey != null) panelKey = match.panelKey
         if (panelKey == null) return Step()
         if (match.panelKey == null) {
@@ -46,7 +53,9 @@ internal class MiniAppAdSession {
             panelKey = match.panelKey
         }
         val target = match.target
-        if (target != null && tries < 3 && inFlight == null && (tries == 0 || now - lastActionAt >= 400L)) {
+        // Some SDKs expose an enabled skip before they accept input; leave more time for the last retry.
+        val retryAfter = if (tries <= 1) 400L else 800L
+        if (target != null && tries < 3 && inFlight == null && (tries == 0 || now - lastActionAt >= retryAfter)) {
             val action = Action(target, target.action == null || tries > 0)
             tries++
             lastActionAt = now

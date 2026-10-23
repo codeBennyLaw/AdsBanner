@@ -67,6 +67,7 @@ internal class MiniAppAdGuard(private val service: AccessibilityService) {
         if (host != pkg) { stop(); host = pkg }
         val cls = event.className?.toString().orEmpty()
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            cls != activity &&
             (cls.startsWith("$pkg.") || cls.startsWith("com.alipay.") || cls.startsWith("com.tencent.qqmini."))) {
             cancelWork()
             activity = cls
@@ -158,7 +159,10 @@ internal class MiniAppAdGuard(private val service: AccessibilityService) {
         lastAt = now
         val snapshot = capture(root, pkg)
         try {
-            if (!snapshot.complete) return
+            if (!snapshot.complete) {
+                if (now < burstUntil) schedule(250L)
+                return
+            }
             var match = MiniAppAdRule.match(pkg, activity, snapshot.nodes, screen(), session.panelKey, retainedSource)
             if (match != null) {
                 identified = true
