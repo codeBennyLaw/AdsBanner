@@ -338,7 +338,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="3dp"
-                            android:text="关闭播放页暂停广告等覆盖广告" />
+                            android:text="关闭播放页暂停广告及微信、QQ、支付宝小程序广告" />
                     </LinearLayout>
 
                     <com.google.android.material.materialswitch.MaterialSwitch

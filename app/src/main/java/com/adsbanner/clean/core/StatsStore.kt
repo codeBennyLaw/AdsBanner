@@ -42,6 +42,9 @@ object StatsStore {
 
     private const val F_DAILY = "daily"
     private const val F_INSTALLED = "installed"
+    private const val F_HOST = "host"
+    private const val F_MINI_NAME = "miniName"
+    private const val F_MINI = "mini"
 
     enum class Kind { SPLASH, JUMP, PAGE_AD }
 
@@ -56,7 +59,10 @@ object StatsStore {
         val lastAt: Long,
         val lastSplashAt: Long,
         val lastJumpAt: Long,
-        val lastPageAt: Long
+        val lastPageAt: Long,
+        val key: String = pkg,
+        val miniAppName: String? = null,
+        val isMiniApp: Boolean = false
     ) {
         val total: Int get() = splash + jump + page
         val todayTotal: Int get() = todaySplash + todayJump + todayPage
@@ -128,12 +134,26 @@ object StatsStore {
     }
 
     fun record(pkg: String, kind: Kind) {
+        recordSource(pkg, kind, null)
+    }
+
+    fun recordMiniApp(source: MiniAppSource) {
+        recordSource(source.hostPackage, Kind.PAGE_AD, source)
+    }
+
+    private fun recordSource(pkg: String, kind: Kind, source: MiniAppSource?) {
         if (pkg.isBlank()) return
         synchronized(lock) {
             if (!loaded) return
             rolloverIfNeeded()
             val apps = root.optJSONObject("apps") ?: JSONObject().also { root.put("apps", it) }
-            val item = apps.optJSONObject(pkg) ?: JSONObject()
+            val key = source?.key ?: pkg
+            val item = apps.optJSONObject(key) ?: JSONObject()
+            if (source != null) {
+                item.put(F_MINI, true)
+                item.put(F_HOST, source.hostPackage)
+                item.put(F_MINI_NAME, source.name ?: JSONObject.NULL)
+            }
             val now = System.currentTimeMillis()
             when (kind) {
                 Kind.SPLASH -> {
@@ -153,7 +173,7 @@ object StatsStore {
                 }
             }
             item.put(F_LAST, now)
-            apps.put(pkg, item)
+            apps.put(key, item)
             root.put("apps", apps)
 
             // 额外记一份按天的总次数，供热力图使用
@@ -180,8 +200,10 @@ object StatsStore {
             val list = ArrayList<AppStat>(apps.length())
             var total = 0
             var todayTotal = 0
-            for (pkg in apps.keys().asSequence().toList()) {
-                val item = apps.optJSONObject(pkg) ?: continue
+            for (key in apps.keys().asSequence().toList()) {
+                val item = apps.optJSONObject(key) ?: continue
+                val mini = item.optBoolean(F_MINI) && MiniAppSource.isHost(item.optString(F_HOST))
+                val pkg = if (mini) item.optString(F_HOST) else key
                 val last = item.optLong(F_LAST)
                 val stat = AppStat(
                     pkg = pkg,
@@ -195,7 +217,10 @@ object StatsStore {
                     // 旧数据没有分类时间戳，回退到整体时间
                     lastSplashAt = item.optLong(F_LAST_S, last),
                     lastJumpAt = item.optLong(F_LAST_J, last),
-                    lastPageAt = item.optLong(F_LAST_P, last)
+                    lastPageAt = item.optLong(F_LAST_P, last),
+                    key = key,
+                    miniAppName = if (mini && !item.isNull(F_MINI_NAME)) item.optString(F_MINI_NAME).takeIf { it.isNotBlank() } else null,
+                    isMiniApp = mini
                 )
                 if (stat.total == 0) continue
                 total += stat.total
