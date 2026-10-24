@@ -122,7 +122,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
-                            android:text="每格一天，色阶随历史最高次数调整\n点击格子查看日期与次数，可左右滑动查看历史" />
+                            android:text="每格一天，颜色按每日拦截次数固定分档\n点击格子查看日期与次数，可左右滑动查看历史" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
