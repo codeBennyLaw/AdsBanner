@@ -68,4 +68,14 @@ object SkipRule {
 
     /** A plain countdown also belongs to alarms/timers; it cannot authorize a generic close. */
     fun hasAdEvidence(raw: String): Boolean = raw.contains("广告") || JumpAdRule.isAdSkip(raw)
+
+    /** Embedded pages are not application launch screens; never let the splash engine click their controls. */
+    fun isEmbeddedPage(pkg: String, className: String): Boolean = when (pkg) {
+        "com.tencent.mm" -> className.startsWith("com.tencent.mm.plugin.appbrand.")
+        "com.tencent.mobileqq" -> className.startsWith("com.tencent.mobileqq.mini.") ||
+            className == "com.tencent.mobileqq.activity.miniaio.MiniChatActivity" || className.startsWith("com.tencent.qqmini.")
+        "com.eg.android.AlipayGphone" -> className.startsWith("com.alipay.mobile.nebulax.") ||
+            className.startsWith("com.alipay.mobile.nebula.activity.H5")
+        else -> false
+    }
 }

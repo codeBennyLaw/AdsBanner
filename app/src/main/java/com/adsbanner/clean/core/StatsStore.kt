@@ -61,8 +61,8 @@ object StatsStore {
         val lastJumpAt: Long,
         val lastPageAt: Long,
         val key: String = pkg,
-        val miniAppName: String? = null,
-        val isMiniApp: Boolean = false
+        val historicalLabel: String? = null,
+        val isHistoricalSource: Boolean = false
     ) {
         val total: Int get() = splash + jump + page
         val todayTotal: Int get() = todaySplash + todayJump + todayPage
@@ -134,26 +134,12 @@ object StatsStore {
     }
 
     fun record(pkg: String, kind: Kind) {
-        recordSource(pkg, kind, null)
-    }
-
-    fun recordMiniApp(source: MiniAppSource) {
-        recordSource(source.hostPackage, Kind.PAGE_AD, source)
-    }
-
-    private fun recordSource(pkg: String, kind: Kind, source: MiniAppSource?) {
         if (pkg.isBlank()) return
         synchronized(lock) {
             if (!loaded) return
             rolloverIfNeeded()
             val apps = root.optJSONObject("apps") ?: JSONObject().also { root.put("apps", it) }
-            val key = source?.key ?: pkg
-            val item = apps.optJSONObject(key) ?: JSONObject()
-            if (source != null) {
-                item.put(F_MINI, true)
-                item.put(F_HOST, source.hostPackage)
-                item.put(F_MINI_NAME, source.name ?: JSONObject.NULL)
-            }
+            val item = apps.optJSONObject(pkg) ?: JSONObject()
             val now = System.currentTimeMillis()
             when (kind) {
                 Kind.SPLASH -> {
@@ -173,7 +159,7 @@ object StatsStore {
                 }
             }
             item.put(F_LAST, now)
-            apps.put(key, item)
+            apps.put(pkg, item)
             root.put("apps", apps)
 
             // 额外记一份按天的总次数，供热力图使用
@@ -202,8 +188,10 @@ object StatsStore {
             var todayTotal = 0
             for (key in apps.keys().asSequence().toList()) {
                 val item = apps.optJSONObject(key) ?: continue
-                val mini = item.optBoolean(F_MINI) && MiniAppSource.isHost(item.optString(F_HOST))
-                val pkg = if (mini) item.optString(F_HOST) else key
+                // Read-only compatibility for 2.1.0 records; never merge them into their host's counts.
+                val historical = key.startsWith("miniapp:") && item.optBoolean(F_MINI) &&
+                    item.optString(F_HOST) in setOf("com.tencent.mm", "com.tencent.mobileqq", "com.eg.android.AlipayGphone")
+                val pkg = if (historical) item.optString(F_HOST) else key
                 val last = item.optLong(F_LAST)
                 val stat = AppStat(
                     pkg = pkg,
@@ -219,8 +207,8 @@ object StatsStore {
                     lastJumpAt = item.optLong(F_LAST_J, last),
                     lastPageAt = item.optLong(F_LAST_P, last),
                     key = key,
-                    miniAppName = if (mini && !item.isNull(F_MINI_NAME)) item.optString(F_MINI_NAME).takeIf { it.isNotBlank() } else null,
-                    isMiniApp = mini
+                    historicalLabel = if (historical && !item.isNull(F_MINI_NAME)) item.optString(F_MINI_NAME).takeIf { it.isNotBlank() } else null,
+                    isHistoricalSource = historical
                 )
                 if (stat.total == 0) continue
                 total += stat.total
