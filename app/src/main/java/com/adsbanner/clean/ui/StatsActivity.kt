@@ -1,11 +1,7 @@
 package com.adsbanner.clean.ui
 
 import android.content.pm.ActivityInfo
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ImageSpan
 import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.TextView
@@ -49,7 +45,7 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatScroll: HorizontalScrollView
     private lateinit var heatmap: HeatmapView
     private lateinit var heatMeta: TextView
-    private lateinit var heatLegend: TextView
+    private lateinit var heatLegend: HeatmapLegendView
     private lateinit var heatDetail: TextView
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var renderedKey: RenderKey? = null
@@ -292,26 +288,7 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun showHeatmapLegend() {
-        val entries = heatmap.legendEntries()
-        val text = SpannableStringBuilder("次数\n")
-        val size = (12 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
-        entries.forEachIndexed { index, (value, color) ->
-            if (index > 0) text.append(if (index % 4 == 0) "\n" else "   ")
-            val start = text.length
-            text.append('\uFFFC')
-            val swatch = GradientDrawable().apply {
-                setColor(color)
-                cornerRadius = 2.5f * resources.displayMetrics.density
-                setBounds(0, 0, size, size)
-            }
-            text.setSpan(ImageSpan(swatch, ImageSpan.ALIGN_BASELINE), start, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            text.append("\u00A0$value")
-        }
-        heatLegend.text = text
-        heatLegend.contentDescription = "每日拦截次数，" + entries.joinToString("，") {
-            val label = it.first
-            if (label.endsWith("+")) "${label.dropLast(1)} 次及以上" else "${label.replace("–", "至")} 次"
-        }
+        heatLegend.setEntries(heatmap.legendEntries())
     }
 
     override fun onEnterAnimationComplete() {
