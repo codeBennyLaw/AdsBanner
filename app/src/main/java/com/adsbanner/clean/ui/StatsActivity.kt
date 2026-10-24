@@ -308,7 +308,10 @@ class StatsActivity : AppCompatActivity() {
             text.append("\u00A0$value")
         }
         heatLegend.text = text
-        heatLegend.contentDescription = "颜色参考，" + entries.joinToString("，") { "${it.first} 次" }
+        heatLegend.contentDescription = "每日拦截次数，" + entries.joinToString("，") {
+            val label = it.first
+            if (label.endsWith("+")) "${label.dropLast(1)} 次及以上" else "${label.replace("–", "至")} 次"
+        }
     }
 
     override fun onEnterAnimationComplete() {
