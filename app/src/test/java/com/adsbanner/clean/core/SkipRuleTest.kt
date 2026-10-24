@@ -36,4 +36,13 @@ class SkipRuleTest {
         listOf("广告", "关闭广告", "跳过 5", "3s skip ad")
             .forEach { assertTrue(it, SkipRule.hasAdEvidence(it)) }
     }
+
+    @Test fun embeddedPagesAreExcludedWithoutBlockingHostLaunchers() {
+        assertTrue(SkipRule.isEmbeddedPage("com.tencent.mm", "com.tencent.mm.plugin.appbrand.ui.AppBrandUI00"))
+        assertTrue(SkipRule.isEmbeddedPage("com.tencent.mobileqq", "com.tencent.qqmini.sdk.ui.MiniActivity"))
+        assertTrue(SkipRule.isEmbeddedPage("com.eg.android.AlipayGphone", "com.alipay.mobile.nebulax.xriver.activity.XRiverActivity"))
+        assertFalse(SkipRule.isEmbeddedPage("com.tencent.mm", "com.tencent.mm.ui.LauncherUI"))
+        assertFalse(SkipRule.isEmbeddedPage("com.tencent.mobileqq", "com.tencent.mobileqq.activity.SplashActivity"))
+        assertFalse(SkipRule.isEmbeddedPage("example.app", "com.tencent.mm.plugin.appbrand.ui.AppBrandUI00"))
+    }
 }

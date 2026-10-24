@@ -21,10 +21,13 @@
     <color name="warning">#F7B955</color>
     <color name="white">#FFFFFF</color>
 
-    <!-- 热力图：无记录颜色与连续色阶的四个端点 -->
+    <!-- 热力图：无记录颜色与七个固定次数区间 -->
     <color name="heat_empty">#232A34</color>
-    <color name="heat_1">#1E3358</color>
-    <color name="heat_2">#2B4C88</color>
-    <color name="heat_3">#4A78D8</color>
-    <color name="heat_4">#8AB4FF</color>
+    <color name="heat_1">#213352</color>
+    <color name="heat_2">#2C4773</color>
+    <color name="heat_3">#385F9D</color>
+    <color name="heat_4">#477DCC</color>
+    <color name="heat_5">#6C9BE5</color>
+    <color name="heat_6">#98BBF2</color>
+    <color name="heat_7">#CFDFFF</color>
 </resources>
