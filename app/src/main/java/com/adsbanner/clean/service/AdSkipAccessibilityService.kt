@@ -18,7 +18,6 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.InputMethodManager
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.BiliPauseAdRule
-import com.adsbanner.clean.core.MiniAppSource
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.SplashScanSession
@@ -56,6 +55,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     /** 上一次检测到的前台包名 */
     private var foregroundPkg: String? = null
+    private var embeddedPagePackage: String? = null
 
     private val splashSession = SplashScanSession()
     private var nextSplashScanAt = Long.MAX_VALUE
@@ -78,7 +78,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private var skipTryCount = 0
 
     private val pauseAdGuard by lazy { BiliPauseAdGuard(this) }
-    private val miniAppAdGuard by lazy { MiniAppAdGuard(this) }
     private val jumpGuard by lazy { JumpGuard(this) }
 
     @Volatile
@@ -89,9 +88,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
         Prefs.init(this)
         StatsStore.init(this)
         foregroundPkg = null
+        embeddedPagePackage = null
         stopSplashScan()
         jumpGuard.stop()
-        miniAppAdGuard.stop()
         Log.i(TAG, "无障碍服务已连接")
         // 服务在线时顺带拉起常驻通知，提高进程优先级
         if (Prefs.keepAlive) KeepAliveService.start(this)
@@ -105,14 +104,18 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (pkg == BiliPauseAdRule.PACKAGE || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             pauseAdGuard.onEvent(event)
         }
-        if ((pkg != null && MiniAppSource.isHost(pkg)) || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-            type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) miniAppAdGuard.onEvent(event)
         jumpGuard.onEvent(event)
-        if (pkg != null && miniAppAdGuard.owns(pkg)) {
-            stopSplashScan()
-            foregroundPkg = pkg
-            return
+        // Embedded pages are excluded from application-launch scans; they have no ad-cleaning engine.
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != null &&
+            pkg !in IGNORED_PACKAGES && pkg !in imePackages) {
+            val cls = event.className?.toString().orEmpty()
+            if (SkipRule.isEmbeddedPage(pkg, cls)) {
+                embeddedPagePackage = pkg
+                foregroundPkg = pkg
+                stopSplashScan()
+            } else if (pkg != embeddedPagePackage || cls.startsWith("$pkg.")) embeddedPagePackage = null
         }
+        if (pkg != null && pkg == embeddedPagePackage) return
         // 两个能力都关闭时，不再读取节点树或维护前台状态。
         if (!Prefs.skipSplash) stopSplashScan()
         if (!Prefs.skipSplash && !Prefs.jumpGuard) return
@@ -148,14 +151,12 @@ class AdSkipAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         stopSplashScan()
         pauseAdGuard.stop()
-        miniAppAdGuard.stop()
         jumpGuard.stop()
     }
 
     override fun onDestroy() {
         stopSplashScan()
         pauseAdGuard.stop()
-        miniAppAdGuard.stop()
         jumpGuard.stop()
         handler.removeCallbacksAndMessages(null)
         InterceptNotifier.cancel(this)
@@ -167,7 +168,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         screenCache = null
         clearSplashSource()
         pauseAdGuard.stop()
-        miniAppAdGuard.stop()
     }
 
     // ------------------------------------------------------------------ 窗口切换
@@ -261,10 +261,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val active = rootInActiveWindow
         val screenWindows = windows.orEmpty()
         try {
-            if (miniAppAdGuard.ownsRoot(pkg, active)) {
-                stopSplashScan()
-                return
-            }
             val activePkg = active?.packageName?.toString()
             // 部分系统在通知栏展开时仍把应用标为活动窗口，不能仅凭活动包名判断遮挡。
             val covered = activePkg != pkg || hasSystemCover(active.windowId, screenWindows)
@@ -528,7 +524,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun clickCandidate(candidate: Candidate, pkg: String, covered: Boolean, allowGesture: Boolean): Boolean {
-        if (AppInfoHelper.isProtectedFromAutomation(this, pkg) || miniAppAdGuard.owns(pkg)) return false
+        if (AppInfoHelper.isProtectedFromAutomation(this, pkg) || embeddedPagePackage == pkg) return false
         if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg ||
             !candidate.node.isEnabled) return false
         // 页面可能已更新；旧节点不能仅凭之前读到的文案继续点击。
