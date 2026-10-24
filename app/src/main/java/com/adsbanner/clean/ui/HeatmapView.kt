@@ -9,7 +9,6 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.ColorUtils
 import com.adsbanner.clean.R
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -63,7 +62,6 @@ class HeatmapView @JvmOverloads constructor(
     )
 
     private var cells: List<Cell> = emptyList()
-    private var colorScale = HeatmapScale(0)
     private var weeks = 1
     private var selected: LocalDate? = null
     private var previousCounts: Map<LocalDate, Int>? = null
@@ -115,10 +113,6 @@ class HeatmapView @JvmOverloads constructor(
         val lastMonday = until.minusDays((until.dayOfWeek.value - 1).toLong())
         val oldWeeks = weeks
         weeks = (ChronoUnit.DAYS.between(firstMonday, lastMonday) / 7).toInt() + 1
-        val peak = counts.asSequence()
-            .filter { (date, _) -> !date.isBefore(start) && !date.isAfter(until) }
-            .maxOfOrNull { it.value } ?: 0
-        colorScale = HeatmapScale(peak)
 
         val list = ArrayList<Cell>()
         var day = start
@@ -175,13 +169,8 @@ class HeatmapView @JvmOverloads constructor(
         return cells.getOrNull(column * 7 + row - firstWeekday)
     }
 
-    /** Each numeric reference uses exactly the same color calculation as a calendar cell. */
-    fun legendEntries(): List<Pair<Int, Int>> = colorScale.references().map { it to levelOf(it) }
+    /** Labels describe actual count ranges, using the exact calendar palette. */
+    fun legendEntries(): List<Pair<String, Int>> = HeatmapScale.bands.mapIndexed { level, band -> band.label to scale[level] }
 
-    private fun levelOf(count: Int): Int {
-        if (count <= 0) return scale[0]
-        val position = colorScale.fraction(count) * 3f
-        val lower = position.toInt().coerceIn(0, 3)
-        return ColorUtils.blendARGB(scale[lower + 1], scale[(lower + 2).coerceAtMost(4)], position - lower)
-    }
+    private fun levelOf(count: Int): Int = scale[HeatmapScale.level(count)]
 }

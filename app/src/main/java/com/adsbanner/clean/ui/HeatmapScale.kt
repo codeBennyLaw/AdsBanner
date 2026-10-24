@@ -1,23 +1,16 @@
 package com.adsbanner.clean.ui
 
-import kotlin.math.ln
-import kotlin.math.pow
-import kotlin.math.roundToInt
+/** Fixed daily-count ranges keep both the calendar and its legend comparable over time. */
+internal object HeatmapScale {
+    data class Band(val label: String, val minimum: Int)
 
-/** A logarithmic scale keeps quieter days distinguishable when one day has a large spike. */
-internal class HeatmapScale(peak: Int) {
-    val maximum = peak.coerceAtLeast(0)
-    private val logMaximum = if (maximum > 1) ln(maximum.toDouble()) else 0.0
+    val bands = listOf(
+        Band("0", 0),
+        Band("1–9", 1),
+        Band("10–49", 10),
+        Band("50–99", 50),
+        Band("100+", 100)
+    )
 
-    fun fraction(count: Int): Float = when {
-        count <= 0 || maximum == 0 -> 0f
-        maximum == 1 -> 1f
-        else -> (ln(count.coerceAtMost(maximum).toDouble()) / logMaximum).toFloat()
-    }
-
-    /** Values for the same four positive palette stops, plus the separate zero color. */
-    fun references(): List<Int> = if (maximum == 0) listOf(0) else
-        (listOf(0) + (0..3).map {
-            maximum.toDouble().pow(it / 3.0).roundToInt().coerceIn(1, maximum)
-        }).distinct()
+    fun level(count: Int): Int = bands.indexOfLast { count >= it.minimum }.coerceAtLeast(0)
 }
