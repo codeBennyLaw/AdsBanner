@@ -20,7 +20,7 @@
     <color name="warning">#945200</color>
     <color name="white">#FFFFFF</color>
 
-    <!-- 热力图：无记录颜色与连续色阶的四个端点 -->
+    <!-- 热力图：无记录颜色与四个固定次数区间 -->
     <color name="heat_empty">#EAEEF5</color>
     <color name="heat_1">#D3E0FF</color>
     <color name="heat_2">#A6C2FF</color>
