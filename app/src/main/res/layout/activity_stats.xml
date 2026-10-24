@@ -103,12 +103,16 @@
                                 android:layout_height="wrap_content" />
                         </HorizontalScrollView>
                         <TextView
-                            android:id="@+id/tvHeatLegend"
                             style="@style/Text.RowSub"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="16dp"
-                            android:lineSpacingExtra="8dp" />
+                            android:text="次数" />
+                        <com.adsbanner.clean.ui.HeatmapLegendView
+                            android:id="@+id/tvHeatLegend"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp" />
                         <TextView
                             android:id="@+id/tvHeatDetail"
                             android:layout_width="match_parent"
