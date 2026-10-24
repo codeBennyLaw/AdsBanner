@@ -20,7 +20,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AppInfoHelper
-import com.adsbanner.clean.core.MiniAppSource
 import com.adsbanner.clean.core.StatsStore
 import com.google.android.material.button.MaterialButton
 import java.text.SimpleDateFormat
@@ -226,9 +225,9 @@ class StatsActivity : AppCompatActivity() {
                         calendar.timeInMillis = last
                         "最近 " + (if (calendar.get(Calendar.YEAR) == year) recentFormat else olderFormat).format(Date(last))
                     }
-                    val mini = if (stat.isMiniApp) MiniAppSource.create(stat.pkg, stat.miniAppName) else null
-                    StatAppRow(stat.key, mini?.displayName ?: AppInfoHelper.label(applicationContext, stat.pkg),
-                        if (mini == null) detail else "${mini.hostLabel} · 小程序\n$detail", recent, total, stat.pkg)
+                    val hostLabel = AppInfoHelper.label(applicationContext, stat.pkg)
+                    StatAppRow(stat.key, if (stat.isHistoricalSource) stat.historicalLabel ?: "未命名的历史来源" else hostLabel,
+                        if (stat.isHistoricalSource) "$hostLabel · 历史记录\n$detail" else detail, recent, total, stat.pkg)
                 }
             }.sortedByDescending { it.count }
             Rows(key, rows)
@@ -262,7 +261,7 @@ class StatsActivity : AppCompatActivity() {
         caption.text = if (selectedRange == Range.TODAY) "今日拦截" else "累计拦截"
         count.text = total.toString()
         count.contentDescription = "${caption.text} $total 次"
-        val sources = if (snapshot.apps.any { it.isMiniApp }) "个应用/小程序" else "个应用"
+        val sources = if (snapshot.apps.any { it.isHistoricalSource }) "个来源" else "个应用"
         summary.text = "${typeLabel(selectedType)} · $apps $sources"
         empty.text = when {
             snapshot.total == 0 -> "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
@@ -294,10 +293,10 @@ class StatsActivity : AppCompatActivity() {
 
     private fun showHeatmapLegend() {
         val entries = heatmap.legendEntries()
-        val text = SpannableStringBuilder("次数  ")
+        val text = SpannableStringBuilder("次数\n")
         val size = (12 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
         entries.forEachIndexed { index, (value, color) ->
-            if (index > 0) text.append("   ")
+            if (index > 0) text.append(if (index % 4 == 0) "\n" else "   ")
             val start = text.length
             text.append('\uFFFC')
             val swatch = GradientDrawable().apply {
@@ -309,7 +308,10 @@ class StatsActivity : AppCompatActivity() {
             text.append("\u00A0$value")
         }
         heatLegend.text = text
-        heatLegend.contentDescription = "颜色参考，" + entries.joinToString("，") { "${it.first} 次" }
+        heatLegend.contentDescription = "每日拦截次数，" + entries.joinToString("，") {
+            val label = it.first
+            if (label.endsWith("+")) "${label.dropLast(1)} 次及以上" else "${label.replace("–", "至")} 次"
+        }
     }
 
     override fun onEnterAnimationComplete() {

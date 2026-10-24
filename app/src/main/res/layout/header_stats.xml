@@ -88,6 +88,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
-        android:text="应用与小程序明细 · 按拦截次数排序"
+        android:text="应用明细 · 按拦截次数排序"
         android:layout_marginTop="24dp" />
 </LinearLayout>
