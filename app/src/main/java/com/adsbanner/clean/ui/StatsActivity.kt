@@ -293,10 +293,10 @@ class StatsActivity : AppCompatActivity() {
 
     private fun showHeatmapLegend() {
         val entries = heatmap.legendEntries()
-        val text = SpannableStringBuilder("次数  ")
+        val text = SpannableStringBuilder("次数\n")
         val size = (12 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
         entries.forEachIndexed { index, (value, color) ->
-            if (index > 0) text.append("   ")
+            if (index > 0) text.append(if (index % 4 == 0) "\n" else "   ")
             val start = text.length
             text.append('\uFFFC')
             val swatch = GradientDrawable().apply {

@@ -20,10 +20,13 @@
     <color name="warning">#945200</color>
     <color name="white">#FFFFFF</color>
 
-    <!-- 热力图：无记录颜色与四个固定次数区间 -->
+    <!-- 热力图：无记录颜色与七个固定次数区间 -->
     <color name="heat_empty">#EAEEF5</color>
-    <color name="heat_1">#D3E0FF</color>
-    <color name="heat_2">#A6C2FF</color>
-    <color name="heat_3">#6B96FF</color>
-    <color name="heat_4">#2F6BFF</color>
+    <color name="heat_1">#E0EAFF</color>
+    <color name="heat_2">#BDD2FF</color>
+    <color name="heat_3">#93B5FF</color>
+    <color name="heat_4">#6D97F5</color>
+    <color name="heat_5">#4479E0</color>
+    <color name="heat_6">#2459BD</color>
+    <color name="heat_7">#143B8C</color>
 </resources>

@@ -58,7 +58,10 @@ class HeatmapView @JvmOverloads constructor(
         ContextCompat.getColor(context, R.color.heat_1),
         ContextCompat.getColor(context, R.color.heat_2),
         ContextCompat.getColor(context, R.color.heat_3),
-        ContextCompat.getColor(context, R.color.heat_4)
+        ContextCompat.getColor(context, R.color.heat_4),
+        ContextCompat.getColor(context, R.color.heat_5),
+        ContextCompat.getColor(context, R.color.heat_6),
+        ContextCompat.getColor(context, R.color.heat_7)
     )
 
     private var cells: List<Cell> = emptyList()
