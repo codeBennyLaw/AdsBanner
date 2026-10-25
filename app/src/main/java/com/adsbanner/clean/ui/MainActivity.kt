@@ -270,21 +270,22 @@ class MainActivity : AppCompatActivity() {
         }.onFailure { toast("没有可用的浏览器") }
     }
 
-    /** Keep top content immersive, but reserve a stable viewport above the navigation bar. */
+    /**
+     * 沉浸的关键：内边距加在内容容器上，而不是加在 ScrollView 上。
+     * 前者让内容滚动时可以滑到状态栏下方，系统栏区域始终由页面背景铺满；
+     * 后者会把整块内容永远压到状态栏以下，看着就像没有沉浸。
+     */
     private fun applyInsets() {
         val root = findViewById<View>(R.id.root)
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val bars = insets.getInsetsIgnoringVisibility(
+            val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            // Home previews may crop the navigation-bar strip. Keep only background there,
-            // including while system bars temporarily change visibility during the gesture.
-            root.setPadding(0, 0, 0, bars.bottom)
             content.setPadding(
                 dp(18) + bars.left,
                 dp(18) + bars.top,
                 dp(18) + bars.right,
-                dp(32)
+                dp(32) + bars.bottom
             )
             insets
         }
