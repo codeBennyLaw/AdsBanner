@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.activity.BackEventCompat
@@ -115,8 +116,17 @@ internal class PageOriginMotion(
             startContainerColor = if (forward) color else background
             endContainerColor = if (forward) background else color
             scrimColor = Color.TRANSPARENT
-            duration = if (forward) 320L else 260L
-            fadeMode = MaterialContainerTransform.FADE_MODE_THROUGH
+            duration = 320L
+            fadeMode = if (forward) MaterialContainerTransform.FADE_MODE_THROUGH
+                else MaterialContainerTransform.FADE_MODE_CROSS
+            if (!forward) {
+                // Keep the page legible while it travels, then blend into the destination.
+                // Spreading the mask and corners over the whole trip avoids a cropped jump.
+                interpolator = PathInterpolator(0.4f, 0f, 0.4f, 1f)
+                fadeProgressThresholds = MaterialContainerTransform.ProgressThresholds(0.55f, 0.95f)
+                scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
+                shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
+            }
             transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
                 else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
             // Keep the final card covering the child window until the home card has drawn.
