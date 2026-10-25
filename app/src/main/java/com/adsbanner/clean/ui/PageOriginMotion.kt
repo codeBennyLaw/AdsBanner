@@ -8,6 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.RenderNode
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -49,6 +50,7 @@ internal class PageOriginMotion(
     private var translucent = false
     private val backMotion = BackProgressMotion(page)
     private var returnPose: View? = null
+    private var returnNode: RenderNode? = null
     private var returnRadius = 0f
     private val anchor = object : View(activity) {
         override fun onDraw(canvas: Canvas) { source()?.draw(canvas) }
@@ -135,7 +137,7 @@ internal class PageOriginMotion(
         returning = true
         previewing = false
         backMotion.freeze()
-        if (!animated() || !placeAnchor() || !revealHome()) {
+        if (!animated() || page.width == 0 || page.height == 0 || !placeAnchor() || !revealHome()) {
             finish()
             return
         }
@@ -147,10 +149,14 @@ internal class PageOriginMotion(
     private fun restore() {
         origin?.get()?.alpha = originalAlpha
         anchor.visibility = View.INVISIBLE
-        page.visibility = View.VISIBLE
+        // A committed return must leave the child window transparent until it is removed.
+        // Showing the full page here can expose one last stale frame over the home activity.
+        page.visibility = if (!returning && !closed && !activity.isFinishing) View.VISIBLE else View.INVISIBLE
         backMotion.reset()
         returnPose?.let { stage.removeView(it) }
         returnPose = null
+        returnNode?.discardDisplayList()
+        returnNode = null
         if (!returning && !activity.isFinishing && !closed && translucent) {
             activity.window.setBackgroundDrawable(background.toDrawable())
             activity.setTranslucent(false)
@@ -198,7 +204,15 @@ internal class PageOriginMotion(
     }
 
     fun stop() {
-        if (returning || closed) return
+        if (closed) return
+        if (returning) {
+            if (!activity.isFinishing) {
+                TransitionManager.endTransitions(stage)
+                restore()
+                if (!activity.isFinishing) finish()
+            }
+            return
+        }
         previewing = false
         restore()
         work.endPreview()
@@ -217,15 +231,21 @@ internal class PageOriginMotion(
     /** Material's bounds capture ignores scale. Hand it a live view at the exact gesture pose. */
     @SuppressLint("RtlHardcoded")
     private fun captureReturnPose() {
-        if (page.scaleX == 1f && page.translationX == 0f && page.translationY == 0f) return
         val bounds = RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
         page.matrix.mapRect(bounds)
         bounds.offset(page.left.toFloat(), page.top.toFloat())
         returnRadius = backMotion.cornerRadius
+        // Record the settled page once. Replaying its display list avoids traversing the
+        // entire RecyclerView hierarchy for every frame of the container transform.
+        val node = RenderNode("AdsBanner page return").apply { setPosition(0, 0, page.width, page.height) }
+        val recording = node.beginRecording()
+        try { page.draw(recording) } finally { node.endRecording() }
+        returnNode = node
         val pose = object : View(activity) {
             override fun onDraw(canvas: Canvas) {
                 canvas.withScale(width.toFloat() / page.width, height.toFloat() / page.height) {
-                    page.draw(this)
+                    if (isHardwareAccelerated && node.hasDisplayList()) drawRenderNode(node)
+                    else page.draw(this)
                 }
             }
         }.apply {
