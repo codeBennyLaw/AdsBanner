@@ -161,7 +161,7 @@ internal class OriginDialog private constructor(
     private fun placeAnchor(): Boolean {
         val source = validOrigin()
         if (source != null) {
-            Motion.resetPressFeedback(source)
+            if (closing) clearOriginFeedback(source) else Motion.resetPressFeedback(source)
             source.getGlobalVisibleRect(originBounds)
             val location = IntArray(2)
             source.getLocationOnScreen(location)
@@ -273,9 +273,17 @@ internal class OriginDialog private constructor(
 
     private fun restoreOrigin() {
         validOrigin()?.let {
-            Motion.resetPressFeedback(it)
+            clearOriginFeedback(it)
             it.alpha = originAlpha
         }
+    }
+
+    private fun clearOriginFeedback(view: View) {
+        // Let the initiating click ripple run while opening, then settle it before revealing
+        // the source again. A return transform must never replay the opening click.
+        Motion.resetPressFeedback(view)
+        view.isPressed = false
+        view.jumpDrawablesToCurrentState()
     }
 
     private fun finishDismiss() {
