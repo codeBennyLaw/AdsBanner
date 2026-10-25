@@ -5,13 +5,13 @@ import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.provider.Settings
 import android.transition.Transition
 import android.transition.TransitionListenerAdapter
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
-import androidx.activity.BackEventCompat
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -47,13 +47,18 @@ object Motion {
 
     fun openPage(activity: Activity, source: View, destination: Class<out Activity>) {
         resetPressFeedback(source)
+        val intent = Intent(activity, destination).putExtra(EXTRA_CARD_TRANSITION, true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PageOriginMotion.open(activity, source, intent)
+            return
+        }
         val options = ActivityOptions.makeSceneTransitionAnimation(
             activity, source, source.transitionName
         )
-        activity.startActivity(Intent(activity, destination).putExtra(EXTRA_CARD_TRANSITION, true), options.toBundle())
+        activity.startActivity(intent, options.toBundle())
     }
 
-    /** Expand the clicked home card into the page, then reverse that same path on back. */
+    /** Card navigation uses a container transform; system back owns its window preview. */
     fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int, restored: Boolean = false) {
         val content = activity.findViewById<View>(android.R.id.content)
         content.transitionName = name
@@ -63,7 +68,9 @@ object Motion {
         val work = PageTransitionWork(content,
             enabled && !restored && activity.intent.getBooleanExtra(EXTRA_CARD_TRANSITION, false))
         content.setTag(R.id.motion_page_work, work)
-        val root = activity.findViewById<View>(R.id.root)
+        val originMotion = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PageOriginMotion(activity, work, origin, { pageAnimationsEnabled(activity) }, restored)
+        } else null
         fun transform(entering: Boolean) = MaterialContainerTransform().apply {
             addTarget(android.R.id.content)
             duration = if (!enabled) 0L else if (entering) PAGE_ENTER_MS else PAGE_RETURN_MS
@@ -73,73 +80,67 @@ object Motion {
             endContainerColor = if (entering) background else origin
             scrimColor = Color.TRANSPARENT
         }
-        activity.setEnterSharedElementCallback(MaterialContainerTransformSharedElementCallback())
-        activity.window.apply {
-            sharedElementsUseOverlay = false
-            sharedElementEnterTransition = transform(true).apply {
-                addListener(object : TransitionListenerAdapter() {
-                    override fun onTransitionStart(transition: Transition) = work.beginEnter()
-                    override fun onTransitionEnd(transition: Transition) = work.endEnter()
-                    override fun onTransitionCancel(transition: Transition) = work.endEnter()
-                })
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            activity.setEnterSharedElementCallback(MaterialContainerTransformSharedElementCallback())
+            activity.window.apply {
+                sharedElementsUseOverlay = false
+                sharedElementEnterTransition = transform(true).apply {
+                    addListener(object : TransitionListenerAdapter() {
+                        override fun onTransitionStart(transition: Transition) = work.beginEnter()
+                        override fun onTransitionEnd(transition: Transition) = work.endEnter()
+                        override fun onTransitionCancel(transition: Transition) = work.endEnter()
+                    })
+                }
+                sharedElementReturnTransition = transform(false)
+                enterTransition = null
+                returnTransition = null
             }
-            sharedElementReturnTransition = transform(false)
-            enterTransition = null
-            returnTransition = null
+            activity.postponeEnterTransition()
+            content.doOnPreDraw { activity.startPostponedEnterTransition() }
         }
-        activity.postponeEnterTransition()
-        content.doOnPreDraw { activity.startPostponedEnterTransition() }
         var returning = false
-        var gestureAnimations = false
-        val backMotion = BackProgressMotion(root)
         val frozenLists = mutableListOf<RecyclerView>()
         activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) {
-                backMotion.reset()
                 work.completeImmediately()
             }
             override fun onDestroy(owner: LifecycleOwner) {
                 work.close()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) originMotion?.close()
                 frozenLists.forEach { it.suppressLayout(false) }
                 content.setTag(R.id.motion_page_work, null)
             }
         })
-        activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
-            override fun handleOnBackStarted(backEvent: BackEventCompat) {
-                gestureAnimations = !returning && pageAnimationsEnabled(activity)
-                if (gestureAnimations) backMotion.start(backEvent)
-            }
-            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-                if (!returning && gestureAnimations) backMotion.update(backEvent)
-            }
-            override fun handleOnBackCancelled() {
-                gestureAnimations = false
-                if (!returning) backMotion.settle(pageAnimationsEnabled(activity))
-            }
-            override fun handleOnBackPressed() {
-                if (returning || activity.isFinishing) return
-                returning = true
-                gestureAnimations = false
-                val animated = pageAnimationsEnabled(activity)
-                work.beginReturn()
-                // Keep the gesture pose stable while the shared container shrinks to its card.
-                // A simultaneous spring to full size fights the return transform.
-                backMotion.freeze()
-                if (!animated) backMotion.reset()
-                if (content is ViewGroup) {
-                    TransitionManager.endTransitions(content)
-                    content.descendants.filterIsInstance<RecyclerView>().forEach {
-                        (it.parent as? ViewGroup)?.let(TransitionManager::endTransitions)
-                        it.stopScroll()
-                        it.itemAnimator?.endAnimations()
-                        it.suppressLayout(true)
-                        frozenLists.add(it)
-                    }
+        fun returnToOrigin() {
+            if (returning || activity.isFinishing) return
+            returning = true
+            val animated = pageAnimationsEnabled(activity)
+            work.beginReturn()
+            if (content is ViewGroup) {
+                TransitionManager.endTransitions(content)
+                content.descendants.filterIsInstance<RecyclerView>().forEach {
+                    (it.parent as? ViewGroup)?.let(TransitionManager::endTransitions)
+                    it.stopScroll()
+                    it.itemAnimator?.endAnimations()
+                    it.suppressLayout(true)
+                    frozenLists.add(it)
                 }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                originMotion?.returnToOrigin()
+            } else {
                 if (!animated) activity.window.sharedElementReturnTransition?.duration = 0L
                 activity.finishAfterTransition()
             }
-        })
+        }
+        activity.findViewById<View>(R.id.btnBack).setOnClickListener { returnToOrigin() }
+        // An enabled callback consumes the gesture and suppresses Android's destination preview.
+        // Keep the legacy card return only where cross-activity predictive back is unavailable.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = returnToOrigin()
+            })
+        }
     }
 
     fun bindPressFeedback(view: View) = PressFeedback.bind(view)

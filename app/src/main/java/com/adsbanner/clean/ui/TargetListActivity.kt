@@ -71,7 +71,6 @@ class TargetListActivity : AppCompatActivity() {
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
-        findViewById<View>(R.id.btnBack).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
         query = savedInstanceState?.getString("query").orEmpty()
         search.setText(query)
         search.addTextChangedListener(object : TextWatcher {
