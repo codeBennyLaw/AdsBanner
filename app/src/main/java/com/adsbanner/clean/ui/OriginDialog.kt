@@ -142,6 +142,7 @@ internal class OriginDialog private constructor(
     }
 
     override fun show() {
+        validOrigin()?.let(Motion::resetPressFeedback)
         super.show()
         window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     }
@@ -240,7 +241,12 @@ internal class OriginDialog private constructor(
         } else if (placeAnchor()) startTransform(forward = false) else finishDismiss()
     }
 
-    private fun restoreOrigin() { validOrigin()?.alpha = originAlpha }
+    private fun restoreOrigin() {
+        validOrigin()?.let {
+            Motion.resetPressFeedback(it)
+            it.alpha = originAlpha
+        }
+    }
 
     private fun finishDismiss() {
         if (finished) return
