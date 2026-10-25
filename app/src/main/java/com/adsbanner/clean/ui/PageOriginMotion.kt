@@ -3,6 +3,7 @@ package com.adsbanner.clean.ui
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.ActivityOptions
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
@@ -49,13 +50,15 @@ internal class PageOriginMotion(
     private var closed = false
     private var previewing = false
     private var translucent = false
+    private var homeReady = false
+    private var latestBackEvent: BackEventCompat? = null
+    private var revealedHome: WeakReference<Activity>? = null
+    private var homeWindowAnimations = 0
     private val backMotion = BackProgressMotion(page)
     private var returnPose: View? = null
     private var returnNode: RenderNode? = null
     private var homeFrameObserver: ViewTreeObserver? = null
-    private val finishAfterHomeFrame = Runnable {
-        if (homeFrameObserver != null && returning && !closed) finish()
-    }
+    private var homeFrameCallback: Runnable? = null
     private var returnRadius = 0f
     private val anchor = object : View(activity) {
         override fun onDraw(canvas: Canvas) { source()?.draw(canvas) }
@@ -150,12 +153,20 @@ internal class PageOriginMotion(
             finish()
             return
         }
-        captureReturnPose()
-        stage.doOnPreDraw { if (!closed && !activity.isFinishing) morph(forward = false) }
-        stage.invalidate()
+        fun startReturn() {
+            captureReturnPose()
+            // The pose is already placed. Prepare the overlay before the next draw.
+            morph(forward = false)
+        }
+        if (homeReady) startReturn() else whenHomeFrameReady {
+            homeReady = true
+            startReturn()
+        }
     }
 
     private fun restore() {
+        clearHomeFrameWait()
+        latestBackEvent = null
         origin?.get()?.alpha = originalAlpha
         anchor.visibility = View.INVISIBLE
         // A committed return must leave the child window transparent until it is removed.
@@ -170,26 +181,43 @@ internal class PageOriginMotion(
             activity.window.setBackgroundDrawable(background.toDrawable())
             activity.setTranslucent(false)
             translucent = false
+            homeReady = false
+            restoreHomeWindowAnimations()
         }
     }
 
     private fun handOffToHome() {
+        source()?.alpha = originalAlpha
+        // Hold the transform until the restored card is in the home window's buffer.
+        whenHomeFrameReady { finish() }
+    }
+
+    private fun whenHomeFrameReady(completion: () -> Unit) {
+        clearHomeFrameWait()
         val homeCard = source()
-        homeCard?.alpha = originalAlpha
-        if (homeCard == null || !homeCard.isShown || !homeCard.isHardwareAccelerated) {
-            finish()
+        if (homeCard == null || !homeCard.isHardwareAccelerated) {
+            completion()
             return
         }
-        // View visibility alone does not mean the restored card is in the home window's buffer.
-        // Hold the transform until that window submits its replacement frame.
+        val callback = object : Runnable {
+            override fun run() {
+                if (homeFrameCallback !== this) return
+                clearHomeFrameWait()
+                if (!closed && !activity.isFinishing) completion()
+            }
+        }
+        homeFrameCallback = callback
         homeFrameObserver = homeCard.viewTreeObserver.also {
-            it.registerFrameCommitCallback(finishAfterHomeFrame)
+            it.registerFrameCommitCallback(callback)
         }
         homeCard.invalidate()
     }
 
     private fun clearHomeFrameWait() {
-        homeFrameObserver?.takeIf { it.isAlive }?.unregisterFrameCommitCallback(finishAfterHomeFrame)
+        homeFrameCallback?.let { callback ->
+            homeFrameObserver?.takeIf { it.isAlive }?.unregisterFrameCommitCallback(callback)
+        }
+        homeFrameCallback = null
         homeFrameObserver = null
     }
 
@@ -216,15 +244,24 @@ internal class PageOriginMotion(
             it.itemAnimator?.endAnimations()
         }
         backMotion.start(event)
+        latestBackEvent = null
+        if (!homeReady) whenHomeFrameReady {
+            homeReady = true
+            if (previewing && !returning) latestBackEvent?.let(backMotion::update)
+        }
     }
 
     fun progressBack(event: BackEventCompat) {
-        if (previewing && !returning) backMotion.update(event)
+        if (previewing && !returning) {
+            latestBackEvent = event
+            if (homeReady) backMotion.update(event)
+        }
     }
 
     fun cancelBack() {
         if (!previewing || returning) return
         previewing = false
+        clearHomeFrameWait()
         backMotion.settle(animated()) {
             if (!closed && !returning && !previewing) {
                 restore()
@@ -251,11 +288,28 @@ internal class PageOriginMotion(
     private fun revealHome(): Boolean {
         // setTranslucent returns false when the window is already translucent.
         if (!translucent) {
-            if (!activity.setTranslucent(true)) return false
+            // Revealing a stopped activity can start a separate TO_FRONT animation. Its
+            // window must stay still underneath our gesture and container transform.
+            generateSequence(source()?.context) { (it as? ContextWrapper)?.baseContext }
+                .filterIsInstance<Activity>().firstOrNull()?.let {
+                    homeWindowAnimations = it.window.attributes.windowAnimations
+                    it.window.setWindowAnimations(R.style.Animation_AdsBanner_PageReveal)
+                    revealedHome = WeakReference(it)
+                }
+            if (!activity.setTranslucent(true)) {
+                restoreHomeWindowAnimations()
+                return false
+            }
             translucent = true
+            homeReady = false
             activity.window.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
         }
         return true
+    }
+
+    private fun restoreHomeWindowAnimations() {
+        revealedHome?.get()?.window?.setWindowAnimations(homeWindowAnimations)
+        revealedHome = null
     }
 
     /** Material's bounds capture ignores scale. Hand it a live view at the exact gesture pose. */
@@ -299,6 +353,7 @@ internal class PageOriginMotion(
         if (closed) return
         closed = true
         clearHomeFrameWait()
+        restoreHomeWindowAnimations()
         // Do not finish the activity from a cancelled transition during destruction.
         returning = false
         previewing = false

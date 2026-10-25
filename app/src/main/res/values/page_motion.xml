@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A revealed home window stays still underneath the in-window page transform. -->
+    <style name="Animation.AdsBanner.PageReveal" parent="@android:style/Animation.Activity">
+        <item name="android:taskToFrontEnterAnimation">@null</item>
+        <item name="android:taskToFrontExitAnimation">@null</item>
+    </style>
+</resources>
