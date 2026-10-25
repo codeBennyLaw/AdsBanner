@@ -106,7 +106,6 @@ class StatsActivity : AppCompatActivity() {
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
-        findViewById<View>(R.id.btnBack).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
         heatmapButton.setOnClickListener { toggleView() }
         typeButton.setOnClickListener { showTypeMenu() }
         val toggle = header.findViewById<StatsRangeSelector>(R.id.toggleTime)
