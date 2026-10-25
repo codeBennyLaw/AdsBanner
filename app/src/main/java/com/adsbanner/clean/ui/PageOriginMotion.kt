@@ -12,6 +12,7 @@ import android.graphics.RenderNode
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.activity.BackEventCompat
@@ -51,6 +52,10 @@ internal class PageOriginMotion(
     private val backMotion = BackProgressMotion(page)
     private var returnPose: View? = null
     private var returnNode: RenderNode? = null
+    private var homeFrameObserver: ViewTreeObserver? = null
+    private val finishAfterHomeFrame = Runnable {
+        if (homeFrameObserver != null && returning && !closed) finish()
+    }
     private var returnRadius = 0f
     private val anchor = object : View(activity) {
         override fun onDraw(canvas: Canvas) { source()?.draw(canvas) }
@@ -111,12 +116,16 @@ internal class PageOriginMotion(
             fadeMode = MaterialContainerTransform.FADE_MODE_THROUGH
             transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
                 else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
+            // Keep the final card covering the child window until the home card has drawn.
+            isHoldAtEndEnabled = !forward
             addListener(object : TransitionListenerAdapter() {
                 override fun onTransitionStart(transition: Transition) { source()?.alpha = 0f }
                 override fun onTransitionEnd(transition: Transition) {
                     entering = false
-                    restore()
-                    if (returning) finish() else work.endEnter()
+                    if (returning) handOffToHome() else {
+                        restore()
+                        work.endEnter()
+                    }
                 }
             })
         }
@@ -164,7 +173,28 @@ internal class PageOriginMotion(
         }
     }
 
+    private fun handOffToHome() {
+        val homeCard = source()
+        homeCard?.alpha = originalAlpha
+        if (homeCard == null || !homeCard.isShown || !homeCard.isHardwareAccelerated) {
+            finish()
+            return
+        }
+        // View visibility alone does not mean the restored card is in the home window's buffer.
+        // Hold the transform until that window submits its replacement frame.
+        homeFrameObserver = homeCard.viewTreeObserver.also {
+            it.registerFrameCommitCallback(finishAfterHomeFrame)
+        }
+        homeCard.invalidate()
+    }
+
+    private fun clearHomeFrameWait() {
+        homeFrameObserver?.takeIf { it.isAlive }?.unregisterFrameCommitCallback(finishAfterHomeFrame)
+        homeFrameObserver = null
+    }
+
     private fun finish() {
+        clearHomeFrameWait()
         activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
         activity.finish()
     }
@@ -268,11 +298,13 @@ internal class PageOriginMotion(
     fun close() {
         if (closed) return
         closed = true
+        clearHomeFrameWait()
         // Do not finish the activity from a cancelled transition during destruction.
         returning = false
         previewing = false
         TransitionManager.endTransitions(stage)
         restore()
+        stage.overlay.clear()
         stage.removeView(anchor)
     }
 
