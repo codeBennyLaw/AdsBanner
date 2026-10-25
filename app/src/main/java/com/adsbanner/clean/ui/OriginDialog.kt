@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -29,6 +30,8 @@ import androidx.transition.TransitionListenerAdapter
 import androidx.transition.TransitionManager
 import com.adsbanner.clean.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.transition.MaterialContainerTransform
 import java.lang.ref.WeakReference
@@ -142,6 +145,7 @@ internal class OriginDialog private constructor(
     }
 
     override fun show() {
+        validOrigin()?.let(Motion::resetPressFeedback)
         super.show()
         window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     }
@@ -157,7 +161,7 @@ internal class OriginDialog private constructor(
     private fun placeAnchor(): Boolean {
         val source = validOrigin()
         if (source != null) {
-            Motion.resetPressFeedback(source)
+            if (closing) clearOriginFeedback(source) else Motion.resetPressFeedback(source)
             source.getGlobalVisibleRect(originBounds)
             val location = IntArray(2)
             source.getLocationOnScreen(location)
@@ -183,6 +187,8 @@ internal class OriginDialog private constructor(
     private fun startTransform(forward: Boolean) {
         val rounded = ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
         val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(28).toFloat()).build()
+        val sourceColor = originContainerColor()
+        val dialogColor = context.getColor(R.color.surface)
         val transition = MaterialContainerTransform().apply {
             drawingViewId = stage.id
             startView = if (forward) anchor else panel
@@ -194,7 +200,11 @@ internal class OriginDialog private constructor(
             transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
                 else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
             fadeMode = MaterialContainerTransform.FADE_MODE_THROUGH
-            containerColor = context.getColor(R.color.surface)
+            // Transparent entry buttons belong to their parent's surface. Painting the dialog
+            // color underneath them creates a bright plate at both ends of the transform.
+            containerColor = sourceColor
+            startContainerColor = if (forward) sourceColor else dialogColor
+            endContainerColor = if (forward) dialogColor else sourceColor
             scrimColor = 0x52000000
             addListener(object : TransitionListenerAdapter() {
                 override fun onTransitionStart(transition: Transition) {
@@ -219,6 +229,27 @@ internal class OriginDialog private constructor(
         panel.visibility = if (forward) View.VISIBLE else View.INVISIBLE
     }
 
+    private fun originContainerColor(): Int {
+        var view = validOrigin()
+        while (view != null) {
+            val background = view.background
+            val color = when {
+                view is MaterialCardView -> view.cardBackgroundColor.getColorForState(view.drawableState,
+                    view.cardBackgroundColor.defaultColor)
+                background is ColorDrawable -> background.color
+                background is MaterialShapeDrawable -> background.fillColor?.getColorForState(view.drawableState,
+                    background.fillColor?.defaultColor ?: Color.TRANSPARENT)
+                background is GradientDrawable -> background.color?.getColorForState(view.drawableState,
+                    background.color?.defaultColor ?: Color.TRANSPARENT)
+                else -> null
+            }
+            // Ripple masks are not a button's fill. Continue to the actual opaque surface.
+            if (color != null && Color.alpha(color) == 255) return color
+            view = view.parent as? View
+        }
+        return context.getColor(R.color.surface)
+    }
+
     override fun dismiss() {
         if (closing || finished) return
         closing = true
@@ -240,7 +271,20 @@ internal class OriginDialog private constructor(
         } else if (placeAnchor()) startTransform(forward = false) else finishDismiss()
     }
 
-    private fun restoreOrigin() { validOrigin()?.alpha = originAlpha }
+    private fun restoreOrigin() {
+        validOrigin()?.let {
+            clearOriginFeedback(it)
+            it.alpha = originAlpha
+        }
+    }
+
+    private fun clearOriginFeedback(view: View) {
+        // Let the initiating click ripple run while opening, then settle it before revealing
+        // the source again. A return transform must never replay the opening click.
+        Motion.resetPressFeedback(view)
+        view.isPressed = false
+        view.jumpDrawablesToCurrentState()
+    }
 
     private fun finishDismiss() {
         if (finished) return

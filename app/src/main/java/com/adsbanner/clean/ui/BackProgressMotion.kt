@@ -3,23 +3,27 @@ package com.adsbanner.clean.ui
 import android.graphics.Outline
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.view.animation.PathInterpolator
 import androidx.activity.BackEventCompat
 import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 
-/** Gesture progress writes render properties directly; cancellation settles from the current pose. */
+/** Direct render-property updates during a back gesture, with a reversible cancellation. */
 internal class BackProgressMotion(private val view: View) {
     private val density = view.resources.displayMetrics.density
     private val originalOutline = view.outlineProvider
     private val originalClip = view.clipToOutline
+    private val interpolation = PathInterpolator(0f, 0f, 0f, 1f)
     private var startY = 0f
     private var initialScale = 1f
     private var initialX = 0f
     private var initialY = 0f
+    private var settled: (() -> Unit)? = null
+    val cornerRadius: Float
+        get() = 28 * density * ((1f - view.scaleX) / 0.1f).coerceIn(0f, 1f) * view.scaleX
     private val outline = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
-            val rounding = ((1f - view.scaleX) / 0.04f).coerceIn(0f, 1f)
-            outline.setRoundRect(0, 0, view.width, view.height, 20 * density * rounding)
+            outline.setRoundRect(0, 0, view.width, view.height, cornerRadius / view.scaleX)
         }
     }
     private val springs = listOf(
@@ -33,12 +37,17 @@ internal class BackProgressMotion(private val view: View) {
     init {
         springs.first().addUpdateListener { _, _, _ -> view.invalidateOutline() }
         springs.forEach { animation -> animation.addEndListener { _, cancelled, _, _ ->
-            if (!cancelled && springs.none { it.isRunning }) restoreOutline()
+            if (!cancelled && springs.none { it.isRunning }) {
+                restoreOutline()
+                val completion = settled
+                settled = null
+                completion?.invoke()
+            }
         } }
     }
 
     fun start(event: BackEventCompat) {
-        springs.forEach { it.cancel() }
+        freeze()
         startY = event.touchY
         initialScale = view.scaleX
         initialX = view.translationX
@@ -48,23 +57,31 @@ internal class BackProgressMotion(private val view: View) {
     }
 
     fun update(event: BackEventCompat) {
-        val progress = event.progress.coerceIn(0f, 1f)
+        val progress = interpolation.getInterpolation(event.progress.coerceIn(0f, 1f))
         val direction = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1 else -1
-        view.scaleX = initialScale + (0.96f - initialScale) * progress
+        val shift = (view.width * 0.05f - 8 * density).coerceAtLeast(0f) * direction
+        view.scaleX = initialScale + (0.9f - initialScale) * progress
         view.scaleY = view.scaleX
-        view.translationX = initialX + (24 * density * direction - initialX) * progress
-        val followY = ((event.touchY - startY) * 0.03f).coerceIn(-12 * density, 12 * density)
+        view.translationX = initialX + (shift - initialX) * progress
+        val limitY = (view.height * 0.05f - 8 * density).coerceAtLeast(0f)
+        val followY = ((event.touchY - startY) * 0.15f).coerceIn(-limitY, limitY)
         view.translationY = initialY + (followY - initialY) * progress
         view.invalidateOutline()
     }
 
-    fun settle(animated: Boolean) {
-        if (!animated) { reset(); return }
-        if (view.scaleX == 1f && view.scaleY == 1f && view.translationX == 0f && view.translationY == 0f) {
-            restoreOutline()
+    fun settle(animated: Boolean, onSettled: () -> Unit) {
+        if (!animated || (view.scaleX == 1f && view.scaleY == 1f && view.translationX == 0f && view.translationY == 0f)) {
+            reset()
+            onSettled()
             return
         }
+        settled = onSettled
         springs.forEach { it.animateToFinalPosition(it.spring.finalPosition) }
+    }
+
+    fun freeze() {
+        settled = null
+        springs.forEach { it.cancel() }
     }
 
     fun reset() {
@@ -75,9 +92,6 @@ internal class BackProgressMotion(private val view: View) {
         view.translationY = 0f
         restoreOutline()
     }
-
-    /** The container return takes over this pose; only a cancelled gesture springs back. */
-    fun freeze() { springs.forEach { it.cancel() } }
 
     private fun restoreOutline() {
         view.outlineProvider = originalOutline

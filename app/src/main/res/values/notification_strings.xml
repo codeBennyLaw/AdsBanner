@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="guard_notification_title">AdsBanner 正在守护</string>
+    <string name="guard_notification_ready">开屏跳过与误触拦截已就绪</string>
+    <string name="guard_notification_today">今日已拦截%1$d次</string>
+</resources>

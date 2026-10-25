@@ -8,7 +8,8 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     private var returning = false
     private var closed = false
     private var transitionRunning = false
-    private val release = Runnable { if (!transitionRunning) completeImmediately() }
+    private var previewing = false
+    private val release = Runnable { if (!transitionRunning && !previewing) completeImmediately() }
 
     fun beginEnter() {
         if (closed || returning) return
@@ -24,11 +25,11 @@ internal class PageTransitionWork(private val view: View, private var entering: 
 
     fun submit(key: Any, task: () -> Unit) {
         if (closed || returning) return
-        if (entering) pending[key] = task else task()
+        if (entering || previewing) pending[key] = task else task()
     }
 
     fun completeEnter() {
-        if (!entering || transitionRunning || closed || returning) return
+        if (!entering || transitionRunning || previewing || closed || returning) return
         view.removeCallbacks(release)
         view.postOnAnimation(release)
     }
@@ -38,6 +39,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
         if (closed || returning) return
         transitionRunning = false
         entering = false
+        previewing = false
         val tasks = pending.values.toList()
         pending.clear()
         tasks.forEach { if (!closed && !returning) it() }
@@ -47,6 +49,17 @@ internal class PageTransitionWork(private val view: View, private var entering: 
         returning = true
         view.removeCallbacks(release)
         pending.clear()
+    }
+
+    fun beginPreview() {
+        if (closed || returning) return
+        previewing = true
+        view.removeCallbacks(release)
+    }
+
+    fun endPreview() {
+        previewing = false
+        if (entering) completeEnter() else completeImmediately()
     }
 
     fun close() {

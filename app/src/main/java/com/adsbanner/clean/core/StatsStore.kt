@@ -5,12 +5,9 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import org.json.JSONObject
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.Date
-import java.util.Locale
 
 /**
  * 按应用维度统计拦截次数。
@@ -82,8 +79,6 @@ object StatsStore {
     @Volatile var revision = 0L
         private set
 
-    private val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-
     fun init(context: Context) {
         synchronized(lock) {
             if (loaded) return
@@ -117,7 +112,7 @@ object StatsStore {
 
     /** 跨天后清零"今日"计数 */
     private fun rolloverIfNeeded() {
-        val today = dayFormat.format(Date())
+        val today = LocalDate.now().toString()
         if (root.optString("day") != today) {
             root.put("day", today)
             val apps = root.optJSONObject("apps")
@@ -175,6 +170,26 @@ object StatsStore {
 
     private fun persist() {
         sp.edit().putString(KEY_ROOT, root.toString()).apply()
+    }
+
+    fun addChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        synchronized(lock) { sp.registerOnSharedPreferenceChangeListener(listener) }
+    }
+
+    fun removeChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        synchronized(lock) { sp.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    /** The notification only needs today's sum, not sorted application rows. */
+    fun todayTotal(): Int = synchronized(lock) {
+        rolloverIfNeeded()
+        val apps = root.optJSONObject("apps") ?: return@synchronized 0
+        var total = 0
+        for (key in apps.keys()) {
+            val item = apps.optJSONObject(key) ?: continue
+            total += item.optInt(F_TS) + item.optInt(F_TJ) + item.optInt(F_TP)
+        }
+        total
     }
 
     fun snapshot(): Snapshot {
@@ -259,7 +274,7 @@ object StatsStore {
         synchronized(lock) {
             val installed = root.optString(F_INSTALLED)
             root = JSONObject()
-            root.put("day", dayFormat.format(Date()))
+            root.put("day", LocalDate.now().toString())
             if (installed.isNotBlank()) root.put(F_INSTALLED, installed)
             revision++
             persist()
