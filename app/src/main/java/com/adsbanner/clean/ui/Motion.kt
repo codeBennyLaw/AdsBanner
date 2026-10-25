@@ -151,11 +151,7 @@ object Motion {
     }
 
     fun bindPressFeedback(view: View) = PressFeedback.bind(view)
-    fun resetPressFeedback(view: View) {
-        PressFeedback.reset(view)
-        view.isPressed = false
-        view.jumpDrawablesToCurrentState()
-    }
+    fun resetPressFeedback(view: View) = PressFeedback.reset(view)
 
     internal fun whenPageReady(activity: Activity, key: Any, task: () -> Unit) {
         val work = activity.findViewById<View>(android.R.id.content).getTag(R.id.motion_page_work) as? PageTransitionWork
