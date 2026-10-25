@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.BackEventCompat
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.doOnPreDraw
@@ -58,7 +59,7 @@ object Motion {
         activity.startActivity(intent, options.toBundle())
     }
 
-    /** Card navigation uses a container transform; system back owns its window preview. */
+    /** Back progress previews the home page, then the container returns to its entry card. */
     fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int, restored: Boolean = false) {
         val content = activity.findViewById<View>(android.R.id.content)
         content.transitionName = name
@@ -102,6 +103,7 @@ object Motion {
         val frozenLists = mutableListOf<RecyclerView>()
         activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) originMotion?.stop()
                 work.completeImmediately()
             }
             override fun onDestroy(owner: LifecycleOwner) {
@@ -117,7 +119,7 @@ object Motion {
             val animated = pageAnimationsEnabled(activity)
             work.beginReturn()
             if (content is ViewGroup) {
-                TransitionManager.endTransitions(content)
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) TransitionManager.endTransitions(content)
                 content.descendants.filterIsInstance<RecyclerView>().forEach {
                     (it.parent as? ViewGroup)?.let(TransitionManager::endTransitions)
                     it.stopScroll()
@@ -134,13 +136,18 @@ object Motion {
             }
         }
         activity.findViewById<View>(R.id.btnBack).setOnClickListener { returnToOrigin() }
-        // An enabled callback consumes the gesture and suppresses Android's destination preview.
-        // Keep the legacy card return only where cross-activity predictive back is unavailable.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() = returnToOrigin()
-            })
-        }
+        activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) originMotion?.startBack(backEvent)
+            }
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) originMotion?.progressBack(backEvent)
+            }
+            override fun handleOnBackCancelled() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) originMotion?.cancelBack()
+            }
+            override fun handleOnBackPressed() = returnToOrigin()
+        })
     }
 
     fun bindPressFeedback(view: View) = PressFeedback.bind(view)
