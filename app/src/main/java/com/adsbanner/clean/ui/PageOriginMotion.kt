@@ -7,13 +7,18 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.RectF
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
+import androidx.activity.BackEventCompat
 import androidx.core.graphics.drawable.toDrawable
+import androidx.core.graphics.withScale
 import androidx.core.view.doOnPreDraw
+import androidx.core.view.descendants
+import androidx.recyclerview.widget.RecyclerView
 import androidx.transition.Transition
 import androidx.transition.TransitionListenerAdapter
 import androidx.transition.TransitionManager
@@ -21,6 +26,7 @@ import com.adsbanner.clean.R
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.transition.MaterialContainerTransform
 import java.lang.ref.WeakReference
+import kotlin.math.roundToInt
 
 /** An in-window card morph, so the activity itself never has a scene-transition back stack. */
 @RequiresApi(34)
@@ -32,13 +38,18 @@ internal class PageOriginMotion(
     restored: Boolean
 ) {
     private val stage = activity.findViewById<ViewGroup>(android.R.id.content)
-    private val page = activity.findViewById<View>(R.id.root)
+    private val page = activity.findViewById<ViewGroup>(R.id.root)
     private val origin = pendingOrigin.takeIf { it?.get()?.transitionName == stage.transitionName }
     private val background = activity.getColor(R.color.bg)
     private val originalAlpha = origin?.get()?.alpha ?: 1f
     private var returning = false
     private var entering = true
     private var closed = false
+    private var previewing = false
+    private var translucent = false
+    private val backMotion = BackProgressMotion(page)
+    private var returnPose: View? = null
+    private var returnRadius = 0f
     private val anchor = object : View(activity) {
         override fun onDraw(canvas: Canvas) { source()?.draw(canvas) }
     }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = View.INVISIBLE }
@@ -46,12 +57,11 @@ internal class PageOriginMotion(
     init {
         pendingOrigin = null
         stage.addView(anchor, ViewGroup.LayoutParams(1, 1))
-        if (!restored && animated() && placeAnchor() && activity.setTranslucent(true)) {
-            activity.window.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
+        if (!restored && animated() && placeAnchor() && revealHome()) {
             page.visibility = View.INVISIBLE
             anchor.visibility = View.VISIBLE
             stage.doOnPreDraw {
-                if (!closed && !returning && !activity.isFinishing) morph(forward = true)
+                if (entering && !closed && !returning && !previewing && !activity.isFinishing) morph(forward = true)
             }
         } else {
             entering = false
@@ -86,10 +96,11 @@ internal class PageOriginMotion(
         val pageShape = ShapeAppearanceModel.builder().setAllCornerSizes(0f).build()
         val transition = MaterialContainerTransform().apply {
             drawingViewId = android.R.id.content
-            startView = if (forward) anchor else page
+            startView = if (forward) anchor else returnPose ?: page
             endView = if (forward) page else anchor
             addTarget(if (forward) page else anchor)
-            startShapeAppearanceModel = if (forward) cardShape else pageShape
+            startShapeAppearanceModel = if (forward) cardShape else
+                ShapeAppearanceModel.builder().setAllCornerSizes(returnRadius).build()
             endShapeAppearanceModel = if (forward) pageShape else cardShape
             startContainerColor = if (forward) color else background
             endContainerColor = if (forward) background else color
@@ -109,6 +120,7 @@ internal class PageOriginMotion(
         }
         if (forward) work.beginEnter()
         TransitionManager.beginDelayedTransition(stage, transition)
+        returnPose?.visibility = View.INVISIBLE
         anchor.visibility = if (forward) View.INVISIBLE else View.VISIBLE
         page.visibility = if (forward) View.VISIBLE else View.INVISIBLE
     }
@@ -121,11 +133,13 @@ internal class PageOriginMotion(
             return
         }
         returning = true
-        if (!animated() || !placeAnchor() || !activity.setTranslucent(true)) {
+        previewing = false
+        backMotion.freeze()
+        if (!animated() || !placeAnchor() || !revealHome()) {
             finish()
             return
         }
-        activity.window.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
+        captureReturnPose()
         stage.doOnPreDraw { if (!closed && !activity.isFinishing) morph(forward = false) }
         stage.invalidate()
     }
@@ -134,9 +148,13 @@ internal class PageOriginMotion(
         origin?.get()?.alpha = originalAlpha
         anchor.visibility = View.INVISIBLE
         page.visibility = View.VISIBLE
-        if (!returning && !activity.isFinishing && !closed) {
+        backMotion.reset()
+        returnPose?.let { stage.removeView(it) }
+        returnPose = null
+        if (!returning && !activity.isFinishing && !closed && translucent) {
             activity.window.setBackgroundDrawable(background.toDrawable())
             activity.setTranslucent(false)
+            translucent = false
         }
     }
 
@@ -145,11 +163,94 @@ internal class PageOriginMotion(
         activity.finish()
     }
 
+    fun startBack(event: BackEventCompat) {
+        if (closed || returning || activity.isFinishing || !animated()) return
+        val interruptedEntry = entering
+        TransitionManager.endTransitions(stage)
+        if (interruptedEntry) {
+            entering = false
+            restore()
+            work.endEnter()
+        }
+        if (!revealHome()) return
+        previewing = true
+        work.beginPreview()
+        page.descendants.filterIsInstance<RecyclerView>().forEach {
+            it.stopScroll()
+            it.itemAnimator?.endAnimations()
+        }
+        backMotion.start(event)
+    }
+
+    fun progressBack(event: BackEventCompat) {
+        if (previewing && !returning) backMotion.update(event)
+    }
+
+    fun cancelBack() {
+        if (!previewing || returning) return
+        previewing = false
+        backMotion.settle(animated()) {
+            if (!closed && !returning && !previewing) {
+                restore()
+                work.endPreview()
+            }
+        }
+    }
+
+    fun stop() {
+        if (returning || closed) return
+        previewing = false
+        restore()
+        work.endPreview()
+    }
+
+    private fun revealHome(): Boolean {
+        // setTranslucent returns false when the window is already translucent.
+        if (!translucent) {
+            if (!activity.setTranslucent(true)) return false
+            translucent = true
+            activity.window.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
+        }
+        return true
+    }
+
+    /** Material's bounds capture ignores scale. Hand it a live view at the exact gesture pose. */
+    @SuppressLint("RtlHardcoded")
+    private fun captureReturnPose() {
+        if (page.scaleX == 1f && page.translationX == 0f && page.translationY == 0f) return
+        val bounds = RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
+        page.matrix.mapRect(bounds)
+        bounds.offset(page.left.toFloat(), page.top.toFloat())
+        returnRadius = backMotion.cornerRadius
+        val pose = object : View(activity) {
+            override fun onDraw(canvas: Canvas) {
+                canvas.withScale(width.toFloat() / page.width, height.toFloat() / page.height) {
+                    page.draw(this)
+                }
+            }
+        }.apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = FrameLayout.LayoutParams(bounds.width().roundToInt(), bounds.height().roundToInt()).apply {
+                gravity = Gravity.TOP or Gravity.LEFT
+                leftMargin = bounds.left.roundToInt()
+                topMargin = bounds.top.roundToInt()
+            }
+        }
+        stage.addView(pose)
+        pose.measure(View.MeasureSpec.makeMeasureSpec(bounds.width().roundToInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(bounds.height().roundToInt(), View.MeasureSpec.EXACTLY))
+        pose.layout(bounds.left.roundToInt(), bounds.top.roundToInt(), bounds.right.roundToInt(), bounds.bottom.roundToInt())
+        returnPose = pose
+        page.visibility = View.INVISIBLE
+        backMotion.reset()
+    }
+
     fun close() {
         if (closed) return
         closed = true
         // Do not finish the activity from a cancelled transition during destruction.
         returning = false
+        previewing = false
         TransitionManager.endTransitions(stage)
         restore()
         stage.removeView(anchor)
