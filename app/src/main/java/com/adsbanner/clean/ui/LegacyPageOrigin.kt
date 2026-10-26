@@ -3,6 +3,9 @@ package com.adsbanner.clean.ui
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Canvas
+import android.graphics.Matrix
+import android.graphics.RectF
+import android.os.Parcelable
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -14,6 +17,7 @@ import com.google.android.material.transition.platform.MaterialContainerTransfor
 /** Let the platform hide its shared element without hiding the actual home card. */
 internal class LegacyPageOrigin private constructor(private val source: View) : View(source.context), Shapeable {
     private var shape = (source as? Shapeable)?.shapeAppearanceModel ?: ShapeAppearanceModel.builder().build()
+    private var drawSource = true
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -23,7 +27,7 @@ internal class LegacyPageOrigin private constructor(private val source: View) : 
     // A proxy is drawn explicitly by snapshot capture / the container transform, never on
     // top of the stationary card. The platform may otherwise restore this alpha to one.
     override fun setAlpha(alpha: Float) = super.setAlpha(0f)
-    override fun onDraw(canvas: Canvas) = source.draw(canvas)
+    override fun onDraw(canvas: Canvas) { if (drawSource) source.draw(canvas) }
     override fun getShapeAppearanceModel(): ShapeAppearanceModel = shape
     override fun setShapeAppearanceModel(shapeAppearanceModel: ShapeAppearanceModel) { shape = shapeAppearanceModel }
 
@@ -48,6 +52,10 @@ internal class LegacyPageOrigin private constructor(private val source: View) : 
     }
 
     companion object {
+        fun begin(activity: Activity, source: View): View = anchorFor(activity, source).also {
+            (it as LegacyPageOrigin).drawSource = true
+        }
+
         fun anchorFor(activity: Activity, source: View): View {
             val anchor = source as? LegacyPageOrigin
                 ?: source.getTag(R.id.motion_origin_anchor) as? LegacyPageOrigin
@@ -65,6 +73,14 @@ internal class LegacyPageOrigin private constructor(private val source: View) : 
                     }
                 }
                 super.onMapSharedElements(names, sharedElements)
+            }
+
+            override fun onCaptureSharedElementSnapshot(sharedElement: View, matrix: Matrix,
+                screenBounds: RectF): Parcelable? {
+                val snapshot = super.onCaptureSharedElementSnapshot(sharedElement, matrix, screenBounds)
+                // The opening image is now independent. The next (return) capture must be empty.
+                (sharedElement as? LegacyPageOrigin)?.drawSource = false
+                return snapshot
             }
         }
     }
