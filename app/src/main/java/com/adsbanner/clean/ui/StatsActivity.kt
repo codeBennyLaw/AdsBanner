@@ -5,9 +5,8 @@ import android.os.Bundle
 import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.TextView
+import android.widget.RadioButton
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.view.ContextThemeWrapper
-import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -57,6 +56,7 @@ class StatsActivity : AppCompatActivity() {
     private var range = Range.TODAY
     private var type = Type.ALL
     private var heatmapVisible = false
+    private var typeMenu: OriginDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -143,17 +143,36 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun showTypeMenu() {
-        PopupMenu(ContextThemeWrapper(this, R.style.ThemeOverlay_AdsBanner_Popup), typeButton).apply {
-            Type.entries.forEach { menu.add(0, it.ordinal, it.ordinal, typeLabel(it)) }
-            menu.setGroupCheckable(0, true, true)
-            menu.findItem(type.ordinal).isChecked = true
-            setOnMenuItemClickListener {
-                type = Type.entries.getOrElse(it.itemId) { Type.ALL }
+        if (typeMenu?.isShowing == true) return
+        val content = layoutInflater.inflate(R.layout.dropdown_stats_type, null)
+        val dialog = OriginDialog.Builder(this, typeButton).asDropdown().setView(content).create()
+        val choices = listOf(R.id.typeAll, R.id.typeSplash, R.id.typeJump, R.id.typePage)
+            .map { content.findViewById<RadioButton>(it) }
+        var selected = false
+        var closing = false
+        choices.forEachIndexed { index, choice ->
+            choice.isChecked = Type.entries[index] == type
+            choice.setOnClickListener {
+                if (selected || closing) return@setOnClickListener
+                selected = true
+                type = Type.entries[index]
+                // The hidden source already carries the destination label during the return.
                 typeButton.text = typeLabel(type)
-                render()
-                true
+                dialog.dismiss()
             }
-        }.show()
+        }
+        dialog.onClosing = { closing = true }
+        dialog.setOnDismissListener {
+            if (typeMenu === dialog) {
+                typeMenu = null
+                ViewCompat.setStateDescription(typeButton, null)
+            }
+            if (selected && !isFinishing && !isDestroyed) render()
+        }
+        typeMenu = dialog
+        ViewCompat.setAccessibilityPaneTitle(content, "广告类型")
+        ViewCompat.setStateDescription(typeButton, "已展开")
+        dialog.show()
     }
 
     private fun invalidateRows() {
@@ -310,6 +329,8 @@ class StatsActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         worker.close()
+        typeMenu?.dismissImmediately()
+        typeMenu = null
         icons.close()
         list.adapter = null
         super.onDestroy()
