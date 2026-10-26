@@ -1,5 +1,6 @@
 package com.adsbanner.clean.ui
 
+import android.animation.ValueAnimator
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.View
@@ -35,6 +36,7 @@ class StatsActivity : AppCompatActivity() {
     }
     private lateinit var list: RecyclerView
     private lateinit var adapter: StatAppAdapter
+    private val rowMotion = StatsItemAnimator()
     private lateinit var icons: AppIconLoader
     private lateinit var summary: TextView
     private lateinit var count: TextView
@@ -100,8 +102,7 @@ class StatsActivity : AppCompatActivity() {
         adapter = StatAppAdapter(icons)
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
         list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
-        // Navigation owns the motion; list updates should settle in one layout.
-        list.itemAnimator = null
+        list.itemAnimator = rowMotion
         heatmapScroll = findViewById(R.id.heatmapScroll)
         heatScroll = findViewById(R.id.heatScroll)
         heatmap = findViewById(R.id.heatmap)
@@ -133,7 +134,7 @@ class StatsActivity : AppCompatActivity() {
         sortDirectionButton.setOnClickListener {
             sort = sort.copy(descending = !sort.descending)
             updateSortControls()
-            render()
+            render(animate = true)
         }
         val toggle = header.findViewById<StatsRangeSelector>(R.id.toggleTime)
         toggle.check(if (range == Range.TODAY) R.id.btnTimeToday else R.id.btnTimeAll)
@@ -141,7 +142,7 @@ class StatsActivity : AppCompatActivity() {
             val selectedRange = if (id == R.id.btnTimeToday) Range.TODAY else Range.ALL
             if (range != selectedRange) {
                 range = selectedRange
-                if (!heatmapVisible) render()
+                if (!heatmapVisible) render(animate = true)
             }
         }
         list.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
@@ -151,11 +152,13 @@ class StatsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        rowMotion.enabled = false
         invalidateRows()
         if (heatmapVisible) renderHeatmap() else render()
     }
 
     private fun toggleView() {
+        rowMotion.enabled = false
         heatmapVisible = !heatmapVisible
         heatmapButton.text = if (heatmapVisible) "列表" else "热力图"
         Motion.switchViews(if (heatmapVisible) heatmapScroll else list,
@@ -188,7 +191,7 @@ class StatsActivity : AppCompatActivity() {
                 typeMenu = null
                 ViewCompat.setStateDescription(typeButton, null)
             }
-            if (selected && !isFinishing && !isDestroyed) render()
+            if (selected && !isFinishing && !isDestroyed) render(animate = true)
         }
         typeMenu = dialog
         ViewCompat.setAccessibilityPaneTitle(content, "广告类型")
@@ -219,7 +222,7 @@ class StatsActivity : AppCompatActivity() {
                 sortMenu = null
                 ViewCompat.setStateDescription(sortButton, sortLabel(sort.field))
             }
-            if (selected && !isFinishing && !isDestroyed) render()
+            if (selected && !isFinishing && !isDestroyed) render(animate = true)
         }
         sortMenu = dialog
         ViewCompat.setAccessibilityPaneTitle(content, getString(R.string.stats_sort_field))
@@ -252,7 +255,10 @@ class StatsActivity : AppCompatActivity() {
         loadingType = null
     }
 
-    private fun render() {
+    private fun render(animate: Boolean = false) {
+        if (animate) rowMotion.enabled = renderedKey != null && ValueAnimator.areAnimatorsEnabled() &&
+            android.provider.Settings.Global.getFloat(contentResolver,
+                android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
         if (cachedDay != LocalDate.now() ||
             cachedSnapshot?.let { it.revision != StatsStore.revision } == true) invalidateRows()
         if (renderedKey == null) {
@@ -363,7 +369,7 @@ class StatsActivity : AppCompatActivity() {
             selectedRange == Range.TODAY -> "今天暂无这类拦截记录\n可以切换“全部时间”查看历史记录"
             else -> "当前类型暂无拦截记录\n试试切换其他广告类型"
         }
-        empty.visibility = if (apps == 0) View.VISIBLE else View.GONE
+        rowMotion.showEmpty(empty, apps == 0)
     }
 
     private fun typeLabel(value: Type) = when (value) {
@@ -405,6 +411,7 @@ class StatsActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        rowMotion.enabled = false
         worker.close()
         typeMenu?.dismissImmediately()
         typeMenu = null
@@ -413,5 +420,10 @@ class StatsActivity : AppCompatActivity() {
         icons.close()
         list.adapter = null
         super.onDestroy()
+    }
+
+    override fun onStop() {
+        rowMotion.enabled = false
+        super.onStop()
     }
 }
