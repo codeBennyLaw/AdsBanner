@@ -271,7 +271,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 顶部保留沉浸滚动，底部在视口外预留导航区，避免卡片滑到导航条下面。
+     * 视口铺满窗口，系统栏避让放在滚动内容末尾，避免底部出现固定裁切带。
      * 使用稳定的系统栏尺寸，返回预览临时隐藏导航栏时不重新排版。
      */
     private fun applyInsets() {
@@ -280,12 +280,11 @@ class MainActivity : AppCompatActivity() {
             val bars = insets.getInsetsIgnoringVisibility(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            root.setPadding(0, 0, 0, bars.bottom)
             content.setPadding(
                 dp(18) + bars.left,
                 dp(18) + bars.top,
                 dp(18) + bars.right,
-                dp(32)
+                dp(32) + bars.bottom
             )
             insets
         }

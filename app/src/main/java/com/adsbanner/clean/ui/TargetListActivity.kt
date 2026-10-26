@@ -65,11 +65,15 @@ class TargetListActivity : AppCompatActivity() {
         list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
         // Navigation owns the motion; list updates should settle in one layout.
         list.itemAnimator = null
+        val listBottom = list.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or
                 WindowInsetsCompat.Type.displayCutout())
             val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
-            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard.bottom))
+            // The keyboard occludes the viewport; the transparent navigation bar doesn't.
+            view.setPadding(bars.left, bars.top, bars.right, keyboard.bottom)
+            list.setPadding(list.paddingLeft, list.paddingTop, list.paddingRight,
+                listBottom + (bars.bottom - keyboard.bottom).coerceAtLeast(0))
             insets
         }
         query = savedInstanceState?.getString("query").orEmpty()
