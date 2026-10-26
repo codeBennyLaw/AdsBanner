@@ -39,6 +39,7 @@ import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.transition.MaterialContainerTransform
 import java.lang.ref.WeakReference
+import kotlin.math.roundToInt
 
 /** Native alert content in a transparent stage, so its container can reach an external anchor. */
 internal class OriginDialog private constructor(
@@ -51,6 +52,7 @@ internal class OriginDialog private constructor(
     private val originBounds = Rect().also { source?.getGlobalVisibleRect(it) }
     private var originOffsetX = 0
     private var originOffsetY = 0
+    private var returnCornerRadius = 0f
     private lateinit var stage: FrameLayout
     private lateinit var panel: ViewGroup
     private lateinit var anchor: View
@@ -95,6 +97,8 @@ internal class OriginDialog private constructor(
         stage.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         anchor = object : View(context) {
             override fun onDraw(canvas: Canvas) {
+                // On close this anchor supplies only the destination bounds, not a moving button.
+                if (closing) return
                 canvas.save()
                 canvas.translate(-originOffsetX.toFloat(), -originOffsetY.toFloat())
                 validOrigin()?.draw(canvas)
@@ -232,18 +236,31 @@ internal class OriginDialog private constructor(
             originOffsetY = originBounds.top - location[1]
         }
         if (originBounds.isEmpty) return false
+        val destination = Rect(originBounds)
+        if (closing && panel.width > 0 && panel.height > 0) {
+            // Shrink the popup as a popup, centered on the stationary entry. Do not stretch
+            // its final frame into the button's aspect ratio or turn its text into a button.
+            val scale = minOf(originBounds.width().toFloat() / panel.width,
+                originBounds.height().toFloat() / panel.height, 1f)
+            val width = (panel.width * scale).roundToInt().coerceAtLeast(1)
+            val height = (panel.height * scale).roundToInt().coerceAtLeast(1)
+            val left = (originBounds.exactCenterX() - width / 2f).roundToInt()
+            val top = (originBounds.exactCenterY() - height / 2f).roundToInt()
+            destination.set(left, top, left + width, top + height)
+            returnCornerRadius = dp(if (dropdown) 20 else 28) * scale
+        }
         val location = IntArray(2)
         stage.getLocationOnScreen(location)
-        anchor.layoutParams = FrameLayout.LayoutParams(originBounds.width(), originBounds.height()).apply {
+        anchor.layoutParams = FrameLayout.LayoutParams(destination.width(), destination.height()).apply {
             gravity = Gravity.TOP or Gravity.LEFT // Screen coordinates, independent of layout direction.
-            leftMargin = originBounds.left - location[0]
-            topMargin = originBounds.top - location[1]
+            leftMargin = destination.left - location[0]
+            topMargin = destination.top - location[1]
         }
         // Immediate geometry is needed for transition capture; no per-frame layout changes.
-        anchor.measure(View.MeasureSpec.makeMeasureSpec(originBounds.width(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(originBounds.height(), View.MeasureSpec.EXACTLY))
-        anchor.layout(originBounds.left - location[0], originBounds.top - location[1],
-            originBounds.right - location[0], originBounds.bottom - location[1])
+        anchor.measure(View.MeasureSpec.makeMeasureSpec(destination.width(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(destination.height(), View.MeasureSpec.EXACTLY))
+        anchor.layout(destination.left - location[0], destination.top - location[1],
+            destination.right - location[0], destination.bottom - location[1])
         return true
     }
 
@@ -259,21 +276,23 @@ internal class OriginDialog private constructor(
             endView = if (forward) panel else anchor
             addTarget(if (forward) panel else anchor)
             startShapeAppearanceModel = if (forward) rounded else dialogShape
-            endShapeAppearanceModel = if (forward) dialogShape else rounded
+            endShapeAppearanceModel = if (forward) dialogShape else
+                ShapeAppearanceModel.builder().setAllCornerSizes(returnCornerRadius).build()
+            if (!forward) fitMode = MaterialContainerTransform.FIT_MODE_HEIGHT
             duration = if (forward) 280L else 220L
             transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
                 else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
             fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
             interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
             fadeProgressThresholds = if (forward) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-                else MaterialContainerTransform.ProgressThresholds(0.55f, 0.95f)
+                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
             scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            // Transparent entry buttons belong to their parent's surface. Painting the dialog
-            // color underneath them creates a bright plate at both ends of the transform.
-            containerColor = sourceColor
+            // Opening uses the entry's real surface. Closing paints only the outgoing popup;
+            // the destination contributes geometry without a replacement button or its color.
+            containerColor = if (forward) sourceColor else Color.TRANSPARENT
             startContainerColor = if (forward) sourceColor else dialogColor
-            endContainerColor = if (forward) dialogColor else sourceColor
+            endContainerColor = if (forward) dialogColor else Color.TRANSPARENT
             scrimColor = this@OriginDialog.scrimColor
             addListener(object : TransitionListenerAdapter() {
                 override fun onTransitionEnd(transition: Transition) {

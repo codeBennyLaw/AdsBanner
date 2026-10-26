@@ -61,7 +61,7 @@ internal class PageOriginMotion(
     private var homeFrameCallback: Runnable? = null
     private var returnRadius = 0f
     private val anchor = object : View(activity) {
-        override fun onDraw(canvas: Canvas) { source()?.draw(canvas) }
+        override fun onDraw(canvas: Canvas) { if (!returning) source()?.draw(canvas) }
     }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = View.INVISIBLE }
 
     init {
@@ -121,7 +121,7 @@ internal class PageOriginMotion(
                 ShapeAppearanceModel.builder().setAllCornerSizes(returnRadius).build()
             endShapeAppearanceModel = if (forward) pageShape else cardShape
             startContainerColor = if (forward) color else background
-            endContainerColor = if (forward) background else color
+            endContainerColor = if (forward) background else Color.TRANSPARENT
             scrimColor = Color.TRANSPARENT
             duration = if (!forward && returningFromGesture) 280L else 320L
             fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
@@ -130,7 +130,7 @@ internal class PageOriginMotion(
             interpolator = if (!forward && returningFromGesture) PathInterpolator(0.2f, 0.6f, 0.2f, 1f)
                 else PathInterpolator(0.2f, 0f, 0f, 1f)
             fadeProgressThresholds = if (forward) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-                else MaterialContainerTransform.ProgressThresholds(0.55f, 0.95f)
+                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
             scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER

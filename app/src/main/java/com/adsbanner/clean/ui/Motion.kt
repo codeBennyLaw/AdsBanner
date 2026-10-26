@@ -56,7 +56,7 @@ object Motion {
             return
         }
         val options = ActivityOptions.makeSceneTransitionAnimation(
-            activity, LegacyPageOrigin.anchorFor(activity, source), source.transitionName
+            activity, LegacyPageOrigin.begin(activity, source), source.transitionName
         )
         activity.startActivity(intent, options.toBundle())
     }
@@ -80,12 +80,12 @@ object Motion {
             fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
             interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
             fadeProgressThresholds = if (entering) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-                else MaterialContainerTransform.ProgressThresholds(0.55f, 0.95f)
+                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
             scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            containerColor = background
+            containerColor = if (entering) background else Color.TRANSPARENT
             startContainerColor = if (entering) origin else background
-            endContainerColor = if (entering) background else origin
+            endContainerColor = if (entering) background else Color.TRANSPARENT
             scrimColor = Color.TRANSPARENT
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
