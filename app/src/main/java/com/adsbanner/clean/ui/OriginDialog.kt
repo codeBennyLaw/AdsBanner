@@ -1,6 +1,7 @@
 package com.adsbanner.clean.ui
 
 import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.content.res.Configuration
 import android.graphics.Canvas
@@ -23,6 +24,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.descendants
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.RecyclerView
@@ -32,6 +34,7 @@ import androidx.transition.TransitionManager
 import com.adsbanner.clean.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.transition.MaterialContainerTransform
@@ -58,6 +61,9 @@ internal class OriginDialog private constructor(
     private var closing = false
     private var finished = false
     private var actionTaken = false
+    private var dropdown = false
+    private val dropdownInsets = Rect()
+    private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
     var onClosing: (() -> Unit)? = null
     private val frozen = mutableListOf<RecyclerView>()
     private val activityObserver = object : DefaultLifecycleObserver {
@@ -79,12 +85,12 @@ internal class OriginDialog private constructor(
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         scrim = View(context).apply {
-            setBackgroundColor(0x52000000)
+            setBackgroundColor(scrimColor)
             alpha = 0f
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         stage.addView(scrim, FrameLayout.LayoutParams(-1, -1))
-        panel.background = material.background
+        panel.background = if (dropdown) ContextCompat.getDrawable(context, R.drawable.bg_popup) else material.background
         panel.clipToOutline = true
         panel.isClickable = true
         stage.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
@@ -105,6 +111,12 @@ internal class OriginDialog private constructor(
         WindowCompat.setDecorFitsSystemWindows(window, false)
         ViewCompat.setOnApplyWindowInsetsListener(stage) { _, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            if (dropdown) {
+                val gap = dp(12)
+                dropdownInsets.set(bars.left + gap, bars.top + gap, bars.right + gap, bars.bottom + gap)
+                positionDropdown()
+                return@setOnApplyWindowInsetsListener insets
+            }
             val params = panel.layoutParams as FrameLayout.LayoutParams
             val gap = dp(24)
             if (params.leftMargin != bars.left + gap || params.topMargin != bars.top + gap ||
@@ -124,6 +136,10 @@ internal class OriginDialog private constructor(
             isAppearanceLightNavigationBars = !night
         }
         stage.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            if (dropdown) {
+                positionDropdown()
+                return@addOnLayoutChangeListener
+            }
             val params = panel.layoutParams as FrameLayout.LayoutParams
             val width = (right - left - params.leftMargin - params.rightMargin).coerceAtMost(dp(560))
             if (width > 0 && panel.layoutParams.width != width) {
@@ -164,6 +180,43 @@ internal class OriginDialog private constructor(
         it.isAttachedToWindow && it.isShown && it.contentDescription?.toString() == originDescription
     }
 
+    /** Keep a compact menu next to its button, flipping above it when space is limited. */
+    @SuppressLint("RtlHardcoded") // Bounds and margins are physical screen coordinates.
+    private fun positionDropdown() {
+        val source = validOrigin() ?: return
+        if (stage.width == 0 || stage.height == 0 || closing) return
+        val bounds = Rect()
+        if (!source.getGlobalVisibleRect(bounds)) return
+        val location = IntArray(2)
+        stage.getLocationOnScreen(location)
+        bounds.offset(-location[0], -location[1])
+        val availableWidth = stage.width - dropdownInsets.left - dropdownInsets.right
+        if (availableWidth <= 0) return
+        val width = source.width.coerceAtLeast(dp(200)).coerceAtMost(dp(320)).coerceAtMost(availableWidth)
+        val below = (stage.height - dropdownInsets.bottom - bounds.bottom - dp(4)).coerceAtLeast(0)
+        val above = (bounds.top - dropdownInsets.top - dp(4)).coerceAtLeast(0)
+        val availableHeight = maxOf(below, above)
+        if (availableHeight == 0) return
+        panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(availableHeight, View.MeasureSpec.AT_MOST))
+        val height = panel.measuredHeight.coerceAtMost(availableHeight)
+        val left = (if (source.layoutDirection == View.LAYOUT_DIRECTION_RTL) bounds.right - width else bounds.left)
+            .coerceIn(dropdownInsets.left, stage.width - dropdownInsets.right - width)
+        val top = if (height <= below) bounds.bottom + dp(4) else bounds.top - dp(4) - height
+        val params = panel.layoutParams as FrameLayout.LayoutParams
+        if (params.width != width || params.height != height || params.leftMargin != left || params.topMargin != top) {
+            panel.layoutParams = params.apply {
+                gravity = Gravity.TOP or Gravity.LEFT
+                this.width = width
+                this.height = height
+                leftMargin = left
+                topMargin = top
+                rightMargin = stage.width - left - width
+                bottomMargin = stage.height - top - height
+            }
+        }
+    }
+
     private fun placeAnchor(): Boolean {
         val source = validOrigin()
         if (source != null) {
@@ -171,6 +224,11 @@ internal class OriginDialog private constructor(
             source.getGlobalVisibleRect(originBounds)
             val location = IntArray(2)
             source.getLocationOnScreen(location)
+            if (dropdown && source is MaterialButton && !originBounds.intersect(
+                    location[0], location[1] + source.insetTop,
+                    location[0] + source.width, location[1] + source.height - source.insetBottom)) {
+                originBounds.setEmpty()
+            }
             originOffsetX = originBounds.left - location[0]
             originOffsetY = originBounds.top - location[1]
         }
@@ -191,8 +249,9 @@ internal class OriginDialog private constructor(
     }
 
     private fun startTransform(forward: Boolean) {
-        val rounded = ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
-        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(28).toFloat()).build()
+        val rounded = (validOrigin() as? MaterialButton)?.takeIf { dropdown }?.shapeAppearanceModel
+            ?: ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
+        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(if (dropdown) 20 else 28).toFloat()).build()
         val sourceColor = originContainerColor()
         val dialogColor = context.getColor(R.color.surface)
         val transition = MaterialContainerTransform().apply {
@@ -216,7 +275,7 @@ internal class OriginDialog private constructor(
             containerColor = sourceColor
             startContainerColor = if (forward) sourceColor else dialogColor
             endContainerColor = if (forward) dialogColor else sourceColor
-            scrimColor = 0x52000000
+            scrimColor = this@OriginDialog.scrimColor
             addListener(object : TransitionListenerAdapter() {
                 override fun onTransitionStart(transition: Transition) {
                     validOrigin()?.alpha = 0f
@@ -247,6 +306,8 @@ internal class OriginDialog private constructor(
             val color = when {
                 view is MaterialCardView -> view.cardBackgroundColor.getColorForState(view.drawableState,
                     view.cardBackgroundColor.defaultColor)
+                view is MaterialButton -> view.backgroundTintList?.getColorForState(view.drawableState,
+                    view.backgroundTintList?.defaultColor ?: Color.TRANSPARENT)
                 background is ColorDrawable -> background.color
                 background is MaterialShapeDrawable -> background.fillColor?.getColorForState(view.drawableState,
                     background.fillColor?.defaultColor ?: Color.TRANSPARENT)
@@ -319,6 +380,7 @@ internal class OriginDialog private constructor(
 
     class Builder(activity: AppCompatActivity, source: View?) {
         private val dialog = OriginDialog(activity, source, MaterialAlertDialogBuilder(activity))
+        fun asDropdown() = apply { dialog.dropdown = true }
         fun setTitle(title: CharSequence) = apply { dialog.setTitle(title) }
         fun setMessage(message: CharSequence) = apply { dialog.setMessage(message) }
         fun setView(view: View) = apply { dialog.setView(view) }

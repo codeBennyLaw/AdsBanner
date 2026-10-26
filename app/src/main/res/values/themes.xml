@@ -121,17 +121,13 @@
         <item name="android:maxLines">2</item>
     </style>
 
-    <style name="ThemeOverlay.AdsBanner.Popup" parent="">
-        <item name="popupMenuStyle">@style/Widget.AdsBanner.PopupMenu</item>
-        <item name="dropDownListViewStyle">@style/Widget.AdsBanner.PopupList</item>
-    </style>
-
-    <style name="Widget.AdsBanner.PopupMenu" parent="Widget.Material3.PopupMenu">
-        <item name="android:popupBackground">@drawable/bg_popup</item>
-    </style>
-
-    <style name="Widget.AdsBanner.PopupList" parent="Widget.AppCompat.ListView.DropDown">
-        <item name="android:listSelector">@drawable/bg_round_feedback</item>
+    <style name="Widget.AdsBanner.TypeOption" parent="Widget.Material3.CompoundButton.RadioButton">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:paddingVertical">10dp</item>
+        <item name="android:background">@drawable/bg_round_feedback</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">15sp</item>
     </style>
 
     <style name="Text.PageTitle" parent="Text.Title">
