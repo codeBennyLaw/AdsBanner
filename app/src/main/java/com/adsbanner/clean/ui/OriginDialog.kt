@@ -14,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.WindowManager
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -103,12 +104,17 @@ internal class OriginDialog private constructor(
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         ViewCompat.setOnApplyWindowInsetsListener(stage) { _, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            panel.layoutParams = (panel.layoutParams as FrameLayout.LayoutParams).apply {
-                leftMargin = bars.left + dp(24)
-                topMargin = bars.top + dp(24)
-                rightMargin = bars.right + dp(24)
-                bottomMargin = bars.bottom + dp(24)
+            val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val params = panel.layoutParams as FrameLayout.LayoutParams
+            val gap = dp(24)
+            if (params.leftMargin != bars.left + gap || params.topMargin != bars.top + gap ||
+                params.rightMargin != bars.right + gap || params.bottomMargin != bars.bottom + gap) {
+                panel.layoutParams = params.apply {
+                    leftMargin = bars.left + gap
+                    topMargin = bars.top + gap
+                    rightMargin = bars.right + gap
+                    bottomMargin = bars.bottom + gap
+                }
             }
             insets
         }
@@ -199,7 +205,12 @@ internal class OriginDialog private constructor(
             duration = if (forward) 280L else 220L
             transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
                 else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
-            fadeMode = MaterialContainerTransform.FADE_MODE_THROUGH
+            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
+            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+            fadeProgressThresholds = if (forward) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
+                else MaterialContainerTransform.ProgressThresholds(0.55f, 0.95f)
+            scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
+            shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             // Transparent entry buttons belong to their parent's surface. Painting the dialog
             // color underneath them creates a bright plate at both ends of the transform.
             containerColor = sourceColor

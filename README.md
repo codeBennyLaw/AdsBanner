@@ -70,8 +70,8 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 产物位于 `app/build/outputs/apk/`，文件名形如：
 
 ```
-AdsBanner-debug-v-2-1-3.apk
-AdsBanner-release-v-2-1-3.apk
+AdsBanner-debug-v-2-1-4.apk
+AdsBanner-release-v-2-1-4.apk
 ```
 
 Release 使用本机 debug keystore 签名，可直接安装；覆盖安装时新旧包签名需一致。
