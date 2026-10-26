@@ -156,7 +156,7 @@ class StatsActivity : AppCompatActivity() {
                 if (selected || closing) return@setOnClickListener
                 selected = true
                 type = Type.entries[index]
-                // The hidden source already carries the destination label during the return.
+                // Keep the destination label ready while statistics wait for the return to finish.
                 typeButton.text = typeLabel(type)
                 dialog.dismiss()
             }

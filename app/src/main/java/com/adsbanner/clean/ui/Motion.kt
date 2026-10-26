@@ -39,7 +39,8 @@ object Motion {
     fun prepareHome(activity: Activity) {
         bindPressFeedback(activity.findViewById(R.id.cardStats))
         bindPressFeedback(activity.findViewById(R.id.cardTargets))
-        activity.setExitSharedElementCallback(MaterialContainerTransformSharedElementCallback())
+        activity.setExitSharedElementCallback(if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+            LegacyPageOrigin.callback(activity) else MaterialContainerTransformSharedElementCallback())
         activity.window.apply {
             sharedElementsUseOverlay = false
             exitTransition = null
@@ -55,7 +56,7 @@ object Motion {
             return
         }
         val options = ActivityOptions.makeSceneTransitionAnimation(
-            activity, source, source.transitionName
+            activity, LegacyPageOrigin.anchorFor(activity, source), source.transitionName
         )
         activity.startActivity(intent, options.toBundle())
     }

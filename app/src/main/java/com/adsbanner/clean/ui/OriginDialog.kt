@@ -48,7 +48,6 @@ internal class OriginDialog private constructor(
 ) : AlertDialog(material.context, R.style.ThemeOverlay_AdsBanner_OriginDialog) {
     private val origin = WeakReference(source)
     private val originDescription = source?.contentDescription?.toString()
-    private val originAlpha = source?.alpha ?: 1f
     private val originBounds = Rect().also { source?.getGlobalVisibleRect(it) }
     private var originOffsetX = 0
     private var originOffsetY = 0
@@ -277,9 +276,6 @@ internal class OriginDialog private constructor(
             endContainerColor = if (forward) dialogColor else sourceColor
             scrimColor = this@OriginDialog.scrimColor
             addListener(object : TransitionListenerAdapter() {
-                override fun onTransitionStart(transition: Transition) {
-                    validOrigin()?.alpha = 0f
-                }
                 override fun onTransitionEnd(transition: Transition) {
                     restoreOrigin()
                     if (closing) finishDismiss() else {
@@ -346,7 +342,6 @@ internal class OriginDialog private constructor(
     private fun restoreOrigin() {
         validOrigin()?.let {
             clearOriginFeedback(it)
-            it.alpha = originAlpha
         }
     }
 
