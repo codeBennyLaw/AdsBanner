@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:scrollbars="vertical">
+    <RadioGroup
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+        <com.google.android.material.radiobutton.MaterialRadioButton
+            android:id="@+id/typeAll"
+            style="@style/Widget.AdsBanner.TypeOption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="全部类型" />
+        <com.google.android.material.radiobutton.MaterialRadioButton
+            android:id="@+id/typeSplash"
+            style="@style/Widget.AdsBanner.TypeOption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="开屏广告" />
+        <com.google.android.material.radiobutton.MaterialRadioButton
+            android:id="@+id/typeJump"
+            style="@style/Widget.AdsBanner.TypeOption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="误触跳转" />
+        <com.google.android.material.radiobutton.MaterialRadioButton
+            android:id="@+id/typePage"
+            style="@style/Widget.AdsBanner.TypeOption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="页面内广告" />
+    </RadioGroup>
+</ScrollView>
