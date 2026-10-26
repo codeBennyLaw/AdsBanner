@@ -44,7 +44,6 @@ internal class PageOriginMotion(
     private val page = activity.findViewById<ViewGroup>(R.id.root)
     private val origin = pendingOrigin.takeIf { it?.get()?.transitionName == stage.transitionName }
     private val background = activity.getColor(R.color.bg)
-    private val originalAlpha = origin?.get()?.alpha ?: 1f
     private var returning = false
     private var entering = true
     private var closed = false
@@ -139,7 +138,6 @@ internal class PageOriginMotion(
             // Keep the final card covering the child window until the home card has drawn.
             isHoldAtEndEnabled = !forward
             addListener(object : TransitionListenerAdapter() {
-                override fun onTransitionStart(transition: Transition) { source()?.alpha = 0f }
                 override fun onTransitionEnd(transition: Transition) {
                     entering = false
                     if (returning) handOffToHome() else {
@@ -185,7 +183,6 @@ internal class PageOriginMotion(
     private fun restore() {
         clearHomeFrameWait()
         latestBackEvent = null
-        origin?.get()?.alpha = originalAlpha
         anchor.visibility = View.INVISIBLE
         // A committed return must leave the child window transparent until it is removed.
         // Showing the full page here can expose one last stale frame over the home activity.
@@ -205,8 +202,7 @@ internal class PageOriginMotion(
     }
 
     private fun handOffToHome() {
-        source()?.alpha = originalAlpha
-        // Hold the transform until the restored card is in the home window's buffer.
+        // The source card stays visible. Hold until the home window's buffer is submitted.
         whenHomeFrameReady { finish() }
     }
 
