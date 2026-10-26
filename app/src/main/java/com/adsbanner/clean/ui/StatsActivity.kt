@@ -101,9 +101,15 @@ class StatsActivity : AppCompatActivity() {
             heatDetail.visibility = View.VISIBLE
             heatDetail.text = "${date.year} 年 ${date.monthValue} 月 ${date.dayOfMonth} 日 · 拦截 $total 次"
         }
+        val listBottom = list.paddingBottom
+        val heatmapBottom = heatmapScroll.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            view.setPadding(bars.left, bars.top, bars.right, 0)
+            // Keep the viewport edge-to-edge; only the final scroll position avoids the bar.
+            list.setPadding(list.paddingLeft, list.paddingTop, list.paddingRight, listBottom + bars.bottom)
+            heatmapScroll.setPadding(heatmapScroll.paddingLeft, heatmapScroll.paddingTop,
+                heatmapScroll.paddingRight, heatmapBottom + bars.bottom)
             insets
         }
         heatmapButton.setOnClickListener { toggleView() }

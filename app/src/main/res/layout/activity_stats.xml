@@ -54,6 +54,7 @@
             android:id="@+id/heatmapScroll"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:clipToPadding="false"
             android:fillViewport="true"
             android:scrollbars="none"
             android:visibility="gone">
