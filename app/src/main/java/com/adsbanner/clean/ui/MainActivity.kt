@@ -271,14 +271,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 沉浸的关键：内边距加在内容容器上，而不是加在 ScrollView 上。
-     * 前者让内容滚动时可以滑到状态栏下方，系统栏区域始终由页面背景铺满；
-     * 后者会把整块内容永远压到状态栏以下，看着就像没有沉浸。
+     * 视口铺满窗口，系统栏避让放在滚动内容末尾，避免底部出现固定裁切带。
+     * 使用稳定的系统栏尺寸，返回预览临时隐藏导航栏时不重新排版。
      */
     private fun applyInsets() {
         val root = findViewById<View>(R.id.root)
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val bars = insets.getInsets(
+            val bars = insets.getInsetsIgnoringVisibility(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
             content.setPadding(

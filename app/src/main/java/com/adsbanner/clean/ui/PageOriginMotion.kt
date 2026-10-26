@@ -20,7 +20,6 @@ import androidx.annotation.RequiresApi
 import androidx.activity.BackEventCompat
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.graphics.withScale
-import androidx.core.view.doOnPreDraw
 import androidx.core.view.descendants
 import androidx.recyclerview.widget.RecyclerView
 import androidx.transition.Transition
@@ -45,13 +44,13 @@ internal class PageOriginMotion(
     private val page = activity.findViewById<ViewGroup>(R.id.root)
     private val origin = pendingOrigin.takeIf { it?.get()?.transitionName == stage.transitionName }
     private val background = activity.getColor(R.color.bg)
-    private val originalAlpha = origin?.get()?.alpha ?: 1f
     private var returning = false
     private var entering = true
     private var closed = false
     private var previewing = false
     private var translucent = false
     private var homeReady = false
+    private var returningFromGesture = false
     private var latestBackEvent: BackEventCompat? = null
     private var revealedHome: WeakReference<Activity>? = null
     private var homeWindowAnimations = 0
@@ -62,7 +61,7 @@ internal class PageOriginMotion(
     private var homeFrameCallback: Runnable? = null
     private var returnRadius = 0f
     private val anchor = object : View(activity) {
-        override fun onDraw(canvas: Canvas) { source()?.draw(canvas) }
+        override fun onDraw(canvas: Canvas) { if (!returning) source()?.draw(canvas) }
     }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = View.INVISIBLE }
 
     init {
@@ -71,9 +70,17 @@ internal class PageOriginMotion(
         if (!restored && animated() && placeAnchor() && revealHome()) {
             page.visibility = View.INVISIBLE
             anchor.visibility = View.VISIBLE
-            stage.doOnPreDraw {
-                if (entering && !closed && !returning && !previewing && !activity.isFinishing) morph(forward = true)
-            }
+            stage.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    stage.viewTreeObserver.removeOnPreDrawListener(this)
+                    if (!entering || closed || returning || previewing || activity.isFinishing) return true
+                    // Record only after layout, then let the transform capture its end state
+                    // on the next pre-draw. Never submit the full-size snapshot in between.
+                    capturePagePose()
+                    morph(forward = true)
+                    return false
+                }
+            })
         } else {
             entering = false
             work.completeImmediately()
@@ -108,31 +115,29 @@ internal class PageOriginMotion(
         val transition = MaterialContainerTransform().apply {
             drawingViewId = android.R.id.content
             startView = if (forward) anchor else returnPose ?: page
-            endView = if (forward) page else anchor
-            addTarget(if (forward) page else anchor)
+            endView = if (forward) returnPose ?: page else anchor
+            addTarget(if (forward) returnPose ?: page else anchor)
             startShapeAppearanceModel = if (forward) cardShape else
                 ShapeAppearanceModel.builder().setAllCornerSizes(returnRadius).build()
             endShapeAppearanceModel = if (forward) pageShape else cardShape
             startContainerColor = if (forward) color else background
-            endContainerColor = if (forward) background else color
+            endContainerColor = if (forward) background else Color.TRANSPARENT
             scrimColor = Color.TRANSPARENT
-            duration = 320L
-            fadeMode = if (forward) MaterialContainerTransform.FADE_MODE_THROUGH
-                else MaterialContainerTransform.FADE_MODE_CROSS
-            if (!forward) {
-                // Keep the page legible while it travels, then blend into the destination.
-                // Spreading the mask and corners over the whole trip avoids a cropped jump.
-                interpolator = PathInterpolator(0.4f, 0f, 0.4f, 1f)
-                fadeProgressThresholds = MaterialContainerTransform.ProgressThresholds(0.55f, 0.95f)
-                scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-                shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            }
+            duration = if (!forward && returningFromGesture) 280L else 320L
+            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
+            // A released gesture is already moving: continue immediately and decelerate.
+            // A tap starts at rest. Both routes settle into exactly the same card geometry.
+            interpolator = if (!forward && returningFromGesture) PathInterpolator(0.2f, 0.6f, 0.2f, 1f)
+                else PathInterpolator(0.2f, 0f, 0f, 1f)
+            fadeProgressThresholds = if (forward) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
+                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
+            scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
+            shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
                 else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
             // Keep the final card covering the child window until the home card has drawn.
             isHoldAtEndEnabled = !forward
             addListener(object : TransitionListenerAdapter() {
-                override fun onTransitionStart(transition: Transition) { source()?.alpha = 0f }
                 override fun onTransitionEnd(transition: Transition) {
                     entering = false
                     if (returning) handOffToHome() else {
@@ -144,9 +149,9 @@ internal class PageOriginMotion(
         }
         if (forward) work.beginEnter()
         TransitionManager.beginDelayedTransition(stage, transition)
-        returnPose?.visibility = View.INVISIBLE
+        returnPose?.visibility = if (forward) View.VISIBLE else View.INVISIBLE
         anchor.visibility = if (forward) View.INVISIBLE else View.VISIBLE
-        page.visibility = if (forward) View.VISIBLE else View.INVISIBLE
+        page.visibility = if (forward && returnPose == null) View.VISIBLE else View.INVISIBLE
     }
 
     fun returnToOrigin() {
@@ -157,6 +162,7 @@ internal class PageOriginMotion(
             return
         }
         returning = true
+        returningFromGesture = previewing
         previewing = false
         backMotion.freeze()
         if (!animated() || page.width == 0 || page.height == 0 || !placeAnchor() || !revealHome()) {
@@ -164,7 +170,7 @@ internal class PageOriginMotion(
             return
         }
         fun startReturn() {
-            captureReturnPose()
+            capturePagePose()
             // The pose is already placed. Prepare the overlay before the next draw.
             morph(forward = false)
         }
@@ -177,7 +183,6 @@ internal class PageOriginMotion(
     private fun restore() {
         clearHomeFrameWait()
         latestBackEvent = null
-        origin?.get()?.alpha = originalAlpha
         anchor.visibility = View.INVISIBLE
         // A committed return must leave the child window transparent until it is removed.
         // Showing the full page here can expose one last stale frame over the home activity.
@@ -197,8 +202,7 @@ internal class PageOriginMotion(
     }
 
     private fun handOffToHome() {
-        source()?.alpha = originalAlpha
-        // Hold the transform until the restored card is in the home window's buffer.
+        // The source card stays visible. Hold until the home window's buffer is submitted.
         whenHomeFrameReady { finish() }
     }
 
@@ -324,14 +328,14 @@ internal class PageOriginMotion(
 
     /** Material's bounds capture ignores scale. Hand it a live view at the exact gesture pose. */
     @SuppressLint("RtlHardcoded")
-    private fun captureReturnPose() {
+    private fun capturePagePose() {
         val bounds = RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
         page.matrix.mapRect(bounds)
         bounds.offset(page.left.toFloat(), page.top.toFloat())
         returnRadius = backMotion.cornerRadius
         // Record the settled page once. Replaying its display list avoids traversing the
         // entire RecyclerView hierarchy for every frame of the container transform.
-        val node = RenderNode("AdsBanner page return").apply { setPosition(0, 0, page.width, page.height) }
+        val node = RenderNode("AdsBanner page morph").apply { setPosition(0, 0, page.width, page.height) }
         val recording = node.beginRecording()
         try { page.draw(recording) } finally { node.endRecording() }
         returnNode = node

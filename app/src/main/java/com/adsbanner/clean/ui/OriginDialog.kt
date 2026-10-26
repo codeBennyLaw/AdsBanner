@@ -1,6 +1,7 @@
 package com.adsbanner.clean.ui
 
 import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.content.res.Configuration
 import android.graphics.Canvas
@@ -14,6 +15,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.WindowManager
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -22,6 +24,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.descendants
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.RecyclerView
@@ -31,6 +34,7 @@ import androidx.transition.TransitionManager
 import com.adsbanner.clean.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.transition.MaterialContainerTransform
@@ -44,7 +48,6 @@ internal class OriginDialog private constructor(
 ) : AlertDialog(material.context, R.style.ThemeOverlay_AdsBanner_OriginDialog) {
     private val origin = WeakReference(source)
     private val originDescription = source?.contentDescription?.toString()
-    private val originAlpha = source?.alpha ?: 1f
     private val originBounds = Rect().also { source?.getGlobalVisibleRect(it) }
     private var originOffsetX = 0
     private var originOffsetY = 0
@@ -53,10 +56,14 @@ internal class OriginDialog private constructor(
     private lateinit var anchor: View
     private lateinit var scrim: View
     private var work: PageTransitionWork? = null
+    private var returnMotion: PopupReturnMotion? = null
     private var entering = true
     private var closing = false
     private var finished = false
     private var actionTaken = false
+    private var dropdown = false
+    private val dropdownInsets = Rect()
+    private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
     var onClosing: (() -> Unit)? = null
     private val frozen = mutableListOf<RecyclerView>()
     private val activityObserver = object : DefaultLifecycleObserver {
@@ -78,17 +85,19 @@ internal class OriginDialog private constructor(
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         scrim = View(context).apply {
-            setBackgroundColor(0x52000000)
+            setBackgroundColor(scrimColor)
             alpha = 0f
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         stage.addView(scrim, FrameLayout.LayoutParams(-1, -1))
-        panel.background = material.background
+        panel.background = if (dropdown) ContextCompat.getDrawable(context, R.drawable.bg_popup) else material.background
         panel.clipToOutline = true
         panel.isClickable = true
         stage.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         anchor = object : View(context) {
             override fun onDraw(canvas: Canvas) {
+                // Only opening samples the entry. Closing retracts the existing popup instead.
+                if (closing) return
                 canvas.save()
                 canvas.translate(-originOffsetX.toFloat(), -originOffsetY.toFloat())
                 validOrigin()?.draw(canvas)
@@ -103,12 +112,23 @@ internal class OriginDialog private constructor(
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         ViewCompat.setOnApplyWindowInsetsListener(stage) { _, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            panel.layoutParams = (panel.layoutParams as FrameLayout.LayoutParams).apply {
-                leftMargin = bars.left + dp(24)
-                topMargin = bars.top + dp(24)
-                rightMargin = bars.right + dp(24)
-                bottomMargin = bars.bottom + dp(24)
+            val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            if (dropdown) {
+                val gap = dp(12)
+                dropdownInsets.set(bars.left + gap, bars.top + gap, bars.right + gap, bars.bottom + gap)
+                positionDropdown()
+                return@setOnApplyWindowInsetsListener insets
+            }
+            val params = panel.layoutParams as FrameLayout.LayoutParams
+            val gap = dp(24)
+            if (params.leftMargin != bars.left + gap || params.topMargin != bars.top + gap ||
+                params.rightMargin != bars.right + gap || params.bottomMargin != bars.bottom + gap) {
+                panel.layoutParams = params.apply {
+                    leftMargin = bars.left + gap
+                    topMargin = bars.top + gap
+                    rightMargin = bars.right + gap
+                    bottomMargin = bars.bottom + gap
+                }
             }
             insets
         }
@@ -118,6 +138,10 @@ internal class OriginDialog private constructor(
             isAppearanceLightNavigationBars = !night
         }
         stage.addOnLayoutChangeListener { _, left, _, right, _, _, _, _, _ ->
+            if (dropdown) {
+                positionDropdown()
+                return@addOnLayoutChangeListener
+            }
             val params = panel.layoutParams as FrameLayout.LayoutParams
             val width = (right - left - params.leftMargin - params.rightMargin).coerceAtMost(dp(560))
             if (width > 0 && panel.layoutParams.width != width) {
@@ -137,7 +161,7 @@ internal class OriginDialog private constructor(
                     work?.completeImmediately()
                     return true
                 }
-                startTransform(forward = true)
+                startEnterTransform()
                 // Capture the final state on the next pre-draw, before displaying any dialog frame.
                 return false
             }
@@ -158,6 +182,43 @@ internal class OriginDialog private constructor(
         it.isAttachedToWindow && it.isShown && it.contentDescription?.toString() == originDescription
     }
 
+    /** Keep a compact menu next to its button, flipping above it when space is limited. */
+    @SuppressLint("RtlHardcoded") // Bounds and margins are physical screen coordinates.
+    private fun positionDropdown() {
+        val source = validOrigin() ?: return
+        if (stage.width == 0 || stage.height == 0 || closing) return
+        val bounds = Rect()
+        if (!source.getGlobalVisibleRect(bounds)) return
+        val location = IntArray(2)
+        stage.getLocationOnScreen(location)
+        bounds.offset(-location[0], -location[1])
+        val availableWidth = stage.width - dropdownInsets.left - dropdownInsets.right
+        if (availableWidth <= 0) return
+        val width = source.width.coerceAtLeast(dp(200)).coerceAtMost(dp(320)).coerceAtMost(availableWidth)
+        val below = (stage.height - dropdownInsets.bottom - bounds.bottom - dp(4)).coerceAtLeast(0)
+        val above = (bounds.top - dropdownInsets.top - dp(4)).coerceAtLeast(0)
+        val availableHeight = maxOf(below, above)
+        if (availableHeight == 0) return
+        panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(availableHeight, View.MeasureSpec.AT_MOST))
+        val height = panel.measuredHeight.coerceAtMost(availableHeight)
+        val left = (if (source.layoutDirection == View.LAYOUT_DIRECTION_RTL) bounds.right - width else bounds.left)
+            .coerceIn(dropdownInsets.left, stage.width - dropdownInsets.right - width)
+        val top = if (height <= below) bounds.bottom + dp(4) else bounds.top - dp(4) - height
+        val params = panel.layoutParams as FrameLayout.LayoutParams
+        if (params.width != width || params.height != height || params.leftMargin != left || params.topMargin != top) {
+            panel.layoutParams = params.apply {
+                gravity = Gravity.TOP or Gravity.LEFT
+                this.width = width
+                this.height = height
+                leftMargin = left
+                topMargin = top
+                rightMargin = stage.width - left - width
+                bottomMargin = stage.height - top - height
+            }
+        }
+    }
+
     private fun placeAnchor(): Boolean {
         val source = validOrigin()
         if (source != null) {
@@ -165,51 +226,56 @@ internal class OriginDialog private constructor(
             source.getGlobalVisibleRect(originBounds)
             val location = IntArray(2)
             source.getLocationOnScreen(location)
+            if (dropdown && source is MaterialButton && !originBounds.intersect(
+                    location[0], location[1] + source.insetTop,
+                    location[0] + source.width, location[1] + source.height - source.insetBottom)) {
+                originBounds.setEmpty()
+            }
             originOffsetX = originBounds.left - location[0]
             originOffsetY = originBounds.top - location[1]
         }
         if (originBounds.isEmpty) return false
+        val destination = originBounds
         val location = IntArray(2)
         stage.getLocationOnScreen(location)
-        anchor.layoutParams = FrameLayout.LayoutParams(originBounds.width(), originBounds.height()).apply {
+        anchor.layoutParams = FrameLayout.LayoutParams(destination.width(), destination.height()).apply {
             gravity = Gravity.TOP or Gravity.LEFT // Screen coordinates, independent of layout direction.
-            leftMargin = originBounds.left - location[0]
-            topMargin = originBounds.top - location[1]
+            leftMargin = destination.left - location[0]
+            topMargin = destination.top - location[1]
         }
         // Immediate geometry is needed for transition capture; no per-frame layout changes.
-        anchor.measure(View.MeasureSpec.makeMeasureSpec(originBounds.width(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(originBounds.height(), View.MeasureSpec.EXACTLY))
-        anchor.layout(originBounds.left - location[0], originBounds.top - location[1],
-            originBounds.right - location[0], originBounds.bottom - location[1])
+        anchor.measure(View.MeasureSpec.makeMeasureSpec(destination.width(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(destination.height(), View.MeasureSpec.EXACTLY))
+        anchor.layout(destination.left - location[0], destination.top - location[1],
+            destination.right - location[0], destination.bottom - location[1])
         return true
     }
 
-    private fun startTransform(forward: Boolean) {
-        val rounded = ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
-        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(28).toFloat()).build()
+    private fun startEnterTransform() {
+        val rounded = (validOrigin() as? MaterialButton)?.takeIf { dropdown }?.shapeAppearanceModel
+            ?: ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
+        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(if (dropdown) 20 else 28).toFloat()).build()
         val sourceColor = originContainerColor()
         val dialogColor = context.getColor(R.color.surface)
         val transition = MaterialContainerTransform().apply {
             drawingViewId = stage.id
-            startView = if (forward) anchor else panel
-            endView = if (forward) panel else anchor
-            addTarget(if (forward) panel else anchor)
-            startShapeAppearanceModel = if (forward) rounded else dialogShape
-            endShapeAppearanceModel = if (forward) dialogShape else rounded
-            duration = if (forward) 280L else 220L
-            transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
-                else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
-            fadeMode = MaterialContainerTransform.FADE_MODE_THROUGH
-            // Transparent entry buttons belong to their parent's surface. Painting the dialog
-            // color underneath them creates a bright plate at both ends of the transform.
+            startView = anchor
+            endView = panel
+            addTarget(panel)
+            startShapeAppearanceModel = rounded
+            endShapeAppearanceModel = dialogShape
+            duration = 280L
+            transitionDirection = MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
+            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
+            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+            fadeProgressThresholds = MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
+            scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
+            shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             containerColor = sourceColor
-            startContainerColor = if (forward) sourceColor else dialogColor
-            endContainerColor = if (forward) dialogColor else sourceColor
-            scrimColor = 0x52000000
+            startContainerColor = sourceColor
+            endContainerColor = dialogColor
+            scrimColor = this@OriginDialog.scrimColor
             addListener(object : TransitionListenerAdapter() {
-                override fun onTransitionStart(transition: Transition) {
-                    validOrigin()?.alpha = 0f
-                }
                 override fun onTransitionEnd(transition: Transition) {
                     restoreOrigin()
                     if (closing) finishDismiss() else {
@@ -220,13 +286,13 @@ internal class OriginDialog private constructor(
                 }
             })
         }
-        if (forward) work?.beginEnter()
-        anchor.visibility = if (forward) View.VISIBLE else View.INVISIBLE
-        panel.visibility = if (forward) View.INVISIBLE else View.VISIBLE
+        work?.beginEnter()
+        anchor.visibility = View.VISIBLE
+        panel.visibility = View.INVISIBLE
         TransitionManager.beginDelayedTransition(stage, transition)
         scrim.alpha = 0f
-        anchor.visibility = if (forward) View.INVISIBLE else View.VISIBLE
-        panel.visibility = if (forward) View.VISIBLE else View.INVISIBLE
+        anchor.visibility = View.INVISIBLE
+        panel.visibility = View.VISIBLE
     }
 
     private fun originContainerColor(): Int {
@@ -236,6 +302,8 @@ internal class OriginDialog private constructor(
             val color = when {
                 view is MaterialCardView -> view.cardBackgroundColor.getColorForState(view.drawableState,
                     view.cardBackgroundColor.defaultColor)
+                view is MaterialButton -> view.backgroundTintList?.getColorForState(view.drawableState,
+                    view.backgroundTintList?.defaultColor ?: Color.TRANSPARENT)
                 background is ColorDrawable -> background.color
                 background is MaterialShapeDrawable -> background.fillColor?.getColorForState(view.drawableState,
                     background.fillColor?.defaultColor ?: Color.TRANSPARENT)
@@ -268,13 +336,16 @@ internal class OriginDialog private constructor(
         if (entering) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
-        } else if (placeAnchor()) startTransform(forward = false) else finishDismiss()
+        } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
+            val motion = PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)
+            returnMotion = motion
+            motion.start()
+        } else finishDismiss()
     }
 
     private fun restoreOrigin() {
         validOrigin()?.let {
             clearOriginFeedback(it)
-            it.alpha = originAlpha
         }
     }
 
@@ -289,6 +360,8 @@ internal class OriginDialog private constructor(
     private fun finishDismiss() {
         if (finished) return
         finished = true
+        returnMotion?.cancel()
+        returnMotion = null
         if (!closing) { closing = true; onClosing?.invoke() }
         work?.close()
         if (::stage.isInitialized) TransitionManager.endTransitions(stage)
@@ -308,6 +381,7 @@ internal class OriginDialog private constructor(
 
     class Builder(activity: AppCompatActivity, source: View?) {
         private val dialog = OriginDialog(activity, source, MaterialAlertDialogBuilder(activity))
+        fun asDropdown() = apply { dialog.dropdown = true }
         fun setTitle(title: CharSequence) = apply { dialog.setTitle(title) }
         fun setMessage(message: CharSequence) = apply { dialog.setMessage(message) }
         fun setView(view: View) = apply { dialog.setView(view) }

@@ -12,6 +12,7 @@ import android.transition.TransitionListenerAdapter
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.PathInterpolator
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.BackEventCompat
 import androidx.appcompat.app.AppCompatActivity
@@ -38,7 +39,8 @@ object Motion {
     fun prepareHome(activity: Activity) {
         bindPressFeedback(activity.findViewById(R.id.cardStats))
         bindPressFeedback(activity.findViewById(R.id.cardTargets))
-        activity.setExitSharedElementCallback(MaterialContainerTransformSharedElementCallback())
+        activity.setExitSharedElementCallback(if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+            LegacyPageOrigin.callback(activity) else MaterialContainerTransformSharedElementCallback())
         activity.window.apply {
             sharedElementsUseOverlay = false
             exitTransition = null
@@ -54,7 +56,7 @@ object Motion {
             return
         }
         val options = ActivityOptions.makeSceneTransitionAnimation(
-            activity, source, source.transitionName
+            activity, LegacyPageOrigin.begin(activity, source), source.transitionName
         )
         activity.startActivity(intent, options.toBundle())
     }
@@ -75,10 +77,15 @@ object Motion {
         fun transform(entering: Boolean) = MaterialContainerTransform().apply {
             addTarget(android.R.id.content)
             duration = if (!enabled) 0L else if (entering) PAGE_ENTER_MS else PAGE_RETURN_MS
-            fadeMode = MaterialContainerTransform.FADE_MODE_THROUGH
-            containerColor = background
+            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
+            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+            fadeProgressThresholds = if (entering) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
+                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
+            scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
+            shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
+            containerColor = if (entering) background else Color.TRANSPARENT
             startContainerColor = if (entering) origin else background
-            endContainerColor = if (entering) background else origin
+            endContainerColor = if (entering) background else Color.TRANSPARENT
             scrimColor = Color.TRANSPARENT
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
