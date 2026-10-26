@@ -74,7 +74,8 @@ internal class TargetAppAdapter(
 
 internal data class StatAppRow @JvmOverloads constructor(
     val pkg: String, val name: String, val detail: String, val recent: String, val count: Int,
-    val iconPackage: String = pkg
+    val iconPackage: String = pkg,
+    val lastAt: Long = 0L
 )
 
 internal class StatAppAdapter(private val icons: AppIconLoader) : ListAdapter<StatAppRow, StatAppAdapter.Holder>(

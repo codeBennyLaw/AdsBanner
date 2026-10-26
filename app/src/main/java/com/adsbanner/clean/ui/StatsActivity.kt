@@ -7,6 +7,7 @@ import android.widget.HorizontalScrollView
 import android.widget.TextView
 import android.widget.RadioButton
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -27,8 +28,9 @@ import java.util.Locale
 class StatsActivity : AppCompatActivity() {
     private enum class Range { TODAY, ALL }
     private enum class Type { ALL, SPLASH, JUMP, PAGE }
-    private data class RenderKey(val snapshot: StatsStore.Snapshot, val range: Range, val type: Type, val day: LocalDate)
-    private data class Rows(val key: RenderKey, val rows: List<StatAppRow>) {
+    private data class RowsKey(val snapshot: StatsStore.Snapshot, val range: Range, val type: Type, val day: LocalDate)
+    private data class RenderKey(val rows: RowsKey, val sort: StatsSort)
+    private data class Rows(val key: RowsKey, val rows: List<StatAppRow>) {
         val total = rows.sumOf { it.count }
     }
     private lateinit var list: RecyclerView
@@ -39,6 +41,9 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var caption: TextView
     private lateinit var empty: TextView
     private lateinit var typeButton: MaterialButton
+    private lateinit var sortButton: MaterialButton
+    private lateinit var sortDirectionButton: MaterialButton
+    private lateinit var sortCaption: TextView
     private lateinit var heatmapButton: MaterialButton
     private lateinit var heatmapScroll: View
     private lateinit var heatScroll: HorizontalScrollView
@@ -55,8 +60,10 @@ class StatsActivity : AppCompatActivity() {
     private var loadingType: Type? = null
     private var range = Range.TODAY
     private var type = Type.ALL
+    private var sort = StatsSort()
     private var heatmapVisible = false
     private var typeMenu: OriginDialog? = null
+    private var sortMenu: OriginDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,6 +77,10 @@ class StatsActivity : AppCompatActivity() {
         }
         range = Range.entries.getOrElse(savedInstanceState?.getInt("range") ?: 0) { Range.TODAY }
         type = Type.entries.getOrElse(savedInstanceState?.getInt("type") ?: 0) { Type.ALL }
+        sort = StatsSort(
+            StatsSort.Field.entries.getOrElse(savedInstanceState?.getInt("sortField") ?: 0) { StatsSort.Field.COUNT },
+            savedInstanceState?.getBoolean("sortDescending", true) ?: true
+        )
         heatmapVisible = savedInstanceState?.getBoolean("heatmap") ?: false
         list = findViewById(R.id.listScroll)
         list.layoutManager = LinearLayoutManager(this)
@@ -81,6 +92,10 @@ class StatsActivity : AppCompatActivity() {
         count.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         typeButton = header.findViewById(R.id.btnType)
         typeButton.text = typeLabel(type)
+        sortButton = header.findViewById(R.id.btnSort)
+        sortDirectionButton = header.findViewById(R.id.btnSortDirection)
+        sortCaption = header.findViewById(R.id.tvSortCaption)
+        updateSortControls()
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = StatAppAdapter(icons)
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
@@ -114,6 +129,12 @@ class StatsActivity : AppCompatActivity() {
         }
         heatmapButton.setOnClickListener { toggleView() }
         typeButton.setOnClickListener { showTypeMenu() }
+        sortButton.setOnClickListener { showSortMenu() }
+        sortDirectionButton.setOnClickListener {
+            sort = sort.copy(descending = !sort.descending)
+            updateSortControls()
+            render()
+        }
         val toggle = header.findViewById<StatsRangeSelector>(R.id.toggleTime)
         toggle.check(if (range == Range.TODAY) R.id.btnTimeToday else R.id.btnTimeAll)
         toggle.setOnCheckedChangeListener { _, id ->
@@ -175,6 +196,55 @@ class StatsActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    private fun showSortMenu() {
+        if (sortMenu?.isShowing == true) return
+        val content = layoutInflater.inflate(R.layout.dropdown_stats_sort, null)
+        val dialog = OriginDialog.Builder(this, sortButton).asDropdown().setView(content).create()
+        val choices = listOf(R.id.sortCount, R.id.sortTime).map { content.findViewById<RadioButton>(it) }
+        var selected = false
+        var closing = false
+        choices.forEachIndexed { index, choice ->
+            choice.isChecked = StatsSort.Field.entries[index] == sort.field
+            choice.setOnClickListener {
+                if (selected || closing) return@setOnClickListener
+                selected = true
+                sort = sort.copy(field = StatsSort.Field.entries[index])
+                updateSortControls()
+                dialog.dismiss()
+            }
+        }
+        dialog.onClosing = { closing = true }
+        dialog.setOnDismissListener {
+            if (sortMenu === dialog) {
+                sortMenu = null
+                ViewCompat.setStateDescription(sortButton, sortLabel(sort.field))
+            }
+            if (selected && !isFinishing && !isDestroyed) render()
+        }
+        sortMenu = dialog
+        ViewCompat.setAccessibilityPaneTitle(content, getString(R.string.stats_sort_field))
+        ViewCompat.setStateDescription(sortButton, getString(R.string.stats_sort_expanded, sortLabel(sort.field)))
+        dialog.show()
+    }
+
+    private fun updateSortControls() {
+        val field = sortLabel(sort.field)
+        val order = getString(if (sort.descending) R.string.stats_sort_descending else R.string.stats_sort_ascending)
+        val nextOrder = getString(if (sort.descending) R.string.stats_sort_ascending else R.string.stats_sort_descending)
+        sortButton.text = field
+        // Keep the anchor's identity stable when selecting another field during its return.
+        sortButton.contentDescription = getString(R.string.stats_sort_field)
+        ViewCompat.setStateDescription(sortButton, if (sortMenu?.isShowing == true)
+            getString(R.string.stats_sort_expanded, field) else field)
+        sortDirectionButton.setIconResource(if (sort.descending) R.drawable.ic_sort_descending else R.drawable.ic_sort_ascending)
+        ViewCompat.setStateDescription(sortDirectionButton, getString(R.string.stats_sort_state, field, order))
+        TooltipCompat.setTooltipText(sortDirectionButton, getString(R.string.stats_sort_switch_to, nextOrder))
+    }
+
+    private fun sortLabel(field: StatsSort.Field) = getString(
+        if (field == StatsSort.Field.COUNT) R.string.stats_sort_count else R.string.stats_sort_time
+    )
+
     private fun invalidateRows() {
         cachedRows.clear()
         cachedSnapshot = null
@@ -223,7 +293,7 @@ class StatsActivity : AppCompatActivity() {
         val calendar = Calendar.getInstance()
         val day = LocalDate.now()
         return Range.entries.map { requestedRange ->
-            val key = RenderKey(snapshot, requestedRange, requestedType, day)
+            val key = RowsKey(snapshot, requestedRange, requestedType, day)
             val rows = key.snapshot.apps.mapNotNull { stat ->
                 if (Thread.currentThread().isInterrupted) throw InterruptedException()
                 val today = requestedRange == Range.TODAY
@@ -247,21 +317,26 @@ class StatsActivity : AppCompatActivity() {
                     }
                     val hostLabel = AppInfoHelper.label(applicationContext, stat.pkg)
                     StatAppRow(stat.key, if (stat.isHistoricalSource) stat.historicalLabel ?: "未命名的历史来源" else hostLabel,
-                        if (stat.isHistoricalSource) "$hostLabel · 历史记录\n$detail" else detail, recent, total, stat.pkg)
+                        if (stat.isHistoricalSource) "$hostLabel · 历史记录\n$detail" else detail, recent, total, stat.pkg, last)
                 }
-            }.sortedByDescending { it.count }
+            }
             Rows(key, rows)
         }
     }
 
     private fun showRows(data: Rows) {
-        if ((pendingKey ?: renderedKey) == data.key) return
-        pendingKey = data.key
+        val key = RenderKey(data.key, sort)
+        if ((pendingKey ?: renderedKey) == key) return
+        pendingKey = key
         // Even a return to the currently displayed range must supersede an in-flight diff.
-        adapter.submitList(data.rows) {
+        // Sorting reuses loaded labels and icons; it never rereads statistics or rebuilds rows.
+        adapter.submitList(sort.apply(data.rows)) {
             Motion.whenPageReady(this, summary) {
+                if (pendingKey != key) return@whenPageReady
                 pendingKey = null
-                renderedKey = data.key
+                renderedKey = key
+                sortCaption.text = getString(R.string.stats_sort_caption, sortLabel(key.sort.field),
+                    getString(if (key.sort.descending) R.string.stats_sort_descending else R.string.stats_sort_ascending))
                 showOverview(data.key.snapshot, data.key.range, data.key.type, data.total, data.rows.size)
             }
         }
@@ -323,6 +398,8 @@ class StatsActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("range", range.ordinal)
         outState.putInt("type", type.ordinal)
+        outState.putInt("sortField", sort.field.ordinal)
+        outState.putBoolean("sortDescending", sort.descending)
         outState.putBoolean("heatmap", heatmapVisible)
         super.onSaveInstanceState(outState)
     }
@@ -331,6 +408,8 @@ class StatsActivity : AppCompatActivity() {
         worker.close()
         typeMenu?.dismissImmediately()
         typeMenu = null
+        sortMenu?.dismissImmediately()
+        sortMenu = null
         icons.close()
         list.adapter = null
         super.onDestroy()

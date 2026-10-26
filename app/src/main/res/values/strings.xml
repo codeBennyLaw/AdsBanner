@@ -2,6 +2,17 @@
 <resources>
     <string name="app_name">AdsBanner</string>
     <string name="shortcut_stats_label">统计</string>
+    <string name="stats_sort_count">次数</string>
+    <string name="stats_sort_time">时间</string>
+    <string name="stats_sort_field">排序方式</string>
+    <string name="stats_sort_expanded">%1$s，已展开</string>
+    <string name="stats_sort_ascending">递增</string>
+    <string name="stats_sort_descending">递减</string>
+    <string name="stats_sort_toggle">切换排序方向</string>
+    <string name="stats_sort_switch_to">切换为%1$s</string>
+    <string name="stats_sort_state">%1$s%2$s</string>
+    <string name="stats_sort_caption">应用明细 · %1$s%2$s</string>
+    <string name="stats_sort_caption_default">应用明细 · 次数递减</string>
     <string name="transition_stats" translatable="false">adsbanner_stats_container</string>
     <string name="transition_targets" translatable="false">adsbanner_targets_container</string>
     <string name="app_slogan">开屏广告自动跳过 · 误触跳转即时拦截</string>
