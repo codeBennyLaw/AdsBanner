@@ -39,7 +39,6 @@ import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.transition.MaterialContainerTransform
 import java.lang.ref.WeakReference
-import kotlin.math.roundToInt
 
 /** Native alert content in a transparent stage, so its container can reach an external anchor. */
 internal class OriginDialog private constructor(
@@ -52,12 +51,12 @@ internal class OriginDialog private constructor(
     private val originBounds = Rect().also { source?.getGlobalVisibleRect(it) }
     private var originOffsetX = 0
     private var originOffsetY = 0
-    private var returnCornerRadius = 0f
     private lateinit var stage: FrameLayout
     private lateinit var panel: ViewGroup
     private lateinit var anchor: View
     private lateinit var scrim: View
     private var work: PageTransitionWork? = null
+    private var returnMotion: PopupReturnMotion? = null
     private var entering = true
     private var closing = false
     private var finished = false
@@ -97,7 +96,7 @@ internal class OriginDialog private constructor(
         stage.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         anchor = object : View(context) {
             override fun onDraw(canvas: Canvas) {
-                // On close this anchor supplies only the destination bounds, not a moving button.
+                // Only opening samples the entry. Closing retracts the existing popup instead.
                 if (closing) return
                 canvas.save()
                 canvas.translate(-originOffsetX.toFloat(), -originOffsetY.toFloat())
@@ -162,7 +161,7 @@ internal class OriginDialog private constructor(
                     work?.completeImmediately()
                     return true
                 }
-                startTransform(forward = true)
+                startEnterTransform()
                 // Capture the final state on the next pre-draw, before displaying any dialog frame.
                 return false
             }
@@ -236,19 +235,7 @@ internal class OriginDialog private constructor(
             originOffsetY = originBounds.top - location[1]
         }
         if (originBounds.isEmpty) return false
-        val destination = Rect(originBounds)
-        if (closing && panel.width > 0 && panel.height > 0) {
-            // Shrink the popup as a popup, centered on the stationary entry. Do not stretch
-            // its final frame into the button's aspect ratio or turn its text into a button.
-            val scale = minOf(originBounds.width().toFloat() / panel.width,
-                originBounds.height().toFloat() / panel.height, 1f)
-            val width = (panel.width * scale).roundToInt().coerceAtLeast(1)
-            val height = (panel.height * scale).roundToInt().coerceAtLeast(1)
-            val left = (originBounds.exactCenterX() - width / 2f).roundToInt()
-            val top = (originBounds.exactCenterY() - height / 2f).roundToInt()
-            destination.set(left, top, left + width, top + height)
-            returnCornerRadius = dp(if (dropdown) 20 else 28) * scale
-        }
+        val destination = originBounds
         val location = IntArray(2)
         stage.getLocationOnScreen(location)
         anchor.layoutParams = FrameLayout.LayoutParams(destination.width(), destination.height()).apply {
@@ -264,7 +251,7 @@ internal class OriginDialog private constructor(
         return true
     }
 
-    private fun startTransform(forward: Boolean) {
+    private fun startEnterTransform() {
         val rounded = (validOrigin() as? MaterialButton)?.takeIf { dropdown }?.shapeAppearanceModel
             ?: ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
         val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(if (dropdown) 20 else 28).toFloat()).build()
@@ -272,27 +259,21 @@ internal class OriginDialog private constructor(
         val dialogColor = context.getColor(R.color.surface)
         val transition = MaterialContainerTransform().apply {
             drawingViewId = stage.id
-            startView = if (forward) anchor else panel
-            endView = if (forward) panel else anchor
-            addTarget(if (forward) panel else anchor)
-            startShapeAppearanceModel = if (forward) rounded else dialogShape
-            endShapeAppearanceModel = if (forward) dialogShape else
-                ShapeAppearanceModel.builder().setAllCornerSizes(returnCornerRadius).build()
-            if (!forward) fitMode = MaterialContainerTransform.FIT_MODE_HEIGHT
-            duration = if (forward) 280L else 220L
-            transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
-                else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
+            startView = anchor
+            endView = panel
+            addTarget(panel)
+            startShapeAppearanceModel = rounded
+            endShapeAppearanceModel = dialogShape
+            duration = 280L
+            transitionDirection = MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
             fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
             interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
-            fadeProgressThresholds = if (forward) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
+            fadeProgressThresholds = MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
             scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            // Opening uses the entry's real surface. Closing paints only the outgoing popup;
-            // the destination contributes geometry without a replacement button or its color.
-            containerColor = if (forward) sourceColor else Color.TRANSPARENT
-            startContainerColor = if (forward) sourceColor else dialogColor
-            endContainerColor = if (forward) dialogColor else Color.TRANSPARENT
+            containerColor = sourceColor
+            startContainerColor = sourceColor
+            endContainerColor = dialogColor
             scrimColor = this@OriginDialog.scrimColor
             addListener(object : TransitionListenerAdapter() {
                 override fun onTransitionEnd(transition: Transition) {
@@ -305,13 +286,13 @@ internal class OriginDialog private constructor(
                 }
             })
         }
-        if (forward) work?.beginEnter()
-        anchor.visibility = if (forward) View.VISIBLE else View.INVISIBLE
-        panel.visibility = if (forward) View.INVISIBLE else View.VISIBLE
+        work?.beginEnter()
+        anchor.visibility = View.VISIBLE
+        panel.visibility = View.INVISIBLE
         TransitionManager.beginDelayedTransition(stage, transition)
         scrim.alpha = 0f
-        anchor.visibility = if (forward) View.INVISIBLE else View.VISIBLE
-        panel.visibility = if (forward) View.VISIBLE else View.INVISIBLE
+        anchor.visibility = View.INVISIBLE
+        panel.visibility = View.VISIBLE
     }
 
     private fun originContainerColor(): Int {
@@ -355,7 +336,11 @@ internal class OriginDialog private constructor(
         if (entering) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
-        } else if (placeAnchor()) startTransform(forward = false) else finishDismiss()
+        } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
+            val motion = PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)
+            returnMotion = motion
+            motion.start()
+        } else finishDismiss()
     }
 
     private fun restoreOrigin() {
@@ -375,6 +360,8 @@ internal class OriginDialog private constructor(
     private fun finishDismiss() {
         if (finished) return
         finished = true
+        returnMotion?.cancel()
+        returnMotion = null
         if (!closing) { closing = true; onClosing?.invoke() }
         work?.close()
         if (::stage.isInitialized) TransitionManager.endTransitions(stage)
