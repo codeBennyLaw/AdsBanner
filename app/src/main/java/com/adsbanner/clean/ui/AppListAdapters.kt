@@ -74,13 +74,16 @@ internal class TargetAppAdapter(
 
 internal data class StatAppRow @JvmOverloads constructor(
     val pkg: String, val name: String, val detail: String, val recent: String, val count: Int,
-    val iconPackage: String = pkg
+    val iconPackage: String = pkg,
+    val lastAt: Long = 0L
 )
 
 internal class StatAppAdapter(private val icons: AppIconLoader) : ListAdapter<StatAppRow, StatAppAdapter.Holder>(
     object : DiffUtil.ItemCallback<StatAppRow>() {
         override fun areItemsTheSame(old: StatAppRow, new: StatAppRow) = old.pkg == new.pkg
         override fun areContentsTheSame(old: StatAppRow, new: StatAppRow) = old == new
+        override fun getChangePayload(old: StatAppRow, new: StatAppRow): Any? =
+            if (old.name == new.name && old.iconPackage == new.iconPackage) Unit else null
     }
 ) {
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
@@ -89,6 +92,8 @@ internal class StatAppAdapter(private val icons: AppIconLoader) : ListAdapter<St
         val recent: TextView = view.findViewById(R.id.tvRecent)
         val count: TextView = view.findViewById(R.id.tvCount)
         val icon: ImageView = view.findViewById(R.id.ivIcon)
+        var boundRow: StatAppRow? = null
+        var valuesChanged = false
     }
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
         Holder(LayoutInflater.from(parent.context).inflate(R.layout.item_stat, parent, false))
@@ -96,11 +101,23 @@ internal class StatAppAdapter(private val icons: AppIconLoader) : ListAdapter<St
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val row = getItem(position)
         holder.name.text = row.name
+        icons.bind(holder.icon, row.iconPackage)
+        bindValues(holder, row)
+    }
+    override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isEmpty()) onBindViewHolder(holder, position) else bindValues(holder, getItem(position))
+    }
+    private fun bindValues(holder: Holder, row: StatAppRow) {
+        holder.valuesChanged = holder.boundRow?.let { it.pkg == row.pkg && it != row } == true
+        holder.boundRow = row
         holder.detail.text = row.detail
         holder.recent.text = row.recent
         holder.recent.visibility = if (row.recent.isEmpty()) View.GONE else View.VISIBLE
         holder.count.text = row.count.toString()
-        icons.bind(holder.icon, row.iconPackage)
     }
-    override fun onViewRecycled(holder: Holder) { icons.cancel(holder.icon) }
+    override fun onViewRecycled(holder: Holder) {
+        icons.cancel(holder.icon)
+        holder.boundRow = null
+        holder.valuesChanged = false
+    }
 }
