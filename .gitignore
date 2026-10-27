@@ -10,14 +10,12 @@ captures/
 local.properties
 
 # Android Studio / IntelliJ
-.idea/
+.idea
 *.iml
 *.iws
 *.ipr
-.navigation/
-out/
-.vscode/
-.opencode/
+.navigation
+out
 
 # 构建产物
 *.apk
@@ -43,5 +41,8 @@ signing.properties
 Thumbs.db
 
 # Kotlin / 编译缓存
-.kotlin/
+.kotlin
+
+
+.vscode
 .opencode
