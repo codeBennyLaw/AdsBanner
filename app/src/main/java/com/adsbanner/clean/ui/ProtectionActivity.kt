@@ -283,9 +283,9 @@ class ProtectionActivity : AppCompatActivity() {
             text = "选择已安装应用"; minHeight = dp(48)
         }
         form.addView(choose, LinearLayout.LayoutParams(-1, -2))
-        val activity = input(form, "页面前缀（可留空）", value(2, rule?.activityPrefix.orEmpty()), true)
+        val activity = input(form, "页面前缀（可选）", value(2, rule?.activityPrefix.orEmpty()), true)
         val viewId = input(form, "完整节点 ID", value(3, rule?.viewId.orEmpty()), true)
-        val text = input(form, "匹配文字（可留空）", value(4, rule?.text.orEmpty()))
+        val text = input(form, "匹配文字（可选）", value(4, rule?.text.orEmpty()))
         choose.setOnClickListener { pickApp(choose) { selected ->
             pkg.setText(selected)
             if (viewId.text.isNullOrBlank()) viewId.setText("$selected:id/")
