@@ -57,8 +57,13 @@ internal class PageOriginMotion(
     private val backMotion = BackProgressMotion(page)
     private var returnPose: View? = null
     private var returnNode: RenderNode? = null
-    private var homeBackdrop: View? = null
     private var homeBackdropNode: RenderNode? = null
+    private val homeBackdrop = object : View(activity) {
+        override fun onDraw(canvas: Canvas) {
+            val node = homeBackdropNode ?: return
+            if (canvas.isHardwareAccelerated && node.hasDisplayList()) canvas.drawRenderNode(node)
+        }
+    }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = View.INVISIBLE }
     private var homeFrameObserver: ViewTreeObserver? = null
     private var homeFrameCallback: Runnable? = null
     private var returnRadius = 0f
@@ -68,6 +73,7 @@ internal class PageOriginMotion(
 
     init {
         pendingOrigin = null
+        stage.addView(homeBackdrop, 0, ViewGroup.LayoutParams(-1, -1))
         stage.addView(anchor, ViewGroup.LayoutParams(1, 1))
         if (!restored && animated() && placeAnchor() && revealHome()) {
             page.visibility = View.INVISIBLE
@@ -176,7 +182,7 @@ internal class PageOriginMotion(
             // The pose is already placed. Prepare the overlay before the next draw.
             morph(forward = false)
         }
-        if (homeReady || homeBackdrop != null) startReturn() else whenHomeFrameReady {
+        if (homeReady || homeBackdropNode != null) startReturn() else whenHomeFrameReady {
             homeReady = true
             clearHomeBackdrop()
             startReturn()
@@ -278,7 +284,7 @@ internal class PageOriginMotion(
     fun progressBack(event: BackEventCompat) {
         if (previewing && !returning) {
             latestBackEvent = event
-            if (homeReady || homeBackdrop != null) backMotion.update(event)
+            if (homeReady || homeBackdropNode != null) backMotion.update(event)
         }
     }
 
@@ -336,7 +342,7 @@ internal class PageOriginMotion(
 
     /** A short-lived display list bridges the parent's first buffer, so input needn't wait for it. */
     private fun prepareHomeBackdrop() {
-        if (homeReady || homeBackdrop != null) return
+        if (homeReady || homeBackdropNode != null) return
         val decor = sourceActivity()?.window?.decorView ?: return
         if (!decor.isAttachedToWindow || !decor.isHardwareAccelerated || decor.width <= 0 || decor.height <= 0) return
         source()?.takeUnless { it.isPressed }?.jumpDrawablesToCurrentState()
@@ -349,22 +355,12 @@ internal class PageOriginMotion(
             decor.draw(recording)
         } finally { node.endRecording() }
         homeBackdropNode = node
-        homeBackdrop = object : View(activity) {
-            override fun onDraw(canvas: Canvas) {
-                if (canvas.isHardwareAccelerated && node.hasDisplayList()) canvas.drawRenderNode(node)
-            }
-        }.apply {
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            stage.addView(this, 0, ViewGroup.LayoutParams(-1, -1))
-            measure(View.MeasureSpec.makeMeasureSpec(stage.width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(stage.height, View.MeasureSpec.EXACTLY))
-            layout(0, 0, stage.width, stage.height)
-        }
+        homeBackdrop.visibility = View.VISIBLE
+        homeBackdrop.invalidate()
     }
 
     private fun clearHomeBackdrop() {
-        homeBackdrop?.let(stage::removeView)
-        homeBackdrop = null
+        homeBackdrop.visibility = View.INVISIBLE
         homeBackdropNode?.discardDisplayList()
         homeBackdropNode = null
     }
@@ -423,6 +419,7 @@ internal class PageOriginMotion(
         restore()
         stage.overlay.clear()
         stage.removeView(anchor)
+        stage.removeView(homeBackdrop)
     }
 
     companion object {

@@ -3,7 +3,6 @@ package com.adsbanner.clean.ui
 import android.graphics.Canvas
 import android.graphics.Outline
 import android.graphics.RenderNode
-import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -26,11 +25,22 @@ internal class PopupRenderSurface private constructor(
 
     companion object {
         fun capture(panel: View): PopupRenderSurface? {
-            if (Build.VERSION.SDK_INT < 29 || !panel.isHardwareAccelerated || panel.width <= 0 || panel.height <= 0) return null
+            if (!panel.isHardwareAccelerated || panel.width <= 0 || panel.height <= 0) return null
             val parent = panel.parent as? ViewGroup ?: return null
             val node = RenderNode("AdsBanner popup return").apply { setPosition(0, 0, panel.width, panel.height) }
             val recording = node.beginRecording()
-            try { panel.draw(recording) } finally { node.endRecording() }
+            val background = panel.background
+            val backgroundAlpha = background?.alpha
+            try {
+                // View.draw may reference the view's mutable background RenderNode, which is
+                // cleared when the real panel is hidden. Record that drawable independently.
+                background?.draw(recording)
+                background?.alpha = 0
+                panel.draw(recording)
+            } finally {
+                if (backgroundAlpha != null) background?.alpha = backgroundAlpha
+                node.endRecording()
+            }
             val shape = Outline().also { panel.outlineProvider?.getOutline(panel, it) }
             val surface = object : View(panel.context) {
                 override fun onDraw(canvas: Canvas) {
