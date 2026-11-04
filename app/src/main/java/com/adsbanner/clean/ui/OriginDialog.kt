@@ -111,23 +111,25 @@ internal class OriginDialog private constructor(
         window.setWindowAnimations(0)
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         ViewCompat.setOnApplyWindowInsetsListener(stage) { _, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val bottom = maxOf(bars.bottom, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
             if (dropdown) {
                 val gap = dp(12)
-                dropdownInsets.set(bars.left + gap, bars.top + gap, bars.right + gap, bars.bottom + gap)
+                dropdownInsets.set(bars.left + gap, bars.top + gap, bars.right + gap, bottom + gap)
                 positionDropdown()
                 return@setOnApplyWindowInsetsListener insets
             }
             val params = panel.layoutParams as FrameLayout.LayoutParams
             val gap = dp(24)
             if (params.leftMargin != bars.left + gap || params.topMargin != bars.top + gap ||
-                params.rightMargin != bars.right + gap || params.bottomMargin != bars.bottom + gap) {
+                params.rightMargin != bars.right + gap || params.bottomMargin != bottom + gap) {
                 panel.layoutParams = params.apply {
                     leftMargin = bars.left + gap
                     topMargin = bars.top + gap
                     rightMargin = bars.right + gap
-                    bottomMargin = bars.bottom + gap
+                    bottomMargin = bottom + gap
                 }
             }
             insets
