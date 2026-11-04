@@ -68,7 +68,7 @@ internal class LegacyPageOrigin private constructor(private val source: View) : 
             override fun onMapSharedElements(names: MutableList<String>, sharedElements: MutableMap<String, View>) {
                 names.forEach { name ->
                     val source = sharedElements[name] ?: return@forEach
-                    if (source is LegacyPageOrigin || source.id == R.id.cardStats || source.id == R.id.cardTargets) {
+                    if (source is LegacyPageOrigin || source.transitionName != null) {
                         sharedElements[name] = anchorFor(activity, source)
                     }
                 }

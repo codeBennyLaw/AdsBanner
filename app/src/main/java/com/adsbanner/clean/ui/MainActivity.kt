@@ -26,6 +26,7 @@ import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AccessibilityHelper
 import com.adsbanner.clean.core.AppForeground
 import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.core.StatsStore
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var binding = false
     private var openingPage = false
     private var releaseNotesDialog: Dialog? = null
+    private val protectionChanged: () -> Unit = { if (!isFinishing && !isDestroyed) refresh() }
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -90,10 +92,12 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         openingPage = false
         AppForeground.visible = true
+        ProtectionStore.addPolicyListener(protectionChanged)
         refresh()
     }
 
     override fun onPause() {
+        ProtectionStore.removePolicyListener(protectionChanged)
         AppForeground.visible = false
         super.onPause()
     }
@@ -294,7 +298,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupClicks() {
         findViewById<View>(R.id.btnService).setOnClickListener {
-            AccessibilityHelper.openAccessibilitySettings(this)
+            if (ProtectionStore.paused && AccessibilityHelper.isServiceEnabled(this)) ProtectionStore.resume()
+            else AccessibilityHelper.openAccessibilitySettings(this)
         }
         findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener { card ->
             if (openingPage) return@setOnClickListener
@@ -305,6 +310,11 @@ class MainActivity : AppCompatActivity() {
             if (openingPage) return@setOnClickListener
             openingPage = true
             Motion.openPage(this, card, TargetListActivity::class.java)
+        }
+        findViewById<View>(R.id.cardProtection).setOnClickListener { card ->
+            if (openingPage) return@setOnClickListener
+            openingPage = true
+            Motion.openPage(this, card, ProtectionActivity::class.java)
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }
@@ -393,13 +403,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun refresh() {
         val enabled = AccessibilityHelper.isServiceEnabled(this)
-        statusDot.setBackgroundResource(if (enabled) R.drawable.dot_on else R.drawable.dot_off)
-        tvServiceState.text = if (enabled) "无障碍服务运行中" else "无障碍服务未开启"
+        val paused = ProtectionStore.paused
+        statusDot.setBackgroundResource(if (enabled && !paused) R.drawable.dot_on else R.drawable.dot_off)
+        tvServiceState.text = if (!enabled) "无障碍服务未开启" else if (paused) "保护已暂停" else "无障碍服务运行中"
         tvServiceState.setTextColor(
             ContextCompat.getColor(this, if (enabled) R.color.text_primary else R.color.danger)
         )
         tvServiceHint.text =
-            if (enabled) "AdsBanner 已可以拦截广告" else "未开启时无法拦截，点击右侧去开启"
+            if (!enabled) "未开启时无法拦截，点击右侧去开启" else if (paused) "到期自动恢复，也可点击右侧提前恢复" else "AdsBanner 已可以拦截广告"
+        findViewById<TextView>(R.id.btnService).text = if (!enabled) "去开启" else if (paused) "恢复" else "设置"
+        findViewById<TextView>(R.id.tvProtectionSummary).text = if (paused) "临时暂停中 · 点击管理" else
+            "例外 ${ProtectionStore.exclusions.size} 个应用 · 本地规则 ${ProtectionStore.rules.count { it.enabled }} 条"
 
         val snapshot = StatsStore.snapshot()
         tvTodayCount.text = snapshot.todayTotal.toString()
