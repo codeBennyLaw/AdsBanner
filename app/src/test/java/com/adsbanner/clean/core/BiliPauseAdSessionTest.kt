@@ -101,4 +101,20 @@ class BiliPauseAdSessionTest {
         assertFalse(session.update(empty, 2_400).record)
         assertNotNull(session.update(hint, 2_600).action)
     }
+
+    @Test fun movingCloseCanUseNativeActionButGestureRetryWaitsForStableBounds() {
+        val session = BiliPauseAdSession()
+        val first = session.update(panel, 1_000, closeStable = false).action!!
+        assertFalse(first.gesture)
+        session.complete(first, true)
+        assertNull(session.update(panel, 1_400, closeStable = false).action)
+        assertTrue(session.update(panel, 1_500, closeStable = true).action!!.gesture)
+    }
+
+    @Test fun waitingForStableGestureDoesNotConsumeTheAttemptBudget() {
+        val session = BiliPauseAdSession()
+        val touchOnly = panel.copy(close = close.copy(action = null))
+        for (now in 1_000L..2_000L step 120L) assertNull(session.update(touchOnly, now, closeStable = false).action)
+        assertTrue(session.update(touchOnly, 2_100, closeStable = true).action!!.gesture)
+    }
 }

@@ -25,6 +25,7 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
     private val handler = Handler(Looper.getMainLooper())
     private val session = BiliPauseAdSession()
     private var running = false
+    private var watchingWindows = false
     private var generation = 0
     private var nextScanAt = Long.MAX_VALUE
     private var lastScanAt = 0L
@@ -35,8 +36,11 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
     private val scan = Runnable { tick() }
 
     fun onEvent(event: AccessibilityEvent) {
-        if (event.packageName?.toString() != BiliPauseAdRule.PACKAGE) {
-            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) stop()
+        val pkg = event.packageName?.toString()
+        if (pkg != BiliPauseAdRule.PACKAGE) {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                if (pkg == "android" || pkg == "com.android.systemui") suspendForWindow() else stop()
+            }
             return
         }
         if (!Prefs.inAppAdGuard || !ProtectionStore.allows(BiliPauseAdRule.PACKAGE)) {
@@ -47,12 +51,14 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) burstUntil = now + 4_500L
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) emptyPasses = 0
         running = true
+        watchingWindows = true
         val gap = if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) 32L else 120L
         schedule((gap - (now - lastScanAt)).coerceAtLeast(0L))
     }
 
     fun stop() {
         running = false
+        watchingWindows = false
         generation++
         handler.removeCallbacks(scan)
         gestureTimeout?.let(handler::removeCallbacks)
@@ -63,6 +69,29 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
         burstUntil = 0L
         lastClose = null
         session.reset()
+    }
+
+    /** Only an already-observed Bilibili page may resume after a system window goes away. */
+    fun onWindowsChanged() {
+        if (!watchingWindows) return
+        if (!Prefs.inAppAdGuard || !ProtectionStore.allows(BiliPauseAdRule.PACKAGE)) {
+            stop()
+            return
+        }
+        val root = activeRoot()
+        if (root == null) {
+            suspendForWindow()
+            return
+        }
+        recycleNode(root)
+        running = true
+        schedule(0L)
+    }
+
+    private fun suspendForWindow() {
+        val watch = watchingWindows
+        stop()
+        watchingWindows = watch
     }
 
     private fun schedule(delay: Long) {
@@ -93,7 +122,7 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
         nextScanAt = Long.MAX_VALUE
         val root = activeRoot()
         if (root == null) {
-            stop()
+            suspendForWindow()
             return
         }
         val now = SystemClock.elapsedRealtime()
@@ -105,21 +134,21 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
                 schedule(500L)
                 return
             }
-            var match = BiliPauseAdRule.match(snapshot.nodes, screenBounds(), session.panelKey)
+            val match = BiliPauseAdRule.match(snapshot.nodes, screenBounds(), session.panelKey)
             val close = match?.close
             var stabilizing = false
             if (close != null) {
                 val position = close.key to snapshot.nodes[close.icon].bounds
-                // 面板滑入时位置在移动，至少跨一次扫描确认关闭按钮位置稳定。
+                // Native node actions follow the control while it moves; only coordinate
+                // gestures need a second snapshot with the same position.
                 if (lastClose != position) {
-                    match = match.copy(close = null)
                     stabilizing = true
                 }
                 lastClose = position
             } else {
                 lastClose = null
             }
-            val step = session.update(match, now)
+            val step = session.update(match, now, closeStable = !stabilizing)
             emptyPasses = if (match == null) (emptyPasses + 1).coerceAtMost(3) else 0
             if (step.record && canInspect()) StatsStore.record(BiliPauseAdRule.PACKAGE, StatsStore.Kind.PAGE_AD)
             step.action?.let { execute(it, snapshot) }
@@ -142,25 +171,46 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
             return
         }
         val icon = snapshot.live[action.target.icon]
-        val expected = snapshot.nodes[action.target.icon].bounds
+        val model = snapshot.nodes[action.target.icon]
+        val expected = model.bounds
+        val windowId = icon.windowId
         val rect = Rect()
-        if (!icon.refresh() || !icon.isVisibleToUser || !icon.isEnabled) {
+        if (!icon.refresh() || !icon.isVisibleToUser || !icon.isEnabled || icon.packageName?.toString() != BiliPauseAdRule.PACKAGE ||
+            icon.windowId != windowId || icon.text?.toString()?.trim().orEmpty() != model.text ||
+            icon.contentDescription?.toString()?.trim().orEmpty() != model.desc) {
             session.complete(action, false)
             return
         }
         icon.getBoundsInScreen(rect)
-        if (rect.toBounds() != expected) {
+        if (rect.width() != expected.width || rect.height() != expected.height || !screenBounds().contains(rect.toBounds()) ||
+            (action.gesture && rect.toBounds() != expected)) {
             session.complete(action, false)
             return
         }
         if (!action.gesture) {
             val node = action.target.action?.let { snapshot.live[it] }
-            val accepted = node != null && node.refresh() && node.isEnabled && node.isVisibleToUser &&
+            val actionModel = action.target.action?.let { snapshot.nodes[it] }
+            val sameTarget = action.target.action == action.target.icon
+            // Reuse the icon just refreshed above. Refreshing it a second time while a native
+            // animation is translating it would manufacture a mismatch between two frames.
+            val accepted = node != null && (sameTarget || node.refresh()) && node.isEnabled && node.isVisibleToUser &&
+                node.packageName?.toString() == BiliPauseAdRule.PACKAGE && node.windowId == windowId &&
+                node.text?.toString()?.trim().orEmpty() == actionModel?.text &&
+                node.contentDescription?.toString()?.trim().orEmpty() == actionModel?.desc &&
+                (if (sameTarget) rect else Rect().also(node::getBoundsInScreen)).let { fresh ->
+                    actionModel != null && fresh.width() == actionModel.bounds.width && fresh.height() == actionModel.bounds.height &&
+                        fresh.contains(rect) && fresh.left - rect.left == actionModel.bounds.left - expected.left &&
+                        fresh.top - rect.top == actionModel.bounds.top - expected.top
+                } &&
                 node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             session.complete(action, accepted)
             return
         }
         if (service.serviceInfo.capabilities and AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES == 0) {
+            session.complete(action, false)
+            return
+        }
+        if (!canGestureAt(windowId, rect.centerX(), rect.centerY())) {
             session.complete(action, false)
             return
         }
@@ -196,6 +246,22 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
             handler.postDelayed(timeout, 1_000L)
         } else {
             finish(false)
+        }
+    }
+
+    /** Coordinate gestures must never land on a notification shade, keyboard or another window. */
+    private fun canGestureAt(windowId: Int, x: Int, y: Int): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) service.clearCache()
+        val active = activeRoot() ?: return false
+        try { if (active.windowId != windowId) return false } finally { recycleNode(active) }
+        val windows = service.windows.orEmpty()
+        try {
+            val target = windows.firstOrNull { it.id == windowId } ?: return false
+            if (!Rect().also(target::getBoundsInScreen).contains(x, y)) return false
+            return windows.none { it.layer > target.layer && Rect().also(it::getBoundsInScreen).contains(x, y) }
+        } finally {
+            @Suppress("DEPRECATION")
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) windows.forEach { it.recycle() }
         }
     }
 
