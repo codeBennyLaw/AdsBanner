@@ -62,6 +62,14 @@ object Prefs {
         check(::sp.isInitialized) { "Prefs.init() 未调用" }
     }
 
+    internal fun addChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sp.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    internal fun removeChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sp.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
     /** 开屏广告自动跳过 */
     var skipSplash: Boolean
         get() = ensure().let { sp.getBoolean(KEY_SKIP_SPLASH, true) }
