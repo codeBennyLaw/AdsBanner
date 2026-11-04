@@ -86,4 +86,16 @@ class SplashScanSessionTest {
         session.observeTarget()
         assertFalse(session.awaitingTarget(7_200))
     }
+
+    @Test fun resumedDetectionIsFiniteAndNeverEnablesGenericClose() {
+        val session = SplashScanSession()
+        session.start("app", 1_000, resumed = true)
+        assertTrue(session.resumed)
+        assertTrue(session.pending(1_500, 10_000))
+        assertFalse(session.allowWeak(1_500))
+        assertFalse(session.pending(11_001, 10_000))
+        session.start("other", 12_000)
+        assertFalse(session.resumed)
+        assertTrue(session.allowWeak(12_100))
+    }
 }

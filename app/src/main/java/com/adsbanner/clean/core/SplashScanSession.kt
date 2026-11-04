@@ -4,6 +4,8 @@ package com.adsbanner.clean.core
 internal class SplashScanSession {
     var packageName: String? = null
         private set
+    var resumed = false
+        private set
     private var startedAt = 0L
     private var coveredAt: Long? = null
     private var coveredMs = 0L
@@ -11,14 +13,16 @@ internal class SplashScanSession {
 
     val covered: Boolean get() = coveredAt != null
 
-    fun start(pkg: String, now: Long) {
+    fun start(pkg: String, now: Long, resumed: Boolean = false) {
         clear()
         packageName = pkg
         startedAt = now
+        this.resumed = resumed
     }
 
     fun clear() {
         packageName = null
+        resumed = false
         startedAt = 0L
         coveredAt = null
         coveredMs = 0L
@@ -42,7 +46,7 @@ internal class SplashScanSession {
         age(now) <= windowMs && now - startedAt <= windowMs + 30_000L
 
     // 通知栏可能盖住广告直到它自行消失，恢复时不能把正常页面的「关闭」当作开屏按钮。
-    fun allowWeak(now: Long): Boolean = packageName != null && !covered && now - startedAt <= 3_000L
+    fun allowWeak(now: Long): Boolean = packageName != null && !resumed && !covered && now - startedAt <= 3_000L
 
     fun observeTarget() {
         targetSeen = true
