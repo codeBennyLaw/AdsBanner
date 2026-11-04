@@ -15,6 +15,7 @@ import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.JumpAdRule
 import com.adsbanner.clean.core.JumpGuardSession
 import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.StatsStore
 
@@ -33,7 +34,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
     private val returnToSource = Runnable { returnIfStillSuspicious() }
 
     fun onEvent(event: AccessibilityEvent) {
-        if (!Prefs.jumpGuard) {
+        if (!Prefs.jumpGuard || ProtectionStore.paused) {
             stop()
             return
         }
@@ -98,7 +99,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
     }
 
     private fun reconcileForeground() {
-        if (!Prefs.jumpGuard) return stop()
+        if (!Prefs.jumpGuard || ProtectionStore.paused) return stop()
         val now = SystemClock.elapsedRealtime()
         val root = service.rootInActiveWindow
         val pkg = try { root?.packageName?.toString() } finally { root?.let(::recycleNode) }
@@ -141,7 +142,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
 
     private fun inspectAd() {
         inspectionScheduled = false
-        if (!Prefs.jumpGuard) return
+        if (!Prefs.jumpGuard || !ProtectionStore.allows(session.foregroundPackage ?: return)) return
         val pkg = session.foregroundPackage ?: return
         val now = SystemClock.elapsedRealtime()
         if (!session.canObserveAd(pkg, now, Prefs.splashWindowMs)) return
@@ -187,7 +188,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
         val ticket = pending ?: return
         pending = null
         val now = SystemClock.elapsedRealtime()
-        if (!Prefs.jumpGuard || ticket.target !in Prefs.jumpTargets || isTrusted(ticket.target) || !session.mayReturn(ticket, now) ||
+        if (!Prefs.jumpGuard || !ProtectionStore.allows(ticket.from) || ticket.target !in Prefs.jumpTargets || isTrusted(ticket.target) || !session.mayReturn(ticket, now) ||
             now - lastReturnAt < 1_500L || !interactive()) return
         // 延迟期间用户可能已离开购物应用或拉下通知栏，不能向其它窗口发送返回。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) service.clearCache()
@@ -195,7 +196,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
         val stillTarget = try {
             root.packageName?.toString() == ticket.target && uncovered(root)
         } finally { recycleNode(root) }
-        if (!stillTarget || !Prefs.jumpGuard || !session.mayReturn(ticket, SystemClock.elapsedRealtime()) ||
+        if (!stillTarget || !Prefs.jumpGuard || !ProtectionStore.allows(ticket.from) || !ProtectionStore.allows(ticket.target) || !session.mayReturn(ticket, SystemClock.elapsedRealtime()) ||
             !interactive() || !service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)) return
         lastReturnAt = now
         StatsStore.record(ticket.target, StatsStore.Kind.JUMP)
@@ -236,7 +237,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
         return try { SkipRule.match(label(source)) == SkipRule.STRONG } finally { recycleNode(source) }
     }
 
-    private fun isTrusted(pkg: String): Boolean = pkg == service.packageName || AppInfoHelper.isHomeOrSystem(service, pkg)
+    private fun isTrusted(pkg: String): Boolean = !ProtectionStore.allows(pkg) || pkg == service.packageName || AppInfoHelper.isHomeOrSystem(service, pkg)
 
     private fun interactive(): Boolean = service.getSystemService(PowerManager::class.java).isInteractive &&
         !service.getSystemService(KeyguardManager::class.java).isKeyguardLocked
