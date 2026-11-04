@@ -265,7 +265,8 @@ class ProtectionActivity : AppCompatActivity() {
         form.addView(TextInputLayout(this).apply {
             hint = title
             boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            setBoxCornerRadii(dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat())
+            val corner = resources.getDimension(R.dimen.corner_control)
+            setBoxCornerRadii(corner, corner, corner, corner)
             addView(input, LinearLayout.LayoutParams(-1, -2))
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
         return input
