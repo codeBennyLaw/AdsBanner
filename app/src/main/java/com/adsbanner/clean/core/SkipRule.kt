@@ -4,10 +4,11 @@ package com.adsbanner.clean.core
  * "跳过按钮"文案识别。
  *
  * 只做文案判断，位置判断交给 AccessibilityService（需要结合屏幕尺寸）。
- * 分级的目的：强匹配允许在屏幕任意位置点击，弱匹配（关闭 / ×）只在右上角才敢点，
+ * 分级的目的：通用强匹配只在屏幕顶部点击，弱匹配（关闭 / ×）还要具备广告证据，
  * 否则极易误关正常页面的弹窗。
  */
 object SkipRule {
+    private val whitespace = Regex("\\s+")
 
     const val NONE = 0
     const val WEAK = 1
@@ -16,9 +17,9 @@ object SkipRule {
     /** 强匹配：明确是开屏广告的跳过按钮 */
     private val strongPatterns = listOf(
         // 跳过 / 跳过广告 / 跳过5 / 跳过 5s / 跳过广告5秒
-        Regex("^跳过(广告)?\\s*[0-9]{0,2}\\s*[sS秒]?$"),
+        Regex("^跳过\\s*(广告)?\\s*[0-9]{0,2}\\s*[sS秒]?$"),
         // 5s 跳过 / 5秒跳过 / 3s跳过广告
-        Regex("^[0-9]{1,2}\\s*[sS秒]\\s*(后)?\\s*跳过(广告)?$"),
+        Regex("^[0-9]{1,2}\\s*[sS秒]\\s*跳过(广告)?$"),
         // 跳过丨5 / 跳过|5 / 跳过 · 5
         Regex("^跳过\\s*[|丨/·•]\\s*[0-9]{1,2}$"),
         // 部分广告会把倒计时和按钮文案拆成「跳过 广告 3 秒」。
@@ -48,7 +49,7 @@ object SkipRule {
         val text = raw.replace('\u00A0', ' ')
             .replace('\u3000', ' ')
             .replace('\n', ' ')
-            .replace(Regex("\\s+"), " ")
+            .replace(whitespace, " ")
             .trim()
         if (text.isEmpty() || text.length > 16) return NONE
         if (denyWords.any { text.contains(it, ignoreCase = true) }) return NONE
@@ -56,9 +57,6 @@ object SkipRule {
         for (p in strongPatterns) {
             if (p.matches(text)) return STRONG
         }
-
-        // 兜底：短文案内含"跳过"，覆盖"跳过 广告"这类带空格的变体
-        if (text.contains("跳过") && text.length <= 8) return STRONG
 
         for (p in weakPatterns) {
             if (p.matches(text)) return WEAK

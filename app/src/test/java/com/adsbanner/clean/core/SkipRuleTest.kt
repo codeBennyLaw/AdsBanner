@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun ordinaryFlowsAndFutureCountdownsAreNotAdSkipButtons() {
+        listOf("跳过登录", "跳过设置", "不跳过", "是否跳过", "跳过教程", "跳过验证", "跳过片头", "3秒后跳过", "5秒后可跳过")
+            .forEach { assertEquals(it, SkipRule.NONE, SkipRule.match(it)) }
+    }
+
+    @Test fun whitespaceVariantsRemainExplicitMatches() {
+        listOf("跳过 广告", "跳过\u3000广告 3 秒", "跳过\n广告", "Skip Ad", "跳过丨5")
+            .forEach { assertEquals(it, SkipRule.STRONG, SkipRule.match(it)) }
+    }
     @Test
     fun recognizesCountdownAndEnglishSkipVariants() {
         listOf(
