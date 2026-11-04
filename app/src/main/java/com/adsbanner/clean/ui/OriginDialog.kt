@@ -80,7 +80,32 @@ internal class OriginDialog private constructor(
         panel = checkNotNull(findViewById(androidx.appcompat.R.id.parentPanel))
         val parent = panel.parent as ViewGroup
         parent.removeView(panel)
-        stage = FrameLayout(context).apply {
+        stage = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                if (!dropdown && ::panel.isInitialized) {
+                    val margins = panel.layoutParams as FrameLayout.LayoutParams
+                    val available = (measuredHeight - margins.topMargin - margins.bottomMargin).coerceAtLeast(0)
+                    // AlertDialog's custom panel can exceed AT_MOST when its form is tall.
+                    // Give the native title/buttons a fixed safe height; its scroll content takes the remainder.
+                    if (panel.measuredHeight > available) {
+                        panel.measure(View.MeasureSpec.makeMeasureSpec(panel.measuredWidth, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(available, View.MeasureSpec.EXACTLY))
+                    }
+                }
+            }
+            override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+                super.onLayout(changed, left, top, right, bottom)
+                if (!dropdown && ::panel.isInitialized) {
+                    val margins = panel.layoutParams as FrameLayout.LayoutParams
+                    // FrameLayout's CENTER shifts by the full difference between margins.
+                    // Center inside the safe rectangle instead, especially when IME makes them unequal.
+                    val y = margins.topMargin +
+                        (height - margins.topMargin - margins.bottomMargin - panel.measuredHeight).coerceAtLeast(0) / 2
+                    panel.layout(panel.left, y, panel.right, y + panel.measuredHeight)
+                }
+            }
+        }.apply {
             id = R.id.motion_dialog_stage
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
