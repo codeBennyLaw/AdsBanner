@@ -57,6 +57,8 @@ internal class PageOriginMotion(
     private val backMotion = BackProgressMotion(page)
     private var returnPose: View? = null
     private var returnNode: RenderNode? = null
+    private var homeBackdrop: View? = null
+    private var homeBackdropNode: RenderNode? = null
     private var homeFrameObserver: ViewTreeObserver? = null
     private var homeFrameCallback: Runnable? = null
     private var returnRadius = 0f
@@ -174,14 +176,16 @@ internal class PageOriginMotion(
             // The pose is already placed. Prepare the overlay before the next draw.
             morph(forward = false)
         }
-        if (homeReady) startReturn() else whenHomeFrameReady {
+        if (homeReady || homeBackdrop != null) startReturn() else whenHomeFrameReady {
             homeReady = true
+            clearHomeBackdrop()
             startReturn()
         }
     }
 
     private fun restore() {
         clearHomeFrameWait()
+        clearHomeBackdrop()
         latestBackEvent = null
         anchor.visibility = View.INVISIBLE
         // A committed return must leave the child window transparent until it is removed.
@@ -203,7 +207,8 @@ internal class PageOriginMotion(
 
     private fun handOffToHome() {
         // The source card stays visible. Hold until the home window's buffer is submitted.
-        whenHomeFrameReady { finish() }
+        if (homeReady && sourceActivity()?.window?.decorView?.isLayoutRequested == false) finish()
+        else whenHomeFrameReady { finish() }
     }
 
     private fun whenHomeFrameReady(completion: () -> Unit) {
@@ -250,7 +255,11 @@ internal class PageOriginMotion(
             restore()
             work.endEnter()
         }
-        if (!revealHome()) return
+        prepareHomeBackdrop()
+        if (!revealHome()) {
+            clearHomeBackdrop()
+            return
+        }
         previewing = true
         work.beginPreview()
         page.descendants.filterIsInstance<RecyclerView>().forEach {
@@ -261,6 +270,7 @@ internal class PageOriginMotion(
         latestBackEvent = null
         if (!homeReady) whenHomeFrameReady {
             homeReady = true
+            clearHomeBackdrop()
             if (previewing && !returning) latestBackEvent?.let(backMotion::update)
         }
     }
@@ -268,7 +278,7 @@ internal class PageOriginMotion(
     fun progressBack(event: BackEventCompat) {
         if (previewing && !returning) {
             latestBackEvent = event
-            if (homeReady) backMotion.update(event)
+            if (homeReady || homeBackdrop != null) backMotion.update(event)
         }
     }
 
@@ -304,8 +314,7 @@ internal class PageOriginMotion(
         if (!translucent) {
             // Revealing a stopped activity can start a separate TO_FRONT animation. Its
             // window must stay still underneath our gesture and container transform.
-            generateSequence(source()?.context) { (it as? ContextWrapper)?.baseContext }
-                .filterIsInstance<Activity>().firstOrNull()?.let {
+            sourceActivity()?.let {
                     homeWindowAnimations = it.window.attributes.windowAnimations
                     it.window.setWindowAnimations(R.style.Animation_AdsBanner_PageReveal)
                     revealedHome = WeakReference(it)
@@ -319,6 +328,45 @@ internal class PageOriginMotion(
             activity.window.setBackgroundDrawable(Color.TRANSPARENT.toDrawable())
         }
         return true
+    }
+
+    private fun sourceActivity(): Activity? = generateSequence(source()?.context) {
+        (it as? ContextWrapper)?.baseContext
+    }.filterIsInstance<Activity>().firstOrNull()
+
+    /** A short-lived display list bridges the parent's first buffer, so input needn't wait for it. */
+    private fun prepareHomeBackdrop() {
+        if (homeReady || homeBackdrop != null) return
+        val decor = sourceActivity()?.window?.decorView ?: return
+        if (!decor.isAttachedToWindow || !decor.isHardwareAccelerated || decor.width <= 0 || decor.height <= 0) return
+        source()?.takeUnless { it.isPressed }?.jumpDrawablesToCurrentState()
+        val node = RenderNode("AdsBanner back preview background").apply {
+            setPosition(0, 0, decor.width, decor.height)
+        }
+        val recording = node.beginRecording()
+        try {
+            recording.drawColor(background)
+            decor.draw(recording)
+        } finally { node.endRecording() }
+        homeBackdropNode = node
+        homeBackdrop = object : View(activity) {
+            override fun onDraw(canvas: Canvas) {
+                if (canvas.isHardwareAccelerated && node.hasDisplayList()) canvas.drawRenderNode(node)
+            }
+        }.apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            stage.addView(this, 0, ViewGroup.LayoutParams(-1, -1))
+            measure(View.MeasureSpec.makeMeasureSpec(stage.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(stage.height, View.MeasureSpec.EXACTLY))
+            layout(0, 0, stage.width, stage.height)
+        }
+    }
+
+    private fun clearHomeBackdrop() {
+        homeBackdrop?.let(stage::removeView)
+        homeBackdrop = null
+        homeBackdropNode?.discardDisplayList()
+        homeBackdropNode = null
     }
 
     private fun restoreHomeWindowAnimations() {
