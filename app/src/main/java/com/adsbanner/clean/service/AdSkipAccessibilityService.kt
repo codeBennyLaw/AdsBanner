@@ -32,6 +32,7 @@ import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.SkipTargetPolicy
 import com.adsbanner.clean.core.SplashScanSession
 import com.adsbanner.clean.core.SplashScanCadence
+import com.adsbanner.clean.core.SplashResumeTracker
 import com.adsbanner.clean.core.ScreenStateGate
 import com.adsbanner.clean.core.StatsStore
 
@@ -43,8 +44,7 @@ import com.adsbanner.clean.core.StatsStore
  * 1) 开屏广告跳过
  *    进入某应用后 [Prefs.splashWindowMs] 时间窗内，遍历该应用的可访问性节点树，
  *    找出文案命中 [SkipRule] 且位置合理的"跳过"控件并点击。
- *    位置约束是防误点的关键：广告跳过按钮几乎都在右上角，而正文里的"关闭""跳过"
- *    分布在其它区域，靠位置过滤掉。
+ *    结合广告证据、尺寸与位置防止误点；普通关闭限于右上角，恢复检测只允许明确跳过。
  *
  * 2) 误触跳转拦截
  *    只在启动期间有近期广告证据、且没有主动操作时，处理名单内应用的自动拉起。
@@ -67,16 +67,26 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val screenState = ScreenStateGate()
+    private val splashResume = SplashResumeTracker()
     private var receiverRegistered = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             screenState.update(intent?.action != Intent.ACTION_SCREEN_OFF && isScreenInteractive())
-            if (!screenState.ready) suspendScans()
+            if (!screenState.ready) {
+                splashResume.onScreenHidden()
+                suspendScans()
+            } else {
+                splashResume.onScreenReady(SystemClock.elapsedRealtime())
+                reconcileSplashResume()
+            }
             InterceptNotifier.onScreenChanged(this@AdSkipAccessibilityService, screenState.ready)
         }
     }
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        if (!Prefs.skipSplash && splashSession.packageName != null) stopSplashScan()
+        if (!Prefs.skipSplash) {
+            if (splashSession.packageName != null) stopSplashScan()
+            splashResume.clear()
+        }
         if (!Prefs.jumpGuard) jumpGuard.stop()
         if (!Prefs.inAppAdGuard) pauseAdGuard.stop()
         if (!Prefs.interceptNotify) InterceptNotifier.cancel(this)
@@ -129,6 +139,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         foregroundActivity = ""
         activeRules = emptyList()
         embeddedPagePackage = null
+        splashResume.clear()
     }
 
     @Volatile
@@ -142,6 +153,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         ProtectionStore.addPolicyListener(policyListener)
         Prefs.addChangeListener(settingsListener)
         screenState.update(isScreenInteractive())
+        splashResume.clear()
+        if (!screenState.ready) splashResume.onScreenHidden()
         if (!receiverRegistered) {
             ContextCompat.registerReceiver(this, screenReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
@@ -167,17 +180,28 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val wasReady = screenState.ready
         if (!screenState.allows(SystemClock.elapsedRealtime(), type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                 ::isScreenInteractive)) {
-            if (wasReady) suspendScans()
+            if (wasReady) {
+                splashResume.onScreenHidden()
+                suspendScans()
+            }
             return
         }
+        splashResume.onScreenReady(SystemClock.elapsedRealtime())
         if (!wasReady) InterceptNotifier.onScreenChanged(this, true)
         val pkg = event.packageName?.toString()
+        if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED || pkg == foregroundPkg) reconcileSplashResume()
         if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) pauseAdGuard.onWindowsChanged()
         // B 站页面守护只需要自己的交互事件；窗口切换仍要转发一次，及时结束旧页面扫描。
         if (pkg == BiliPauseAdRule.PACKAGE || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             pauseAdGuard.onEvent(event)
         }
         jumpGuard.onEvent(event)
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            event.className?.toString()?.let { it.endsWith(".ChooserActivity") || it.endsWith(".ResolverActivity") } == true) {
+            splashResume.onTransientWindow()
+            stopSplashScan()
+            return
+        }
         if (pkg != null && !ProtectionStore.allows(pkg)) {
             if (splashSession.packageName == pkg) stopSplashScan()
             if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) foregroundPkg = pkg
@@ -209,6 +233,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 !splashSession.awaitingTarget(SystemClock.elapsedRealtime())) {
                 stopSplashScan()
                 foregroundPkg = null
+                splashResume.clear()
             } else scheduleSplashScan(0L)
             return
         }
@@ -219,7 +244,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             return
         }
         when (type) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg, event.className?.toString().orEmpty())
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> onWindowChanged(pkg, event.className?.toString().orEmpty(), event.windowId)
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> onContentChanged(pkg)
             else -> Unit
         }
@@ -261,17 +286,31 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     // ------------------------------------------------------------------ 窗口切换
 
-    private fun onWindowChanged(pkg: String, activity: String = "") {
+    private fun onWindowChanged(pkg: String, activity: String = "", windowId: Int = -1, fromActiveWindow: Boolean = false) {
         val prev = foregroundPkg
+        val now = SystemClock.elapsedRealtime()
+        val declared = AppInfoHelper.isDeclaredActivity(this, pkg, activity)
+        val entry = if (pkg != prev || declared || fromActiveWindow) {
+            splashResume.enter(pkg, activity.takeIf { declared }, windowId.takeIf { it >= 0 }, now)
+        } else {
+            splashResume.onTransientWindow(pkg, windowId)
+            SplashResumeTracker.Entry.NONE
+        }
 
         if (pkg != prev) {
             foregroundPkg = pkg
             foregroundActivity = ""
             activeRules = ProtectionStore.rules.filter { it.enabled && it.packageName == pkg }
-            stopSplashScan()
+        }
 
-            if (Prefs.skipSplash && ProtectionStore.allows(pkg) && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
-                splashSession.start(pkg, SystemClock.elapsedRealtime())
+        // Initial splash -> main activity transitions keep the original short weak-match budget.
+        // Wake/share returns get a new finite, strong-only window even if the package is unchanged.
+        val earlyLaunch = entry == SplashResumeTracker.Entry.ACTIVITY && splashSession.packageName == pkg &&
+            !splashSession.resumed && splashSession.pending(now, Prefs.splashWindowMs) && splashSession.age(now) <= 3_000L
+        if (pkg != prev || (entry != SplashResumeTracker.Entry.NONE && !earlyLaunch)) {
+            stopSplashScan()
+            if (Prefs.skipSplash && ProtectionStore.allows(pkg) && embeddedPagePackage != pkg && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
+                splashSession.start(pkg, now, resumed = entry != SplashResumeTracker.Entry.LAUNCH)
                 lastSkipTryAt = 0L
                 skipTryCount = 0
             }
@@ -286,11 +325,28 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private fun onContentChanged(pkg: String) {
         // 服务晚于应用启动时，只为当前活动应用补建一次检测窗口，后台内容事件不启动扫描。
-        if (Prefs.skipSplash && foregroundPkg == null && rootInActiveWindow?.packageName?.toString() == pkg) {
-            onWindowChanged(pkg)
+        if (Prefs.skipSplash && foregroundPkg == null) {
+            val root = rootInActiveWindow ?: return
+            try {
+                if (root.packageName?.toString() == pkg) onWindowChanged(pkg, windowId = root.windowId, fromActiveWindow = true)
+            } finally { recycleNode(root) }
         } else if (splashSession.packageName == pkg) {
             scheduleSplashScan(0L)
         }
+    }
+
+    /** Resolve only a pending wake/temporary-window return, rate limited and driven by events. */
+    private fun reconcileSplashResume() {
+        val now = SystemClock.elapsedRealtime()
+        if (!Prefs.skipSplash || ProtectionStore.paused || !splashResume.takeWindowCheck(now) || !isScreenInteractive()) return
+        val root = rootInActiveWindow ?: return
+        try {
+            val pkg = root.packageName?.toString() ?: return
+            if (pkg == packageName || pkg == embeddedPagePackage || !ProtectionStore.allows(pkg) || AppInfoHelper.isHomeOrSystem(this, pkg)) return
+            if (splashResume.canReconcile(pkg, root.windowId, now)) {
+                onWindowChanged(pkg, windowId = root.windowId, fromActiveWindow = true)
+            }
+        } finally { recycleNode(root) }
     }
 
     private fun isScreenInteractive(): Boolean =
@@ -425,7 +481,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (!covered) skipTryCount++
 
         // Custom rules keep priority, but an inactive/unmatched rule must not force a full tree walk.
-        if (activeRules.any { it.appliesTo(pkg, foregroundActivity, splashSession.age(now)) }) {
+        if (!splashSession.resumed && activeRules.any { it.appliesTo(pkg, foregroundActivity, splashSession.age(now)) }) {
             val exact = findCandidates(pkg, false, covered, active, screenWindows, localOnly = true)
             if (exact.isNotEmpty()) {
                 actOnCandidates(exact, pkg, covered)
