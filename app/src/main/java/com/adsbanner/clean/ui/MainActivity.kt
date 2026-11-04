@@ -281,15 +281,18 @@ class MainActivity : AppCompatActivity() {
      */
     private fun applyInsets() {
         val root = findViewById<View>(R.id.root)
+        val sidePadding = resources.getDimensionPixelSize(R.dimen.page_gutter)
+        val topPadding = content.paddingTop
+        val bottomPadding = content.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsetsIgnoringVisibility(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
             content.setPadding(
-                dp(18) + bars.left,
-                dp(18) + bars.top,
-                dp(18) + bars.right,
-                dp(32) + bars.bottom
+                sidePadding + bars.left,
+                topPadding + bars.top,
+                sidePadding + bars.right,
+                bottomPadding + bars.bottom
             )
             insets
         }
