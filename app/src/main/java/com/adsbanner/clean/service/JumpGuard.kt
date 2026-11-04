@@ -200,6 +200,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
             !interactive() || !service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)) return
         lastReturnAt = now
         StatsStore.record(ticket.target, StatsStore.Kind.JUMP)
+        ProtectionStore.record(ticket.target, StatsStore.Kind.JUMP, "广告跳转保护", ticket.from)
         Log.i("AdsBanner", "拦截自动广告跳转 -> ${ticket.target}")
         InterceptNotifier.notify(service, AppInfoHelper.label(service, ticket.target), StatsStore.Kind.JUMP)
     }
