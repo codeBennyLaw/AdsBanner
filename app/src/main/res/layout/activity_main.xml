@@ -85,7 +85,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="在系统设置中开启无障碍服务" />
+                            android:text="请开启无障碍服务" />
                     </LinearLayout>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnService"

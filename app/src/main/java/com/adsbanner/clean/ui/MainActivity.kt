@@ -144,11 +144,12 @@ class MainActivity : AppCompatActivity() {
     private fun configureFooter() {
         val footer = findViewById<LinearLayout>(R.id.versionLinks)
         val labels = (0 until footer.childCount).map { footer.getChildAt(it) as TextView }
+        val labelSpacing = (16 * resources.displayMetrics.density).toInt()
         footer.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
             if (right - left == oldRight - oldLeft) return@addOnLayoutChangeListener
             val needed = labels.maxOf {
                 kotlin.math.ceil(Layout.getDesiredWidth(it.text, it.paint).toDouble()).toInt() +
-                    it.paddingLeft + it.paddingRight
+                    it.paddingLeft + it.paddingRight + labelSpacing
             } * labels.size
             val stacked = needed > right - left - footer.paddingLeft - footer.paddingRight
             val orientation = if (stacked) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
@@ -410,7 +411,7 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.getColor(this, if (enabled) R.color.text_primary else R.color.danger)
         )
         tvServiceHint.text =
-            if (!enabled) "在系统设置中开启无障碍服务" else if (paused) "到期自动恢复，也可提前恢复" else "按照下方开关执行拦截"
+            if (!enabled) "请开启无障碍服务" else if (paused) "到期自动恢复，也可提前恢复" else "按照下方开关执行拦截"
         findViewById<TextView>(R.id.btnService).text = if (!enabled) "开启" else if (paused) "恢复" else "设置"
         val rules = ProtectionStore.rules.count { it.enabled }
         findViewById<TextView>(R.id.tvProtectionSummary).text = if (paused) "临时暂停中 · 点击管理" else if (rules == 0)
