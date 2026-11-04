@@ -1,4 +1,5 @@
 <resources>
+    <dimen name="page_gutter">20dp</dimen>
     <dimen name="corner_small">16dp</dimen>
     <dimen name="corner_control">24dp</dimen>
     <dimen name="corner_card">28dp</dimen>

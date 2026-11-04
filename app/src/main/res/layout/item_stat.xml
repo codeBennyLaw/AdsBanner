@@ -4,7 +4,7 @@
     style="@style/Card.AdsBanner"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="10dp">
+    android:layout_marginBottom="8dp">
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -31,7 +31,7 @@
                 android:layout_height="wrap_content"
                 android:maxLines="2"
                 android:ellipsize="end"
-                android:textStyle="bold" />
+                android:fontFamily="sans-serif-medium" />
             <TextView
                 android:id="@+id/tvDetail"
                 style="@style/Text.RowSub"
@@ -50,20 +50,21 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:background="@drawable/bg_badge"
-            android:padding="12dp">
+            android:minWidth="48dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="0dp">
             <TextView
                 android:id="@+id/tvCount"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/brand_dark"
+                android:textColor="@color/text_primary"
                 android:textSize="22sp"
-                android:textStyle="bold" />
+                android:fontFamily="sans-serif-medium" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="次"
-                android:textColor="@color/brand_dark"
+                android:textColor="@color/text_primary"
                 android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>

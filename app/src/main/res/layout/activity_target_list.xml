@@ -25,15 +25,15 @@
             android:layout_marginStart="8dp"
             android:id="@+id/tvPageTitle"
             android:text="跳转拦截名单"
-            android:textSize="22sp"
-            android:textStyle="bold"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-medium"
             android:textColor="@color/text_primary" />
     </LinearLayout>
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/appList"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:paddingHorizontal="20dp"
+        android:paddingHorizontal="@dimen/page_gutter"
         android:paddingTop="8dp"
         android:paddingBottom="28dp"
         android:clipToPadding="false"

@@ -55,7 +55,7 @@ class TargetListActivity : AppCompatActivity() {
         selectionSummary = header.findViewById(R.id.tvSelectionSummary)
         listMeta = header.findViewById(R.id.tvAppListMeta)
         if (exclusionsMode) header.findViewById<TextView>(R.id.tvSelectionDescription).text =
-            "勾选后立即放行这个应用，停止开屏、跳转与页面广告操作。作为跳转来源或目标时均放行；已有统计保留。"
+            "这些应用不执行自动点击或跳转返回，已有统计保留。勾选后自动保存。"
         selected.addAll(if (exclusionsMode) ProtectionStore.exclusions else Prefs.jumpTargets)
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = TargetAppAdapter(icons, selected) { pkg ->
