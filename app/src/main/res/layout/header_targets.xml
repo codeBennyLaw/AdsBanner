@@ -5,41 +5,35 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
-    <com.google.android.material.card.MaterialCardView
-        style="@style/Card.AdsBanner"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        app:cardBackgroundColor="@color/brand_light"
-        app:strokeWidth="0dp">
-        <LinearLayout
+        android:orientation="vertical"
+        android:paddingHorizontal="4dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="16dp">
+        <TextView
+            android:id="@+id/tvSelectionSummary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="20dp">
-            <TextView
-                android:id="@+id/tvSelectionSummary"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="已选择 0 个应用"
-                android:textColor="@color/brand_dark"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-            <TextView
-                android:id="@+id/tvSelectionDescription"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="勾选后自动保存。仅对广告期间的可疑自动拉起尝试返回，主动点击、滚动和通知栏操作优先放行。"
-                android:textColor="@color/brand_dark"
-                android:textSize="13sp"
-                android:lineSpacingExtra="4dp" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+            android:text="已选择 0 个应用"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-medium" />
+        <TextView
+            android:id="@+id/tvSelectionDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="仅处理广告引起的自动跳转，主动打开应用会放行。勾选后自动保存。"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:lineSpacingExtra="4dp" />
+    </LinearLayout>
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="0dp"
         android:hint="搜索应用名称或包名"
         app:boxBackgroundMode="outline"
         app:boxBackgroundColor="@color/surface"

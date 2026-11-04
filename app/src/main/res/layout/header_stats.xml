@@ -11,44 +11,44 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        app:cardBackgroundColor="@color/brand_light"
+        app:cardBackgroundColor="@color/surface"
         app:strokeWidth="0dp">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="20dp">
             <TextView
                 android:id="@+id/tvStatCaption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="今日拦截"
                 android:textSize="14sp"
-                android:textColor="@color/brand_dark" />
+                android:textColor="@color/text_secondary" />
             <TextView
                 android:id="@+id/tvStatCount"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="0"
-                android:textSize="44sp"
-                android:textStyle="bold"
+                android:textSize="36sp"
+                android:fontFeatureSettings="tnum"
                 android:fontFamily="sans-serif-medium"
-                android:textColor="@color/brand_dark" />
+                android:textColor="@color/text_primary" />
             <TextView
                 android:id="@+id/tvSummary"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:textSize="13sp"
-                android:textColor="@color/brand_dark" />
+                android:textColor="@color/text_secondary" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
     <LinearLayout
         android:id="@+id/filterRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="20dp"
+        android:layout_marginTop="16dp"
         android:orientation="vertical">
         <com.adsbanner.clean.ui.StatsRangeSelector
             android:id="@+id/toggleTime"
@@ -99,6 +99,7 @@
                 app:iconGravity="textEnd" />
             <LinearLayout
                 android:id="@+id/sortControls"
+                android:clipToOutline="true"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1.2"

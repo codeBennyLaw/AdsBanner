@@ -16,7 +16,7 @@
         android:paddingVertical="8dp"
         android:textColor="@color/brand_dark"
         android:textSize="14sp"
-        android:textStyle="bold" />
+        android:fontFamily="sans-serif-medium" />
     <TextView
         android:id="@+id/tvUpdatePublished"
         style="@style/Text.RowSub"

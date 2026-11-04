@@ -155,21 +155,21 @@ class ProtectionActivity : AppCompatActivity() {
         val paused = ProtectionStore.paused
         findViewById<TextView>(R.id.tvProtectionState).text = when {
             paused -> "保护已暂停"
-            !AccessibilityHelper.isServiceEnabled(this) -> "无障碍服务未开启"
-            else -> "保护控制"
+            !AccessibilityHelper.isServiceEnabled(this) -> "服务未开启"
+            else -> "保护状态"
         }
         findViewById<TextView>(R.id.tvProtectionHint).text = if (paused) {
             val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(System.currentTimeMillis() + ProtectionStore.pauseRemainingMs))
             "将在 $time 自动恢复，也可随时提前恢复。"
         } else if (!AccessibilityHelper.isServiceEnabled(this)) {
-            "开启无障碍后，已启用的开屏、页面内清理和跳转保护才会工作。例外应用始终放行。"
-        } else "已启用的开屏、页面内清理和跳转保护均受此控制；例外应用始终放行。"
+            "在系统设置中开启无障碍服务后，拦截功能才会运行。"
+        } else "可临时暂停全部拦截，例外应用始终放行。"
         findViewById<MaterialButton>(R.id.btnPauseProtection).text = if (paused) "恢复保护" else "暂停 10 分钟"
         findViewById<TextView>(R.id.tvExceptionsHint).text = "已放行 ${ProtectionStore.exclusions.size} 个应用 · 点击管理"
         val rules = ProtectionStore.rules
         val history = ProtectionStore.history.asReversed()
         findViewById<TextView>(R.id.tvRulesHint).text = ProtectionStore.loadError ?: if (rules.isEmpty()) {
-            "通用开屏识别无需设置规则。这里是可选补充，按应用、页面和完整节点 ID 精确匹配，一次启动最多执行一次。"
+            "开屏广告无需配置规则。可按需添加补充匹配，一次启动最多执行一次。"
         } else "${rules.count { it.enabled }} 条已启用 / 共 ${rules.size} 条 · 点击规则编辑"
         binding = true
         findViewById<MaterialSwitch>(R.id.switchActionHistory).isChecked = ProtectionStore.historyEnabled
@@ -363,7 +363,7 @@ class ProtectionActivity : AppCompatActivity() {
                     minimumHeight = minOf(dp(440), resources.displayMetrics.heightPixels / 2)
                 }
                 val search = input(form, "搜索名称或包名")
-                val adapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, apps.map { "${it.second}\n${it.first}" }) {
+                val adapter = object : ArrayAdapter<String>(this, R.layout.item_app_picker, apps.map { "${it.second}\n${it.first}" }) {
                     override fun getView(position: Int, convertView: View?, parent: ViewGroup) =
                         (super.getView(position, convertView, parent) as TextView).apply {
                             minHeight = dp(64); textSize = 14f; setTextColor(getColor(R.color.text_primary)); maxLines = 3

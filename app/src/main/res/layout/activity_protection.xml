@@ -9,25 +9,26 @@
             style="@style/Button.AdsBanner.Back" android:layout_width="48dp" android:layout_height="wrap_content" />
         <TextView android:id="@+id/tvPageTitle" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:layout_marginStart="8dp" android:text="拦截管理"
-            android:textSize="22sp" android:textStyle="bold" android:textColor="@color/text_primary" />
+            android:textSize="20sp" android:fontFamily="sans-serif-medium" android:textColor="@color/text_primary" />
     </LinearLayout>
     <ScrollView android:id="@+id/protectionScroll" android:layout_width="match_parent" android:layout_height="0dp"
         android:layout_weight="1" android:clipToPadding="false" android:scrollbars="none">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="vertical" android:paddingHorizontal="20dp" android:paddingTop="8dp" android:paddingBottom="28dp">
+            android:orientation="vertical" android:paddingHorizontal="@dimen/page_gutter" android:paddingTop="8dp" android:paddingBottom="28dp">
             <com.google.android.material.card.MaterialCardView style="@style/Card.AdsBanner"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                app:cardBackgroundColor="@color/brand_light" app:strokeWidth="0dp">
+                app:cardBackgroundColor="@color/surface" app:strokeWidth="0dp">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="vertical" android:padding="20dp">
-                    <TextView android:id="@+id/tvProtectionState" style="@style/Text.Title"
+                    <TextView android:id="@+id/tvProtectionState" style="@style/Text.RowTitle" android:textSize="20sp"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="保护控制" android:textColor="@color/brand_dark" />
+                        android:text="保护状态" android:textColor="@color/text_primary" />
                     <TextView android:id="@+id/tvProtectionHint" style="@style/Text.RowSub"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp" android:textColor="@color/brand_dark" />
+                        android:layout_marginTop="8dp" android:textColor="@color/text_secondary" />
                     <com.google.android.material.button.MaterialButton android:id="@+id/btnPauseProtection"
-                        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp"
+                        style="@style/Button.AdsBanner.Tonal"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp"
                         android:minHeight="48dp" android:text="暂停 10 分钟" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -36,7 +37,7 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
                 android:clickable="true" android:focusable="true">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical" android:padding="18dp">
+                    android:orientation="horizontal" android:gravity="center_vertical" android:padding="20dp">
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                         android:orientation="vertical">
                         <TextView style="@style/Text.RowTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="例外应用" />
@@ -48,7 +49,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
             <TextView style="@style/Text.Section" android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="24dp" android:layout_marginBottom="8dp" android:text="精确本地规则" />
+                android:layout_marginTop="24dp" android:layout_marginBottom="8dp" android:text="补充规则" />
             <TextView android:id="@+id/tvRulesHint" style="@style/Text.RowSub" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:text="按应用、页面和完整节点 ID 匹配，一次启动最多执行一次。" />
             <com.google.android.material.button.MaterialButton android:id="@+id/btnAddRule"
