@@ -19,6 +19,7 @@ import android.view.inputmethod.InputMethodManager
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.BiliPauseAdRule
 import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.SkipTargetPolicy
 import com.adsbanner.clean.core.SplashScanSession
@@ -83,6 +84,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private val pauseAdGuard by lazy { BiliPauseAdGuard(this) }
     private val jumpGuard by lazy { JumpGuard(this) }
+    private val policyListener: () -> Unit = {
+        stopSplashScan()
+        pauseAdGuard.stop()
+        jumpGuard.stop()
+        foregroundPkg = null
+        embeddedPagePackage = null
+    }
 
     @Volatile
     private var screenCache: Point? = null
@@ -91,6 +99,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         Prefs.init(this)
         StatsStore.init(this)
+        ProtectionStore.init(this)
+        ProtectionStore.addPolicyListener(policyListener)
         foregroundPkg = null
         embeddedPagePackage = null
         stopSplashScan()
@@ -102,6 +112,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        if (ProtectionStore.paused) return
         val type = event.eventType
         val pkg = event.packageName?.toString()
         // B 站页面守护只需要自己的交互事件；窗口切换仍要转发一次，及时结束旧页面扫描。
@@ -109,6 +120,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
             pauseAdGuard.onEvent(event)
         }
         jumpGuard.onEvent(event)
+        if (pkg != null && !ProtectionStore.allows(pkg)) {
+            if (splashSession.packageName == pkg) stopSplashScan()
+            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) foregroundPkg = pkg
+            return
+        }
         // Embedded pages are excluded from application-launch scans; they have no ad-cleaning engine.
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != null &&
             pkg !in IGNORED_PACKAGES && pkg !in imePackages) {
@@ -159,6 +175,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        ProtectionStore.removePolicyListener(policyListener)
         stopSplashScan()
         pauseAdGuard.stop()
         jumpGuard.stop()
@@ -183,7 +200,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             foregroundPkg = pkg
             stopSplashScan()
 
-            if (Prefs.skipSplash && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
+            if (Prefs.skipSplash && ProtectionStore.allows(pkg) && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
                 splashSession.start(pkg, SystemClock.elapsedRealtime())
                 lastSkipTryAt = 0L
                 skipTryCount = 0
@@ -251,7 +268,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun scanSplashWindow() {
         nextSplashScanAt = Long.MAX_VALUE
         val pkg = splashSession.packageName ?: return
-        if (!Prefs.skipSplash || !isScreenInteractive() || AppInfoHelper.isProtectedFromAutomation(this, pkg)) {
+        if (!Prefs.skipSplash || !ProtectionStore.allows(pkg) || !isScreenInteractive() || AppInfoHelper.isProtectedFromAutomation(this, pkg)) {
             stopSplashScan()
             return
         }
@@ -513,7 +530,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun Rect.toTargetBounds() = SkipTargetPolicy.Bounds(left, top, right, bottom)
 
     private fun validatedBounds(candidate: Candidate, pkg: String, covered: Boolean): Rect? {
-        if (!Prefs.skipSplash || !isScreenInteractive() || AppInfoHelper.isProtectedFromAutomation(this, pkg) ||
+        if (!Prefs.skipSplash || !ProtectionStore.allows(pkg) || !isScreenInteractive() || AppInfoHelper.isProtectedFromAutomation(this, pkg) ||
             embeddedPagePackage == pkg || splashSession.packageName != pkg) return null
         if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg ||
             !candidate.node.isEnabled || candidate.node.isEditable || (!covered && !candidate.node.isVisibleToUser)) return null
@@ -590,7 +607,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             gestureInFlight = false
             gestureTimeout?.let(handler::removeCallbacks)
             gestureTimeout = null
-            if (success && Prefs.skipSplash && splashSession.packageName == pkg && isScreenInteractive()) recordSplashSkip(pkg, label)
+            if (success && Prefs.skipSplash && ProtectionStore.allows(pkg) && splashSession.packageName == pkg && isScreenInteractive()) recordSplashSkip(pkg, label)
             else scheduleSplashScan(100L)
         }
         gestureTimeout = Runnable { complete(false) }.also { handler.postDelayed(it, 700L) }

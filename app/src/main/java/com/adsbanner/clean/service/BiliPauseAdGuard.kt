@@ -17,6 +17,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.adsbanner.clean.core.BiliPauseAdRule
 import com.adsbanner.clean.core.BiliPauseAdSession
 import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.core.StatsStore
 
 /** 事件立即唤醒；半屏播放时补充低频查询，提示出现后在有限窗口内快速复查。 */
@@ -37,7 +38,7 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
             if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) stop()
             return
         }
-        if (!Prefs.inAppAdGuard) {
+        if (!Prefs.inAppAdGuard || !ProtectionStore.allows(BiliPauseAdRule.PACKAGE)) {
             stop()
             return
         }
@@ -70,7 +71,7 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
     }
 
     private fun canInspect(): Boolean {
-        if (!Prefs.inAppAdGuard || !service.getSystemService(PowerManager::class.java).isInteractive ||
+        if (!Prefs.inAppAdGuard || !ProtectionStore.allows(BiliPauseAdRule.PACKAGE) || !service.getSystemService(PowerManager::class.java).isInteractive ||
             service.getSystemService(KeyguardManager::class.java).isKeyguardLocked) return false
         val root = service.rootInActiveWindow ?: return false
         return try {
