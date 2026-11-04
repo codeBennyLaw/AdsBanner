@@ -19,6 +19,8 @@ import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -61,6 +63,7 @@ internal class OriginDialog private constructor(
     private var closing = false
     private var finished = false
     private var actionTaken = false
+    private var backPreview = false
     private var dropdown = false
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
@@ -70,6 +73,7 @@ internal class OriginDialog private constructor(
         override fun onStop(owner: LifecycleOwner) {
             if (::stage.isInitialized) TransitionManager.endTransitions(stage)
             if (closing) finishDismiss()
+            else if (backPreview || returnMotion != null) restoreBackPreview()
         }
         override fun onDestroy(owner: LifecycleOwner) = finishDismiss()
     }
@@ -176,6 +180,28 @@ internal class OriginDialog private constructor(
             }
         }
         work = PageTransitionWork(panel, entering = true)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                if (entering || closing || finished || !animationsEnabled() || panel.width == 0 ||
+                    panel.height == 0 || !placeAnchor()) return
+                backPreview = true
+                work?.beginPreview()
+                freezeLists()
+                returnMotion = (returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)).also { it.preview() }
+            }
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                if (backPreview && !closing) returnMotion?.seek(backEvent.progress)
+            }
+            override fun handleOnBackCancelled() {
+                if (!backPreview || closing) return
+                backPreview = false
+                if (!animationsEnabled()) restoreBackPreview()
+                else returnMotion?.settleBack {
+                    if (!closing && !backPreview) restoreBackPreview()
+                }
+            }
+            override fun handleOnBackPressed() { cancel() }
+        })
         activity.lifecycle.addObserver(activityObserver)
         stage.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
@@ -348,6 +374,7 @@ internal class OriginDialog private constructor(
     override fun dismiss() {
         if (closing || finished) return
         closing = true
+        backPreview = false
         onClosing?.invoke()
         work?.beginReturn()
         if (!::stage.isInitialized || !isShowing || activity.isFinishing || activity.isDestroyed ||
@@ -355,16 +382,12 @@ internal class OriginDialog private constructor(
             finishDismiss()
             return
         }
-        panel.descendants.filterIsInstance<RecyclerView>().forEach {
-            it.stopScroll()
-            it.suppressLayout(true)
-            frozen.add(it)
-        }
+        freezeLists()
         if (entering) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
         } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
-            val motion = PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)
+            val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)
             returnMotion = motion
             motion.start()
         } else finishDismiss()
@@ -374,6 +397,24 @@ internal class OriginDialog private constructor(
         validOrigin()?.let {
             clearOriginFeedback(it)
         }
+    }
+
+    private fun freezeLists() {
+        panel.descendants.filterIsInstance<RecyclerView>().forEach {
+            if (it !in frozen) {
+                it.stopScroll(); it.itemAnimator?.endAnimations(); it.suppressLayout(true)
+                frozen.add(it)
+            }
+        }
+    }
+
+    private fun restoreBackPreview() {
+        backPreview = false
+        returnMotion?.restore()
+        returnMotion = null
+        frozen.forEach { it.suppressLayout(false) }
+        frozen.clear()
+        work?.endPreview()
     }
 
     private fun clearOriginFeedback(view: View) {
