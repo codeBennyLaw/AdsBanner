@@ -14,8 +14,13 @@ internal object SkipTargetPolicy {
         val x = (target.left.toLong() + target.right) / 2f
         val y = (target.top.toLong() + target.bottom) / 2f
         val topRight = x > width * 0.55f && y < height * 0.30f
+        // Bilibili and other splash screens also place the skip pill at the bottom right.
+        // Keep this region compact; ad evidence is still checked on the live node before acting.
+        val bottomRight = x > width * 0.70f && y > height * 0.75f &&
+            target.right >= width * 0.90f && target.width <= width * 0.32f && target.height <= height * 0.08f
         return when {
             strength == SkipRule.STRONG && topRight -> 100
+            strength == SkipRule.STRONG && bottomRight -> 90
             strength == SkipRule.STRONG && y < height * 0.25f -> 85
             strength == SkipRule.WEAK && topRight -> 60
             else -> 0
