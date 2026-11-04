@@ -172,6 +172,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
         if (!wasReady) InterceptNotifier.onScreenChanged(this, true)
         val pkg = event.packageName?.toString()
+        if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) pauseAdGuard.onWindowsChanged()
         // B 站页面守护只需要自己的交互事件；窗口切换仍要转发一次，及时结束旧页面扫描。
         if (pkg == BiliPauseAdRule.PACKAGE || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             pauseAdGuard.onEvent(event)

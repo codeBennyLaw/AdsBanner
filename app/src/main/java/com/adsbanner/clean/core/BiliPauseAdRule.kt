@@ -27,6 +27,7 @@ internal object BiliPauseAdRule {
     ) {
         val shortId get() = id.substringAfterLast('/')
         val isButton get() = className.substringAfterLast('.') == "Button"
+        val isImage get() = className.substringAfterLast('.') == "ImageView"
         fun hasLabel(test: (String) -> Boolean) = test(text) || test(desc)
     }
 
@@ -111,13 +112,16 @@ internal object BiliPauseAdRule {
         var panelKey: String? = nodes.indices.firstOrNull { p ->
             nodes[p].key == knownPanelKey && nodes.indices.any { ad ->
                 shown(ad) && inside(ad, p) && nodes[p].bounds.contains(nodes[ad].bounds) &&
-                    (nodes[ad].hasLabel { it in AD_LABELS || it in AD_ACTIONS } || nodes[ad].isButton)
+                    (nodes[ad].hasLabel { it in AD_LABELS || it in AD_ACTIONS } || nodes[ad].isButton ||
+                        (nodes[ad].isImage && nodes[ad].bounds.width >= screen.width * 0.35 && nodes[ad].bounds.height >= screen.height * 0.08))
             }
         }?.let { nodes[it].key }
         var close: Target? = null
         for (icon in nodes.indices) {
             if (!small(icon) || isMenu(nodes[icon]) || !nodes[icon].hasLabel { it.lowercase() in CLOSE_LABELS }) continue
             val chain = ancestors(icon).toList()
+            val pauseSpecific = nodes[icon].hasLabel { it in PAUSE_CLOSE_LABELS }
+            val legacyPager = chain.any { nodes[it].shortId == "fl_tab_pager_container" }
             // Pick the nearest section before testing its evidence. A distant recommendation
             // must not authorize a close by causing us to climb into the whole details page.
             val panel = chain.takeWhile { nodes[it].shortId != "fl_tab_pager_container" }.firstOrNull { p ->
@@ -133,7 +137,8 @@ internal object BiliPauseAdRule {
             val cb = nodes[icon].bounds
             val adEvidence = nodes.indices.any { ad ->
                 shown(ad) && inside(ad, panel) && nodes[panel].bounds.contains(nodes[ad].bounds) &&
-                    nodes[ad].bounds.top >= cb.top && nodes[ad].hasLabel { it in AD_LABELS || it in AD_ACTIONS } &&
+                    nodes[ad].bounds.top >= cb.top &&
+                    nodes[ad].hasLabel { it in AD_LABELS || ((legacyPager || pauseSpecific) && it in AD_ACTIONS) } &&
                     ancestors(ad).takeWhile { it != panel }.none { section ->
                         val b = nodes[section].bounds
                         !inside(icon, section) && b.width >= screen.width * 0.55 && b.height >= screen.height * 0.12 &&
@@ -142,7 +147,7 @@ internal object BiliPauseAdRule {
             }
             // Some versions expose no ad badge, but do expose the specific pause-page close
             // beside a native Button. Keep generic close dependent on scoped ad evidence.
-            val pauseControl = nodes[icon].hasLabel { it in PAUSE_CLOSE_LABELS } && nodes.indices.any { i ->
+            val pauseControl = pauseSpecific && nodes.indices.any { i ->
                 i != icon && nodes[i].parent == nodes[icon].parent && nodes[i].isButton && shown(i) && nodes[i].enabled &&
                     nodes[panel].bounds.contains(nodes[i].bounds) && nodes[i].bounds.height <= screen.height * 0.12
             }

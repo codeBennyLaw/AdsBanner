@@ -28,7 +28,7 @@ internal class BiliPauseAdSession {
         panelKey = null
     }
 
-    fun update(match: BiliPauseAdRule.Match?, now: Long): Step {
+    fun update(match: BiliPauseAdRule.Match?, now: Long, closeStable: Boolean = true): Step {
         if (match == null) {
             reset()
             return Step()
@@ -68,11 +68,13 @@ internal class BiliPauseAdSession {
         // 广告已经弹出时，关闭优先；没有点过取消也能独立进入这一分支。
         val target = match.close ?: match.cancel
         val tries = target?.let { current.tries[it.kind] ?: 0 } ?: 0
+        val gesture = target != null && (target.action == null || tries > 0)
         if (target != null && inFlight == null && tries < 3 &&
+            (target.kind != BiliPauseAdRule.Kind.CLOSE || !gesture || closeStable) &&
             (current.tries.isEmpty() || now - current.lastActionAt >= 350L)) {
             current.tries[target.kind] = tries + 1
             current.lastActionAt = now
-            val action = Action(target, gesture = target.action == null || tries > 0)
+            val action = Action(target, gesture = gesture)
             inFlight = action
             return Step(action = action, urgent = true)
         }

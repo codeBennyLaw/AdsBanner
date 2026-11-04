@@ -154,6 +154,12 @@ class BiliPauseAdRuleTest {
         // The CTA still being present must prevent false success when only the close icon vanishes.
         page.nodes[icon] = page.nodes[icon].copy(visible = false)
         assertEquals(match.panelKey, BiliPauseAdRule.match(page.nodes, screen, match.panelKey)!!.panelKey)
+        val button = page.nodes.indexOfFirst { it.key == "action" }
+        page.nodes[button] = page.nodes[button].copy(visible = false)
+        val image = page.add("adImage", panel, className = "android.widget.ImageView", bounds = Bounds(0, 950, 1080, 1700))
+        assertEquals(match.panelKey, BiliPauseAdRule.match(page.nodes, screen, match.panelKey)!!.panelKey)
+        page.nodes[image] = page.nodes[image].copy(visible = false)
+        assertNull(BiliPauseAdRule.match(page.nodes, screen, match.panelKey)!!.panelKey)
     }
 
     @Test fun ordinaryCloseAndButtonWithoutAdEvidenceAreNotEnough() {
@@ -187,5 +193,16 @@ class BiliPauseAdRuleTest {
         val recommendation = page.add("recommendation", page.pager, bounds = Bounds(0, 1800, 1080, 2400))
         page.nodes[mark] = page.nodes[mark].copy(parent = recommendation, bounds = Bounds(30, 1900, 90, 1940))
         assertNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
+    }
+
+    @Test fun ordinaryDetailsActionCannotAuthorizeGenericCloseInANewContainer() {
+        val page = Page()
+        val (icon, _) = page.adPanel()
+        page.nodes[page.pager] = page.nodes[page.pager].copy(id = "new_details_layout")
+        val mark = page.nodes.indexOfFirst { it.key == "adMark" }
+        page.nodes[mark] = page.nodes[mark].copy(text = "查看详情")
+        assertNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
+        page.nodes[icon] = page.nodes[icon].copy(desc = "关闭暂停页")
+        assertNotNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
     }
 }
