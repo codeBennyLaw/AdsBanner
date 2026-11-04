@@ -236,7 +236,7 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
                 parent, "${node.windowId}:$path:${node.viewIdResourceName.orEmpty()}",
                 node.viewIdResourceName.orEmpty(), node.text?.toString()?.trim().orEmpty(),
                 node.contentDescription?.toString()?.trim().orEmpty(), node.isVisibleToUser,
-                node.isEnabled, node.isClickable, bounds.toBounds()
+                node.isEnabled, node.isClickable, bounds.toBounds(), node.className?.toString().orEmpty()
             ))
             live.add(node)
             // 不按不可见父节点剪枝：Compose 的包装节点可能不可见，但子节点仍可操作。
