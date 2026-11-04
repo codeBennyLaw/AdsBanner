@@ -33,6 +33,8 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 
 暂停、例外应用及规则变更会立即取消正在等待的保护动作。通知栏展开时不主动收起，只在系统仍允许访问广告节点时尝试节点点击；被遮挡时不提交坐标手势。系统完全隐藏应用节点时无法保证跳过。
 
+开屏检测优先查询节点 ID 和文字，将快速查询与整树遍历分别限频；启动初期快速响应，无结果时逐步降低轮询。息屏时取消扫描和通知进度刷新，解锁不重开旧页面的启动窗口。B 站无广告页面降低补查频率，提示出现或用户操作时仍由事件及时唤醒。改动依据和模拟器对比见[性能记录](docs/performance.md)。
+
 3.0.0 的产品与规则设计参考了 [GKD](https://gkd.li/guide/subscription)、[AdAway](https://github.com/AdAway/AdAway) 和 [Blokada 5](https://github.com/blokadaorg/five-android)，详见[设计依据](docs/3.0.0-design.md)。实现使用 AdsBanner 自有 JSON 格式，不兼容 GKD 订阅或网络过滤列表，也不增加 VPN、截图识别或小程序广告跳过。
 
 ## 权限与限制
