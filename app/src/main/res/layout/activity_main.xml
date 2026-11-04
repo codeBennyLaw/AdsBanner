@@ -210,6 +210,26 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <com.google.android.material.card.MaterialCardView android:id="@+id/cardProtection"
+            android:transitionName="@string/transition_protection" style="@style/Card.AdsBanner"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+            android:clickable="true" android:focusable="true">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical" android:padding="18dp">
+                <ImageView android:layout_width="28dp" android:layout_height="28dp" android:src="@drawable/ic_shield"
+                    android:contentDescription="@null" android:importantForAccessibility="no" />
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:layout_marginStart="12dp" android:orientation="vertical">
+                    <TextView style="@style/Text.RowTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="拦截管理" />
+                    <TextView android:id="@+id/tvProtectionSummary" style="@style/Text.RowSub"
+                        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                        android:text="临时暂停 · 例外应用 · 精确本地规则" />
+                </LinearLayout>
+                <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_chevron_right"
+                    android:contentDescription="@null" android:importantForAccessibility="no" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- 拦截开关 -->
         <TextView
             style="@style/Text.Section"

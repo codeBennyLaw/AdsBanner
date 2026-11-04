@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.ProtectionStore
 import java.util.Locale
 
 /** Searching never rebuilds the header or reloads every application icon. */
@@ -33,6 +34,7 @@ class TargetListActivity : AppCompatActivity() {
     private val selected = LinkedHashSet<String>()
     private var installedSelectedCount = 0
     private var query = ""
+    private val exclusionsMode get() = intent.getBooleanExtra(EXTRA_EXCLUSIONS, false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,7 +45,8 @@ class TargetListActivity : AppCompatActivity() {
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-        Motion.preparePage(this, getString(R.string.transition_targets), R.color.surface, savedInstanceState != null)
+        if (exclusionsMode) findViewById<TextView>(R.id.tvPageTitle).text = "例外应用"
+        Motion.preparePage(this, getString(if (exclusionsMode) R.string.transition_exclusions else R.string.transition_targets), R.color.surface, savedInstanceState != null)
         list = findViewById(R.id.appList)
         list.layoutManager = LinearLayoutManager(this)
         val header = layoutInflater.inflate(R.layout.header_targets, list, false)
@@ -51,14 +54,16 @@ class TargetListActivity : AppCompatActivity() {
         search = header.findViewById(R.id.etSearch)
         selectionSummary = header.findViewById(R.id.tvSelectionSummary)
         listMeta = header.findViewById(R.id.tvAppListMeta)
-        selected.addAll(Prefs.jumpTargets)
+        if (exclusionsMode) header.findViewById<TextView>(R.id.tvSelectionDescription).text =
+            "勾选后立即放行这个应用，停止开屏、跳转与页面广告操作。作为跳转来源或目标时均放行；已有统计保留。"
+        selected.addAll(if (exclusionsMode) ProtectionStore.exclusions else Prefs.jumpTargets)
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = TargetAppAdapter(icons, selected) { pkg ->
             if (selected.remove(pkg)) installedSelectedCount-- else {
                 selected.add(pkg)
                 installedSelectedCount++
             }
-            Prefs.jumpTargets = selected
+            if (exclusionsMode) ProtectionStore.setExclusions(selected) else Prefs.jumpTargets = selected
             updateSelectionSummary()
         }
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
@@ -108,7 +113,7 @@ class TargetListActivity : AppCompatActivity() {
     }
 
     private fun updateSelectionSummary() {
-        selectionSummary.text = "已选择 $installedSelectedCount 个已安装应用"
+        selectionSummary.text = if (exclusionsMode) "已放行 $installedSelectedCount 个已安装应用" else "已选择 $installedSelectedCount 个已安装应用"
     }
 
     override fun onEnterAnimationComplete() {
@@ -127,4 +132,6 @@ class TargetListActivity : AppCompatActivity() {
         list.adapter = null
         super.onDestroy()
     }
+
+    companion object { const val EXTRA_EXCLUSIONS = "exclusions" }
 }

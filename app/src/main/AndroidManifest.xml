@@ -71,6 +71,9 @@
             android:parentActivityName=".ui.MainActivity"
             android:screenOrientation="portrait" />
 
+        <activity android:name=".ui.ProtectionActivity" android:exported="false"
+            android:parentActivityName=".ui.MainActivity" android:screenOrientation="portrait" />
+
         <!-- 核心：无障碍服务，由系统绑定/守护 -->
         <service
             android:name=".service.AdSkipAccessibilityService"

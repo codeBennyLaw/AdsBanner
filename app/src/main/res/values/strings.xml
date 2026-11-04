@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AdsBanner</string>
+    <string name="transition_protection" translatable="false">adsbanner_protection_container</string>
+    <string name="transition_exclusions" translatable="false">adsbanner_exclusions_container</string>
     <string name="guard_notification_paused_title">AdsBanner 已暂停</string>
     <string name="guard_notification_paused">临时暂停中，到期自动恢复</string>
     <string name="shortcut_stats_label">统计</string>

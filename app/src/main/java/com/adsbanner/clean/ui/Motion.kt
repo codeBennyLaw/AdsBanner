@@ -39,6 +39,11 @@ object Motion {
     fun prepareHome(activity: Activity) {
         bindPressFeedback(activity.findViewById(R.id.cardStats))
         bindPressFeedback(activity.findViewById(R.id.cardTargets))
+        bindPressFeedback(activity.findViewById(R.id.cardProtection))
+        prepareChildSources(activity)
+    }
+
+    internal fun prepareChildSources(activity: Activity) {
         activity.setExitSharedElementCallback(if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
             LegacyPageOrigin.callback(activity) else MaterialContainerTransformSharedElementCallback())
         activity.window.apply {
@@ -49,8 +54,12 @@ object Motion {
     }
 
     fun openPage(activity: Activity, source: View, destination: Class<out Activity>) {
+        openPage(activity, source, Intent(activity, destination))
+    }
+
+    internal fun openPage(activity: Activity, source: View, intent: Intent) {
         resetPressFeedback(source)
-        val intent = Intent(activity, destination).putExtra(EXTRA_CARD_TRANSITION, true)
+        intent.putExtra(EXTRA_CARD_TRANSITION, true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             PageOriginMotion.open(activity, source, intent)
             return
