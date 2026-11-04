@@ -53,7 +53,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val score: Int,
         /** 弱匹配：文案是「关闭 / ×」这类到处都是的按钮，点击前要额外确认 */
         val weak: Boolean,
-        val rule: LocalAdRule? = null
+        val rule: LocalAdRule? = null,
+        var gestureAllowed: Boolean = true
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -623,6 +624,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     node.getBoundsInScreen(parentRect)
                     val precise = SkipTargetPolicy.preciseParent(self.toTargetBounds(), parentRect.toTargetBounds())
                     if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                    if (!precise) candidate.gestureAllowed = false
                 }
                 val parent = node.parent
                 recycleNode(node)
@@ -637,6 +639,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun submitGesture(candidate: Candidate, pkg: String) {
+        if (!candidate.gestureAllowed) return
         val bounds = validatedBounds(candidate, pkg, covered = false) ?: return
         if (!canTapApplication(pkg, candidate.node.windowId, bounds.centerX(), bounds.centerY())) return
         val generation = actionGeneration
