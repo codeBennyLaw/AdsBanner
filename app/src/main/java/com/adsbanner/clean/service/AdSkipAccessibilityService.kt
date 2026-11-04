@@ -32,6 +32,7 @@ import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.SkipTargetPolicy
 import com.adsbanner.clean.core.SplashScanSession
 import com.adsbanner.clean.core.SplashScanCadence
+import com.adsbanner.clean.core.ScreenStateGate
 import com.adsbanner.clean.core.StatsStore
 
 /**
@@ -65,13 +66,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
     )
 
     private val handler = Handler(Looper.getMainLooper())
-    private var screenReady = true
+    private val screenState = ScreenStateGate()
     private var receiverRegistered = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            screenReady = intent?.action != Intent.ACTION_SCREEN_OFF && isScreenInteractive()
-            if (!screenReady) suspendScans()
-            InterceptNotifier.onScreenChanged(this@AdSkipAccessibilityService, screenReady)
+            screenState.update(intent?.action != Intent.ACTION_SCREEN_OFF && isScreenInteractive())
+            if (!screenState.ready) suspendScans()
+            InterceptNotifier.onScreenChanged(this@AdSkipAccessibilityService, screenState.ready)
         }
     }
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -140,7 +141,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         ProtectionStore.init(this)
         ProtectionStore.addPolicyListener(policyListener)
         Prefs.addChangeListener(settingsListener)
-        screenReady = isScreenInteractive()
+        screenState.update(isScreenInteractive())
         if (!receiverRegistered) {
             ContextCompat.registerReceiver(this, screenReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
@@ -160,9 +161,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
-        if (!screenReady || ProtectionStore.paused) return
+        if (ProtectionStore.paused) return
         if (!Prefs.skipSplash && !Prefs.jumpGuard && !Prefs.inAppAdGuard) return
         val type = event.eventType
+        val wasReady = screenState.ready
+        if (!screenState.allows(SystemClock.elapsedRealtime(), type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                ::isScreenInteractive)) {
+            if (wasReady) suspendScans()
+            return
+        }
+        if (!wasReady) InterceptNotifier.onScreenChanged(this, true)
         val pkg = event.packageName?.toString()
         // B 站页面守护只需要自己的交互事件；窗口切换仍要转发一次，及时结束旧页面扫描。
         if (pkg == BiliPauseAdRule.PACKAGE || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
