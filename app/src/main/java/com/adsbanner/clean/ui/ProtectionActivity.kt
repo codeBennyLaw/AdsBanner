@@ -169,7 +169,7 @@ class ProtectionActivity : AppCompatActivity() {
         val rules = ProtectionStore.rules
         val history = ProtectionStore.history.asReversed()
         findViewById<TextView>(R.id.tvRulesHint).text = ProtectionStore.loadError ?: if (rules.isEmpty()) {
-            "添加规则或导入 AdsBanner JSON 文件。按应用、页面和完整节点 ID 精确匹配，一次启动最多执行一次。"
+            "通用开屏识别无需设置规则。这里是可选补充，按应用、页面和完整节点 ID 精确匹配，一次启动最多执行一次。"
         } else "${rules.count { it.enabled }} 条已启用 / 共 ${rules.size} 条 · 点击规则编辑"
         binding = true
         findViewById<MaterialSwitch>(R.id.switchActionHistory).isChecked = ProtectionStore.historyEnabled

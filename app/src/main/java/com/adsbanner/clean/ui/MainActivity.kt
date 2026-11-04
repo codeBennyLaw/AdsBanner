@@ -412,8 +412,10 @@ class MainActivity : AppCompatActivity() {
         tvServiceHint.text =
             if (!enabled) "未开启时无法拦截，点击右侧去开启" else if (paused) "到期自动恢复，也可点击右侧提前恢复" else "AdsBanner 已可以拦截广告"
         findViewById<TextView>(R.id.btnService).text = if (!enabled) "去开启" else if (paused) "恢复" else "设置"
-        findViewById<TextView>(R.id.tvProtectionSummary).text = if (paused) "临时暂停中 · 点击管理" else
-            "例外 ${ProtectionStore.exclusions.size} 个应用 · 本地规则 ${ProtectionStore.rules.count { it.enabled }} 条"
+        val rules = ProtectionStore.rules.count { it.enabled }
+        findViewById<TextView>(R.id.tvProtectionSummary).text = if (paused) "临时暂停中 · 点击管理" else if (rules == 0)
+            "无需配置规则 · 例外 ${ProtectionStore.exclusions.size} 个应用" else
+            "通用识别与补充规则 $rules 条 · 例外 ${ProtectionStore.exclusions.size} 个应用"
 
         val snapshot = StatsStore.snapshot()
         tvTodayCount.text = snapshot.todayTotal.toString()
