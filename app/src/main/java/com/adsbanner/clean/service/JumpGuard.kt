@@ -25,6 +25,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
     private val session = JumpGuardSession()
     private var expectedPackage: String? = null
     private var reconcileUntil = 0L
+    private var nextReconcileAt = Long.MAX_VALUE
     private var lastInspectAt = 0L
     private var inspectionScheduled = false
     private var lastReturnAt = 0L
@@ -86,6 +87,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
         pending = null
         expectedPackage = null
         reconcileUntil = 0L
+        nextReconcileAt = Long.MAX_VALUE
         lastInspectAt = 0L
         inspectionScheduled = false
         session.reset()
@@ -94,11 +96,19 @@ internal class JumpGuard(private val service: AccessibilityService) {
     private fun requestForeground(pkg: String?, now: Long) {
         if (pkg != expectedPackage || reconcileUntil < now) reconcileUntil = now + 600L
         expectedPackage = pkg
+        scheduleReconcile(0L)
+    }
+
+    private fun scheduleReconcile(delay: Long) {
+        val due = SystemClock.elapsedRealtime() + delay
+        if (due >= nextReconcileAt) return
         handler.removeCallbacks(reconcile)
-        handler.post(reconcile)
+        nextReconcileAt = due
+        handler.postDelayed(reconcile, delay)
     }
 
     private fun reconcileForeground() {
+        nextReconcileAt = Long.MAX_VALUE
         if (!Prefs.jumpGuard || ProtectionStore.paused) return stop()
         val now = SystemClock.elapsedRealtime()
         val root = service.rootInActiveWindow
@@ -126,7 +136,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
         }
         // 启动事件可能早于活动窗口更新；只短暂补查，不把后台事件包名当作前台。
         if ((pkg == null || (expectedPackage != null && pkg != expectedPackage)) && now < reconcileUntil) {
-            handler.postDelayed(reconcile, 50L)
+            scheduleReconcile(50L)
         }
     }
 
