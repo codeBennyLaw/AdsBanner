@@ -46,6 +46,13 @@ class SkipRuleTest {
             .forEach { assertTrue(it, SkipRule.hasAdEvidence(it)) }
     }
 
+    @Test fun standaloneAdMarkersAreDistinctFromSettingsAndOrdinaryCountdowns() {
+        listOf("广告", "广告 3 秒", "广告丨5", "AD", "Advertisement")
+            .forEach { assertTrue(it, SkipRule.isStandaloneAdMarker(it)) }
+        listOf("广告设置", "去广告", "会员免广告", "广告权益", "10秒", "跳过", "普通内容广告介绍")
+            .forEach { assertFalse(it, SkipRule.isStandaloneAdMarker(it)) }
+    }
+
     @Test fun embeddedPagesAreExcludedWithoutBlockingHostLaunchers() {
         assertTrue(SkipRule.isEmbeddedPage("com.tencent.mm", "com.tencent.mm.plugin.appbrand.ui.AppBrandUI00"))
         assertTrue(SkipRule.isEmbeddedPage("com.tencent.mobileqq", "com.tencent.qqmini.sdk.ui.MiniActivity"))

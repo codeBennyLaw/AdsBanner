@@ -468,7 +468,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
     }
 
-    /** Native text queries for strong corner matches; refreshed validation still requires ad evidence. */
+    /** Query strong labels across the window; refreshed validation still requires live ad evidence. */
     private fun tryQuickSkip(pkg: String, covered: Boolean, active: AccessibilityNodeInfo?): Candidate? {
         val screen = screenSize()
         var gestureFallback: Candidate? = null
@@ -478,7 +478,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (SkipRule.match(label) != SkipRule.STRONG) return null
             val rect = Rect().also(node::getBoundsInScreen)
             val score = scoreOf(SkipRule.STRONG, rect, screen)
-            if (rect.isEmpty || score < 85) return null
+            if (rect.isEmpty || score <= 0) return null
             if (node.isVisibleToUser) jumpGuard.onAdCandidate(pkg, label)
             return Candidate(copyNode(node), label, score, false)
         }
@@ -489,9 +489,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 gestureFallback = null
                 return candidate
             }
-            // Explicit right-corner ad controls can reuse this candidate for a gesture.
+            // Explicit ad controls can reuse this candidate, regardless of their screen position.
             if (!covered && gestureFallback == null && candidate.gestureAllowed &&
-                (candidate.score == 100 || candidate.score == 90) &&
                 JumpAdRule.isAdSkip(candidate.label)) gestureFallback = candidate
             else recycleNode(candidate.node)
             return null
@@ -604,6 +603,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val candidates = ArrayList<Candidate>(4)
         var visited = 0
         var adHints = 0
+        var standaloneAdHints = 0
 
         fun walk(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > 30 || visited > 700) return
@@ -617,6 +617,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (label.isNotEmpty()) {
                 val hintBounds = Rect().also(node::getBoundsInScreen)
                 if (label.length <= 16 && hintBounds.centerY() < screen.y * 0.35f && SkipRule.hasAdEvidence(label)) adHints++
+                if (SkipRule.isStandaloneAdMarker(label) && SkipTargetPolicy.smallTarget(hintBounds.toTargetBounds(), screen.x, screen.y)) standaloneAdHints++
 
                 val strength = SkipRule.match(label)
                 if (strength != SkipRule.NONE) {
@@ -625,7 +626,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     if (rect.width() > 0 && rect.height() > 0) {
                         val score = scoreOf(strength, rect, screen)
                         if (score > 0) {
-                            if (strength == SkipRule.STRONG && score >= 85 && node.isVisibleToUser) {
+                            if (strength == SkipRule.STRONG && node.isVisibleToUser) {
                                 node.packageName?.toString()?.let { jumpGuard.onAdCandidate(it, label) }
                             }
                             candidates.add(
@@ -650,7 +651,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         return candidates.filter { candidate ->
             val allowed = if (candidate.weak) weakAllowed && adHints > 0 && visited <= SPLASH_MAX_NODES
-                else JumpAdRule.isAdSkip(candidate.label) || adHints > 0
+                else JumpAdRule.isAdSkip(candidate.label) || standaloneAdHints > 0 || (candidate.score != 80 && adHints > 0)
             if (!allowed) recycleNode(candidate.node)
             allowed
         }
@@ -681,25 +682,32 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val strength = SkipRule.match(label)
         if (strength == SkipRule.NONE || (!candidate.weak && strength != SkipRule.STRONG) ||
             (covered && strength != SkipRule.STRONG)) return null
-        if (scoreOf(strength, self, screenSize()) <= 0) return null
-        if ((candidate.weak || !JumpAdRule.isAdSkip(label)) && !hasLiveAdMarker(pkg, candidate.node.windowId, covered)) return null
+        val score = scoreOf(strength, self, screenSize())
+        if (score <= 0) return null
+        if ((candidate.weak || !JumpAdRule.isAdSkip(label)) && !hasLiveAdMarker(pkg, candidate.node.windowId, covered,
+                topOnly = candidate.weak, standaloneOnly = score == 80)) return null
         return self
     }
 
-    private fun hasLiveAdMarker(pkg: String, windowId: Int, covered: Boolean): Boolean {
+    private fun hasLiveAdMarker(pkg: String, windowId: Int, covered: Boolean, topOnly: Boolean, standaloneOnly: Boolean): Boolean {
         val screenWindows = windows.orEmpty()
         val root = screenWindows.firstOrNull { it.id == windowId }?.root ?: run { recycleWindows(screenWindows); return false }
         try {
             if (root.packageName?.toString() != pkg || root.windowId != windowId || (!covered && hasSystemCover(windowId, screenWindows))) return false
-            val markers = root.findAccessibilityNodeInfosByText("广告").orEmpty()
-            try {
-                return markers.take(8).any { node ->
-                    val bounds = Rect().also(node::getBoundsInScreen)
-                    node.packageName?.toString() == pkg && (node.isVisibleToUser || covered) &&
-                        nodeLabel(node).let { it.length <= 16 && SkipRule.hasAdEvidence(it) } &&
-                        bounds.centerY() < screenSize().y * 0.35f
-                }
-            } finally { markers.forEach(::recycleNode) }
+            val screen = screenSize()
+            for (query in if (topOnly) arrayOf("广告") else arrayOf("广告", "ad")) {
+                val markers = root.findAccessibilityNodeInfosByText(query).orEmpty()
+                try {
+                    if (markers.take(8).any { node ->
+                        val bounds = Rect().also(node::getBoundsInScreen)
+                        val text = nodeLabel(node)
+                        node.packageName?.toString() == pkg && node.windowId == windowId && (node.isVisibleToUser || covered) &&
+                            ((!standaloneOnly && text.length <= 16 && SkipRule.hasAdEvidence(text) && bounds.centerY() < screen.y * 0.35f) ||
+                                (!topOnly && SkipRule.isStandaloneAdMarker(text) && SkipTargetPolicy.smallTarget(bounds.toTargetBounds(), screen.x, screen.y)))
+                    }) return true
+                } finally { markers.forEach(::recycleNode) }
+            }
+            return false
         } finally { recycleNode(root); recycleWindows(screenWindows) }
     }
 

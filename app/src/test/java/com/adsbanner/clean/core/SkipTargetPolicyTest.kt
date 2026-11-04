@@ -16,12 +16,21 @@ class SkipTargetPolicyTest {
         assertEquals(90, SkipTargetPolicy.score(SkipRule.STRONG, bili, 946, 2048))
         assertEquals(0, SkipTargetPolicy.score(SkipRule.WEAK, bili, 946, 2048))
     }
-    @Test fun bottomRegionDoesNotAuthorizeCentralWideOrTallControls() {
+    @Test fun blankBottomSpaceDoesNotExcludeRaisedOrCenteredStrongTargets() {
         val bottom = SkipTargetPolicy.Bounds(800, 1700, 960, 1800)
         assertEquals(90, SkipTargetPolicy.score(SkipRule.STRONG, bottom, 1000, 2000))
         listOf(bottom.copy(left = 350, right = 510), bottom.copy(left = 650, right = 810),
-            bottom.copy(top = 1200, bottom = 1300), bottom.copy(left = 600), bottom.copy(bottom = 1880))
+            bottom.copy(top = 1200, bottom = 1300))
+            .forEach { assertEquals(it.toString(), 80, SkipTargetPolicy.score(SkipRule.STRONG, it, 1000, 2000)) }
+        listOf(bottom.copy(left = 600), bottom.copy(bottom = 1880))
             .forEach { assertEquals(it.toString(), 0, SkipTargetPolicy.score(SkipRule.STRONG, it, 1000, 2000)) }
+    }
+    @Test fun strongTargetsCoverTheScreenButGenericCloseRemainsTopRightOnly() {
+        for (left in listOf(0, 420, 840)) for (top in listOf(0, 600, 1000, 1500, 1900)) {
+            val target = SkipTargetPolicy.Bounds(left, top, left + 140, top + 60)
+            assertTrue(target.toString(), SkipTargetPolicy.score(SkipRule.STRONG, target, 1000, 2000) > 0)
+            if (left < 550 || top >= 600) assertEquals(target.toString(), 0, SkipTargetPolicy.score(SkipRule.WEAK, target, 1000, 2000))
+        }
     }
     @Test fun offscreenAndLargeContainersCannotBecomeButtons() {
         listOf(button.copy(left = -1), button.copy(right = 1001), button.copy(top = -1),
