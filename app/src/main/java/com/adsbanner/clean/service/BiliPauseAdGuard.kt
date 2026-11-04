@@ -28,6 +28,7 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
     private var generation = 0
     private var nextScanAt = Long.MAX_VALUE
     private var lastScanAt = 0L
+    private var emptyPasses = 0
     private var burstUntil = 0L
     private var lastClose: Pair<String, BiliPauseAdRule.Bounds>? = null
     private var gestureTimeout: Runnable? = null
@@ -44,8 +45,10 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
         }
         val now = SystemClock.elapsedRealtime()
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) burstUntil = now + 4_500L
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) emptyPasses = 0
         running = true
-        schedule((120L - (now - lastScanAt)).coerceAtLeast(0L))
+        val gap = if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) 32L else 120L
+        schedule((gap - (now - lastScanAt)).coerceAtLeast(0L))
     }
 
     fun stop() {
@@ -56,6 +59,7 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
         gestureTimeout = null
         nextScanAt = Long.MAX_VALUE
         lastScanAt = 0L
+        emptyPasses = 0
         burstUntil = 0L
         lastClose = null
         session.reset()
@@ -70,26 +74,31 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
         handler.postDelayed(scan, delay)
     }
 
-    private fun canInspect(): Boolean {
+    private fun activeRoot(): AccessibilityNodeInfo? {
         if (!Prefs.inAppAdGuard || !ProtectionStore.allows(BiliPauseAdRule.PACKAGE) || !service.getSystemService(PowerManager::class.java).isInteractive ||
-            service.getSystemService(KeyguardManager::class.java).isKeyguardLocked) return false
-        val root = service.rootInActiveWindow ?: return false
-        return try {
-            root.packageName?.toString() == BiliPauseAdRule.PACKAGE
-        } finally {
-            recycleNode(root)
-        }
+            service.getSystemService(KeyguardManager::class.java).isKeyguardLocked) return null
+        val root = service.rootInActiveWindow ?: return null
+        if (root.packageName?.toString() == BiliPauseAdRule.PACKAGE) return root
+        recycleNode(root)
+        return null
+    }
+
+    private fun canInspect(): Boolean {
+        val root = activeRoot() ?: return false
+        recycleNode(root)
+        return true
     }
 
     private fun tick() {
         nextScanAt = Long.MAX_VALUE
-        if (!canInspect()) {
+        val root = activeRoot()
+        if (root == null) {
             stop()
             return
         }
         val now = SystemClock.elapsedRealtime()
         lastScanAt = now
-        val snapshot = capture()
+        val snapshot = capture(root)
         try {
             // 页面更新过程中节点暂缺时，仅重查；不把不完整的树当作广告已经消失。
             if (!snapshot.complete) {
@@ -111,12 +120,16 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
                 lastClose = null
             }
             val step = session.update(match, now)
+            emptyPasses = if (match == null) (emptyPasses + 1).coerceAtMost(3) else 0
             if (step.record && canInspect()) StatsStore.record(BiliPauseAdRule.PACKAGE, StatsStore.Kind.PAGE_AD)
             step.action?.let { execute(it, snapshot) }
             schedule(when {
                 stabilizing || step.urgent || now < burstUntil -> 120L
-                match != null -> 500L
-                else -> 900L
+                match?.hintKey != null || match?.panelKey != null -> 500L
+                match != null -> 900L
+                emptyPasses == 1 -> 900L
+                emptyPasses == 2 -> 1_800L
+                else -> 3_000L
             })
         } finally {
             snapshot.release()
@@ -197,20 +210,21 @@ internal class BiliPauseAdGuard(private val service: AccessibilityService) {
         }
     }
 
-    private fun capture(): Snapshot {
+    private fun capture(active: AccessibilityNodeInfo): Snapshot {
         val roots = ArrayList<AccessibilityNodeInfo>()
-        val active = service.rootInActiveWindow ?: return Snapshot(emptyList(), emptyList(), false)
-        if (active.packageName?.toString() != BiliPauseAdRule.PACKAGE) {
-            recycleNode(active)
-            return Snapshot(emptyList(), emptyList(), false)
-        }
         roots.add(active)
-        service.windows?.forEach { window ->
-            window.root?.let { root ->
-                if (root.packageName?.toString() == BiliPauseAdRule.PACKAGE && roots.none { it == root }) {
-                    roots.add(root)
-                } else recycleNode(root)
+        val windows = service.windows.orEmpty()
+        try {
+            windows.forEach { window ->
+                window.root?.let { root ->
+                    if (root.packageName?.toString() == BiliPauseAdRule.PACKAGE && roots.none { it == root }) {
+                        roots.add(root)
+                    } else recycleNode(root)
+                }
             }
+        } finally {
+            @Suppress("DEPRECATION")
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) windows.forEach { it.recycle() }
         }
         val nodes = ArrayList<BiliPauseAdRule.Node>()
         val live = ArrayList<AccessibilityNodeInfo>()
