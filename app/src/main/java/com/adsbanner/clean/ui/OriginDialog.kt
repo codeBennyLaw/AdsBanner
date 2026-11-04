@@ -39,6 +39,7 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.ShapeAppearanceModel
+import com.google.android.material.shape.Shapeable
 import com.google.android.material.transition.MaterialContainerTransform
 import java.lang.ref.WeakReference
 
@@ -305,9 +306,10 @@ internal class OriginDialog private constructor(
     }
 
     private fun startEnterTransform() {
-        val rounded = (validOrigin() as? MaterialButton)?.takeIf { dropdown }?.shapeAppearanceModel
-            ?: ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
-        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(if (dropdown) 20 else 28).toFloat()).build()
+        val rounded = (validOrigin() as? Shapeable)?.shapeAppearanceModel
+            ?: ShapeAppearanceModel.builder().setAllCornerSizes(context.resources.getDimension(R.dimen.corner_card)).build()
+        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(
+            context.resources.getDimension(if (dropdown) R.dimen.corner_card else R.dimen.corner_dialog)).build()
         val sourceColor = originContainerColor()
         val dialogColor = context.getColor(R.color.surface)
         val transition = MaterialContainerTransform().apply {
