@@ -31,6 +31,12 @@ internal object ProtectionStore {
     private val expirePause = Runnable { resume() }
     val paused: Boolean get() = SystemClock.elapsedRealtime() < pauseDeadline
     val pauseRemainingMs: Long get() = (pauseDeadline - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+    var historyEnabled: Boolean
+        get() = preferences.getBoolean("historyEnabled", true)
+        set(value) {
+            preferences.edit().putBoolean("historyEnabled", value).apply()
+            historyListeners.forEach { it() }
+        }
     fun allows(pkg: String) = !paused && pkg !in exclusions
 
     fun init(context: Context) {
@@ -84,6 +90,7 @@ internal object ProtectionStore {
     }
 
     fun record(pkg: String, kind: StatsStore.Kind, rule: String, source: String = "") {
+        if (!historyEnabled) return
         val action = Action(System.currentTimeMillis(), pkg, kind, rule.take(60), source)
         history = (history + action).takeLast(HISTORY_LIMIT)
         saveHistory()
