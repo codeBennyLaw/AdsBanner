@@ -4,11 +4,12 @@ package com.adsbanner.clean.core
  * "跳过按钮"文案识别。
  *
  * 只做文案判断，位置判断交给 AccessibilityService（需要结合屏幕尺寸）。
- * 分级的目的：通用强匹配只在顶部或紧贴右下角的小型控件点击，并检查广告证据；弱匹配（关闭 / ×）仅限右上角，
+ * 分级的目的：强匹配允许全屏小型控件，并检查广告证据；弱匹配（关闭 / ×）仅限右上角，
  * 否则极易误关正常页面的弹窗。
  */
 object SkipRule {
     private val whitespace = Regex("\\s+")
+    private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
 
     const val NONE = 0
     const val WEAK = 1
@@ -66,6 +67,9 @@ object SkipRule {
 
     /** A plain countdown also belongs to alarms/timers; it cannot authorize a generic close. */
     fun hasAdEvidence(raw: String): Boolean = raw.contains("广告") || JumpAdRule.isAdSkip(raw)
+
+    /** Outside the top region, only a standalone ad label may authorize a plain skip. */
+    fun isStandaloneAdMarker(raw: String): Boolean = raw.length <= 20 && standaloneAdMarker.matches(raw.trim())
 
     /** Embedded pages are not application launch screens; never let the splash engine click their controls. */
     fun isEmbeddedPage(pkg: String, className: String): Boolean = when (pkg) {
