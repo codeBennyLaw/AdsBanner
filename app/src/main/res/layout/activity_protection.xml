@@ -52,19 +52,19 @@
             <TextView android:id="@+id/tvRulesHint" style="@style/Text.RowSub" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:text="按应用、页面和完整节点 ID 匹配，一次启动最多执行一次。" />
             <com.google.android.material.button.MaterialButton android:id="@+id/btnAddRule"
-                style="@style/Widget.Material3.Button.TonalButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                style="@style/Button.AdsBanner.Tonal" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="8dp" android:minHeight="48dp" android:text="新增规则" />
             <androidx.recyclerview.widget.RecyclerView android:id="@+id/rulesList" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
             <com.google.android.material.button.MaterialButton android:id="@+id/btnAllRules"
-                style="@style/Widget.Material3.Button.TextButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:minHeight="48dp" android:text="查看全部规则" android:visibility="gone" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnImportRules"
-                    style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content"
+                    style="@style/Button.AdsBanner.Outlined" android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1" android:layout_marginEnd="8dp" android:minHeight="48dp" android:text="导入规则" />
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnExportRules"
-                    style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content"
+                    style="@style/Button.AdsBanner.Outlined" android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1" android:minHeight="48dp" android:text="导出规则" />
             </LinearLayout>
             <TextView style="@style/Text.RowSub" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -79,10 +79,10 @@
             <androidx.recyclerview.widget.RecyclerView android:id="@+id/actionsList" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
             <com.google.android.material.button.MaterialButton android:id="@+id/btnAllHistory"
-                style="@style/Widget.Material3.Button.TextButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:minHeight="48dp" android:text="查看全部操作" android:visibility="gone" />
             <com.google.android.material.button.MaterialButton android:id="@+id/btnClearHistory"
-                style="@style/Widget.Material3.Button.TextButton" android:layout_width="match_parent" android:layout_height="wrap_content"
+                style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:minHeight="48dp" android:text="清除操作记录" />
         </LinearLayout>
     </ScrollView>

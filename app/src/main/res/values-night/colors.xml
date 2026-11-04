@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 深色模式：主色提亮以保证在深底上的对比度，容器色改为深蓝 -->
-    <color name="brand">#8DB5FF</color>
-    <color name="brand_dark">#D6E4FF</color>
-    <color name="brand_light">#1B2A44</color>
+    <color name="brand">#A9C7EE</color>
+    <color name="brand_dark">#DCE8F9</color>
+    <color name="brand_light">#293B53</color>
     <color name="on_brand">#0B1220</color>
 
-    <color name="bg">#0E1116</color>
-    <color name="surface">#171B22</color>
-    <color name="surface_alt">#202631</color>
-    <color name="card_stroke">#2B3442</color>
-    <color name="divider">#242A34</color>
+    <color name="bg">#111315</color>
+    <color name="surface">#1B1F24</color>
+    <color name="surface_alt">#272D35</color>
+    <color name="card_stroke">#424B58</color>
+    <color name="divider">#303640</color>
 
-    <color name="text_primary">#EDF1F7</color>
-    <color name="text_secondary">#A3ACBB</color>
-    <color name="text_tertiary">#9AA6B8</color>
+    <color name="text_primary">#EDF0F4</color>
+    <color name="text_secondary">#BCC4CF</color>
+    <color name="text_tertiary">#ADB7C5</color>
 
     <color name="success">#38D39F</color>
     <color name="danger">#FF6B5E</color>

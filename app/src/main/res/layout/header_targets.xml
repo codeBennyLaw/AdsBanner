@@ -43,10 +43,10 @@
         android:hint="搜索应用名称或包名"
         app:boxBackgroundMode="outline"
         app:boxBackgroundColor="@color/surface"
-        app:boxCornerRadiusTopStart="18dp"
-        app:boxCornerRadiusTopEnd="18dp"
-        app:boxCornerRadiusBottomStart="18dp"
-        app:boxCornerRadiusBottomEnd="18dp"
+        app:boxCornerRadiusTopStart="@dimen/corner_control"
+        app:boxCornerRadiusTopEnd="@dimen/corner_control"
+        app:boxCornerRadiusBottomStart="@dimen/corner_control"
+        app:boxCornerRadiusBottomEnd="@dimen/corner_control"
         app:startIconDrawable="@drawable/ic_search"
         app:endIconMode="clear_text">
         <com.google.android.material.textfield.TextInputEditText
