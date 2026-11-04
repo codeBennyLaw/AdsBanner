@@ -468,7 +468,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
     }
 
-    /** Native text queries for strong top matches; refreshed validation still requires ad evidence. */
+    /** Native text queries for strong corner matches; refreshed validation still requires ad evidence. */
     private fun tryQuickSkip(pkg: String, covered: Boolean, active: AccessibilityNodeInfo?): Candidate? {
         val screen = screenSize()
         var gestureFallback: Candidate? = null
@@ -489,8 +489,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 gestureFallback = null
                 return candidate
             }
-            // Only explicit top-right ad controls can skip the general tree walk for a gesture.
-            if (!covered && gestureFallback == null && candidate.gestureAllowed && candidate.score == 100 &&
+            // Explicit right-corner ad controls can reuse this candidate for a gesture.
+            if (!covered && gestureFallback == null && candidate.gestureAllowed &&
+                (candidate.score == 100 || candidate.score == 90) &&
                 JumpAdRule.isAdSkip(candidate.label)) gestureFallback = candidate
             else recycleNode(candidate.node)
             return null
