@@ -405,17 +405,17 @@ class MainActivity : AppCompatActivity() {
         val enabled = AccessibilityHelper.isServiceEnabled(this)
         val paused = ProtectionStore.paused
         statusDot.setBackgroundResource(if (enabled && !paused) R.drawable.dot_on else R.drawable.dot_off)
-        tvServiceState.text = if (!enabled) "无障碍服务未开启" else if (paused) "保护已暂停" else "无障碍服务运行中"
+        tvServiceState.text = if (!enabled) "服务未开启" else if (paused) "保护已暂停" else "服务已开启"
         tvServiceState.setTextColor(
             ContextCompat.getColor(this, if (enabled) R.color.text_primary else R.color.danger)
         )
         tvServiceHint.text =
-            if (!enabled) "未开启时无法拦截，点击右侧去开启" else if (paused) "到期自动恢复，也可点击右侧提前恢复" else "AdsBanner 已可以拦截广告"
-        findViewById<TextView>(R.id.btnService).text = if (!enabled) "去开启" else if (paused) "恢复" else "设置"
+            if (!enabled) "在系统设置中开启无障碍服务" else if (paused) "到期自动恢复，也可提前恢复" else "按照下方开关执行拦截"
+        findViewById<TextView>(R.id.btnService).text = if (!enabled) "开启" else if (paused) "恢复" else "设置"
         val rules = ProtectionStore.rules.count { it.enabled }
         findViewById<TextView>(R.id.tvProtectionSummary).text = if (paused) "临时暂停中 · 点击管理" else if (rules == 0)
-            "无需配置规则 · 例外 ${ProtectionStore.exclusions.size} 个应用" else
-            "通用识别与补充规则 $rules 条 · 例外 ${ProtectionStore.exclusions.size} 个应用"
+            "无需手动配置，例外 ${ProtectionStore.exclusions.size} 个应用" else
+            "例外 ${ProtectionStore.exclusions.size} 个应用，补充规则 $rules 条"
 
         val snapshot = StatsStore.snapshot()
         tvTodayCount.text = snapshot.todayTotal.toString()
@@ -447,19 +447,19 @@ class MainActivity : AppCompatActivity() {
             }
             Build.VERSION.SDK_INT < 36 -> {
                 tvNotifyHint.text =
-                    "Android ${Build.VERSION.SDK_INT} 不支持实时通知，走普通通知"
+                    "当前系统使用普通拦截通知"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             }
             !InterceptNotifier.supportsLiveUpdates() -> {
-                tvNotifyHint.text = "系统缺少实时通知接口，走普通通知"
+                tvNotifyHint.text = "当前系统使用普通拦截通知"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             }
             InterceptNotifier.canPostPromoted(this) -> {
-                tvNotifyHint.text = "已接入实时通知，拦截时上岛（是否提升由系统决定）"
+                tvNotifyHint.text = "拦截时显示实时通知，展示方式由系统决定"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.success))
             }
             else -> {
-                tvNotifyHint.text = "系统支持但未授权，点此前往开启"
+                tvNotifyHint.text = "允许实时通知以显示拦截进度"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.warning))
             }
         }

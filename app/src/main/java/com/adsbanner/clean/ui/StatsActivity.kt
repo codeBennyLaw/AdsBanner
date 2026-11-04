@@ -73,7 +73,7 @@ class StatsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_stats)
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
-        Motion.preparePage(this, getString(R.string.transition_stats), R.color.brand_light, savedInstanceState != null)
+        Motion.preparePage(this, getString(R.string.transition_stats), R.color.surface, savedInstanceState != null)
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
