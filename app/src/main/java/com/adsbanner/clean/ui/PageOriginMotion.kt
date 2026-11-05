@@ -1,12 +1,16 @@
 package com.adsbanner.clean.ui
 
 import android.annotation.SuppressLint
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.ActivityOptions
 import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.RenderNode
@@ -14,12 +18,14 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import android.view.ViewOutlineProvider
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.activity.BackEventCompat
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.graphics.withScale
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.descendants
 import androidx.recyclerview.widget.RecyclerView
 import androidx.transition.Transition
@@ -67,8 +73,18 @@ internal class PageOriginMotion(
     private var homeFrameObserver: ViewTreeObserver? = null
     private var homeFrameCallback: Runnable? = null
     private var returnRadius = 0f
+    private var returnAnimator: ValueAnimator? = null
+    private var poseFill = background
+    private var originOffsetX = 0
+    private var originOffsetY = 0
     private val anchor = object : View(activity) {
-        override fun onDraw(canvas: Canvas) { if (!returning) source()?.draw(canvas) }
+        override fun onDraw(canvas: Canvas) {
+            if (returning) return
+            canvas.save()
+            canvas.translate(-originOffsetX.toFloat(), -originOffsetY.toFloat())
+            source()?.draw(canvas)
+            canvas.restore()
+        }
     }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = View.INVISIBLE }
 
     init {
@@ -102,16 +118,19 @@ internal class PageOriginMotion(
     private fun placeAnchor(): Boolean {
         val view = source() ?: return false
         val rect = Rect()
-        if (!view.getGlobalVisibleRect(rect) || rect.width() != view.width || rect.height() != view.height) return false
+        if (!view.getGlobalVisibleRect(rect)) return false
+        val sourceLocation = IntArray(2).also(view::getLocationOnScreen)
+        originOffsetX = rect.left - sourceLocation[0]
+        originOffsetY = rect.top - sourceLocation[1]
         val location = IntArray(2)
         stage.getLocationOnScreen(location)
-        anchor.layoutParams = FrameLayout.LayoutParams(view.width, view.height).apply {
+        anchor.layoutParams = FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
             gravity = Gravity.TOP or Gravity.LEFT // Bounds are physical screen coordinates, also in RTL.
             leftMargin = rect.left - location[0]
             topMargin = rect.top - location[1]
         }
-        anchor.measure(View.MeasureSpec.makeMeasureSpec(view.width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(view.height, View.MeasureSpec.EXACTLY))
+        anchor.measure(View.MeasureSpec.makeMeasureSpec(rect.width(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(rect.height(), View.MeasureSpec.EXACTLY))
         anchor.layout(rect.left - location[0], rect.top - location[1], rect.right - location[0], rect.bottom - location[1])
         return true
     }
@@ -180,12 +199,41 @@ internal class PageOriginMotion(
         fun startReturn() {
             capturePagePose()
             // The pose is already placed. Prepare the overlay before the next draw.
-            morph(forward = false)
+            startReturnMorph()
         }
         if (homeReady || homeBackdropNode != null) startReturn() else whenHomeFrameReady {
             homeReady = true
             clearHomeBackdrop()
             startReturn()
+        }
+    }
+
+    private fun startReturnMorph() {
+        val pose = returnPose ?: run { finish(); return }
+        val location = IntArray(2).also(anchor::getLocationOnScreen)
+        val destination = Rect(location[0], location[1], location[0] + anchor.width, location[1] + anchor.height)
+        val geometry = OriginReturnTransform(pose, destination, activity.resources.getDimension(R.dimen.corner_card))
+        anchor.visibility = View.INVISIBLE
+        pose.visibility = View.VISIBLE
+        returnAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = if (returningFromGesture) 280L else 340L
+            interpolator = if (returningFromGesture) PathInterpolator(0.2f, 0.6f, 0.2f, 1f)
+                else PathInterpolator(0.2f, 0f, 0.1f, 1f)
+            addUpdateListener {
+                val progress = it.animatedValue as Float
+                geometry.apply(progress)
+                poseFill = ColorUtils.blendARGB(background, color, motionFraction(0f, 0.85f, progress))
+                returnNode?.alpha = 1f - motionFraction(0.2f, 0.9f, progress)
+                pose.alpha = 1f - motionFraction(0.88f, 1f, progress)
+                pose.invalidate()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    returnAnimator = null
+                    if (!closed && !activity.isFinishing) handOffToHome()
+                }
+            })
+            start()
         }
     }
 
@@ -385,6 +433,7 @@ internal class PageOriginMotion(
         returnNode = node
         val pose = object : View(activity) {
             override fun onDraw(canvas: Canvas) {
+                canvas.drawColor(poseFill)
                 canvas.withScale(width.toFloat() / page.width, height.toFloat() / page.height) {
                     if (isHardwareAccelerated && node.hasDisplayList()) drawRenderNode(node)
                     else page.draw(this)
@@ -392,6 +441,11 @@ internal class PageOriginMotion(
             }
         }.apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            clipToOutline = returnRadius > 0f
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) =
+                    outline.setRoundRect(0, 0, view.width, view.height, returnRadius)
+            }
             layoutParams = FrameLayout.LayoutParams(bounds.width().roundToInt(), bounds.height().roundToInt()).apply {
                 gravity = Gravity.TOP or Gravity.LEFT
                 leftMargin = bounds.left.roundToInt()
@@ -410,6 +464,8 @@ internal class PageOriginMotion(
     fun close() {
         if (closed) return
         closed = true
+        returnAnimator?.cancel()
+        returnAnimator = null
         clearHomeFrameWait()
         restoreHomeWindowAnimations()
         // Do not finish the activity from a cancelled transition during destruction.
