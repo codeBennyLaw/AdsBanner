@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SkipTargetPolicyTest {
+    @Test fun upperStrongHitAreaKeepsLegacyHeightWithoutRelaxingGenericClose() {
+        val padded = SkipTargetPolicy.Bounds(750, 80, 980, 400)
+        assertEquals(100, SkipTargetPolicy.score(SkipRule.STRONG, padded, 1000, 2000))
+        assertEquals(0, SkipTargetPolicy.score(SkipRule.WEAK, padded, 1000, 2000))
+        assertEquals(0, SkipTargetPolicy.score(SkipRule.STRONG, padded.copy(bottom = 700), 1000, 2000))
+        assertEquals(0, SkipTargetPolicy.score(SkipRule.STRONG, padded.copy(left = 0), 1000, 2000))
+    }
+
     private val button = SkipTargetPolicy.Bounds(820, 100, 960, 160)
     @Test fun explicitSmallTopButtonsAreAccepted() {
         assertEquals(100, SkipTargetPolicy.score(SkipRule.STRONG, button, 1000, 2000))
