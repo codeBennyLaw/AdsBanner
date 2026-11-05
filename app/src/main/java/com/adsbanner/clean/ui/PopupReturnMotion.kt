@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.graphics.Rect
 import android.os.Build
+import android.os.SystemClock
 import android.view.View
 import android.view.animation.PathInterpolator
 import androidx.dynamicanimation.animation.FloatValueHolder
@@ -36,6 +37,8 @@ internal class PopupReturnMotion(
     private var animator: ValueAnimator? = null
     private var spring: SpringAnimation? = null
     private var previewStart = 0f
+    private var lastSeekAt = 0L
+    private var progressVelocity = 0f
     var progress = 0f
         private set
     private val movingView get() = if (Build.VERSION.SDK_INT >= 29) surface?.view ?: panel else panel
@@ -51,17 +54,29 @@ internal class PopupReturnMotion(
         freeze()
         attach()
         previewStart = progress
+        lastSeekAt = SystemClock.uptimeMillis()
+        progressVelocity = 0f
     }
 
-    fun seek(progress: Float) = apply(previewStart + (1f - previewStart) * progress.coerceIn(0f, 1f))
+    fun seek(progress: Float) {
+        val value = previewStart + (1f - previewStart) * progress.coerceIn(0f, 1f)
+        val now = SystemClock.uptimeMillis()
+        if (now > lastSeekAt) progressVelocity = ((value - this.progress) * 1000f / (now - lastSeekAt)).coerceIn(-8f, 8f)
+        lastSeekAt = now
+        apply(value)
+    }
 
     fun start() {
         freeze()
         attach()
         val token = generation
+        val remaining = 1f - progress
+        val durationMs = (300L * remaining).toLong().coerceAtLeast(80L)
+        val velocity = if (SystemClock.uptimeMillis() - lastSeekAt <= 80L) progressVelocity.coerceAtLeast(0f) else 0f
+        val tangent = if (remaining > 0f) (0.2f * velocity * durationMs / 1000f / remaining).coerceIn(0f, 0.8f) else 0f
         animator = ValueAnimator.ofFloat(progress, 1f).apply {
-            duration = (300L * (1f - progress)).toLong().coerceAtLeast(80L)
-            interpolator = if (progress > 0f) PathInterpolator(0.2f, 0.6f, 0.2f, 1f)
+            duration = durationMs
+            interpolator = if (progress > 0f) PathInterpolator(0.2f, tangent, 0.2f, 1f)
                 else PathInterpolator(0.3f, 0f, 0.4f, 1f)
             addUpdateListener { apply(it.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
@@ -77,6 +92,7 @@ internal class PopupReturnMotion(
         val token = generation
         spring = SpringAnimation(FloatValueHolder(progress)).apply {
             spring = SpringForce(0f).setDampingRatio(1f).setStiffness(800f)
+            setStartVelocity(if (SystemClock.uptimeMillis() - lastSeekAt <= 80L) progressVelocity else 0f)
             setMinimumVisibleChange(0.001f)
             addUpdateListener { _, value, _ -> apply(value.coerceIn(0f, 1f)) }
             addEndListener { _, cancelled, _, _ ->

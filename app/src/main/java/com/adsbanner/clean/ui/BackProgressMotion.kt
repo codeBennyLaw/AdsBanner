@@ -21,6 +21,8 @@ internal class BackProgressMotion(private val view: View) {
     private var settled: (() -> Unit)? = null
     private var lastUpdateAt = 0L
     private val velocity = FloatArray(4)
+    val heightVelocity: Float
+        get() = if (SystemClock.uptimeMillis() - lastUpdateAt <= 80L) velocity[1] * view.height else 0f
     val cornerRadius: Float
         get() = 28 * density * ((1f - view.scaleX) / 0.1f).coerceIn(0f, 1f) * view.scaleX
     private val outline = object : ViewOutlineProvider() {
