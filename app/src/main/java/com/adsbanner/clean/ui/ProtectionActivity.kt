@@ -62,6 +62,7 @@ class ProtectionActivity : AppCompatActivity() {
     private var binding = false
     private var ioBusy = false
     private var alive = true
+    private lateinit var loading: LocalPageLoading
     private val changed: () -> Unit = { if (alive) refresh() }
     private val importFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importRules(uri)
@@ -83,6 +84,8 @@ class ProtectionActivity : AppCompatActivity() {
         configureList(findViewById(R.id.rulesList), rulesAdapter)
         configureList(findViewById(R.id.actionsList), actionsAdapter)
         val scroll = findViewById<ScrollView>(R.id.protectionScroll)
+        loading = LocalPageLoading(this, scroll, findViewById(R.id.pageLoading),
+            getString(R.string.local_loading_protection), ::restoreEditorWhenReady)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             view.setPadding(bars.left, bars.top, bars.right, 0)
@@ -127,6 +130,11 @@ class ProtectionActivity : AppCompatActivity() {
         ProtectionStore.addPolicyListener(changed)
         ProtectionStore.addHistoryListener(changed)
         refresh()
+        restoreEditorWhenReady()
+    }
+
+    private fun restoreEditorWhenReady() {
+        if (!loading.isComplete) return
         pendingEditor?.let { draft ->
             Motion.whenPageReady(this, "editor") {
                 pendingEditor = null
@@ -193,11 +201,13 @@ class ProtectionActivity : AppCompatActivity() {
             result.onSuccess { (rules, actions) ->
                 ruleRows = rules
                 actionRows = actions
-                rulesAdapter.submitList(rules.take(5))
-                actionsAdapter.submitList(actions.take(5))
+                var remaining = 2
+                val committed = { if (--remaining == 0) loading.ready() }
+                rulesAdapter.submitList(rules.take(5), committed)
+                actionsAdapter.submitList(actions.take(5), committed)
                 allRulesAdapter?.submitList(rules)
                 allActionsAdapter?.submitList(actions)
-            }
+            }.onFailure { loading.failed("管理信息读取失败，请重试", ::refresh) }
         }
     }
 
