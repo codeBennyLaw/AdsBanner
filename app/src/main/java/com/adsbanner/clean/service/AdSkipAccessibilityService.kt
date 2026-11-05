@@ -65,6 +65,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         var gestureAllowed: Boolean = true
     )
 
+    private data class PendingSkip(val candidate: Candidate, val pkg: String, val bounds: Rect,
+        val gesture: Boolean, val startedAt: Long)
+    private data class FailedSkip(val node: AccessibilityNodeInfo, val label: String)
+    private var pendingSkip: PendingSkip? = null
+    private val failedSkips = ArrayList<FailedSkip>(4)
+    private val verifySkip = Runnable { verifyPendingSkip() }
+
     private val handler = Handler(Looper.getMainLooper())
     private val screenState = ScreenStateGate()
     private val splashResume = SplashResumeTracker()
@@ -189,6 +196,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         splashResume.onScreenReady(SystemClock.elapsedRealtime())
         if (!wasReady) InterceptNotifier.onScreenChanged(this, true)
         val pkg = event.packageName?.toString()
+        if (pendingSkip != null && !gestureInFlight) verifyPendingSkip(allowFallback = false)
         if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED || pkg == foregroundPkg) reconcileSplashResume()
         if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) pauseAdGuard.onWindowsChanged()
         // B 站页面守护只需要自己的交互事件；窗口切换仍要转发一次，及时结束旧页面扫描。
@@ -354,6 +362,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
 
     private fun stopSplashScan() {
+        clearPendingSkip()
+        failedSkips.forEach { recycleNode(it.node) }
+        failedSkips.clear()
         actionGeneration++
         gestureInFlight = false
         gestureTimeout?.let(handler::removeCallbacks)
@@ -407,6 +418,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val now = SystemClock.elapsedRealtime()
         if (!splashSession.pending(now, Prefs.splashWindowMs)) {
             stopSplashScan()
+            return
+        }
+        if (pendingSkip != null && !gestureInFlight) {
+            verifyPendingSkip()
             return
         }
         if (gestureInFlight) {
@@ -490,11 +505,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
         val quick = tryQuickSkip(pkg, covered, active)
         if (quick != null) {
-            try {
-                recordSplashSkip(pkg, quick.label)
-            } finally {
-                recycleNode(quick.node)
-            }
+            recycleNode(quick.node)
             return
         }
         if (gestureInFlight) return
@@ -510,11 +521,115 @@ class AdSkipAccessibilityService : AccessibilityService() {
         try {
             // 先尝试多个候选的节点动作，避免不可点击的同名文字挡住真正的跳过按钮。
             val clicked = candidates.take(8).firstOrNull { clickCandidate(it, pkg, covered) }
-            if (clicked != null) recordSplashSkip(pkg, clicked.label, clicked.rule?.name)
-            else if (!covered) candidates.firstOrNull()?.let { submitGesture(it, pkg) }
+            if (clicked == null && !covered) candidates.firstOrNull()?.let { submitGesture(it, pkg) }
         } finally {
             candidates.forEach { recycleNode(it.node) }
         }
+    }
+
+    private fun beginSkipVerification(candidate: Candidate, pkg: String, gesture: Boolean, schedule: Boolean = true) {
+        clearPendingSkip()
+        pendingSkip = PendingSkip(candidate.copy(node = copyNode(candidate.node)), pkg,
+            Rect().also(candidate.node::getBoundsInScreen), gesture, SystemClock.elapsedRealtime())
+        if (schedule) handler.postDelayed(verifySkip, 80L)
+    }
+
+    private fun clearPendingSkip() {
+        handler.removeCallbacks(verifySkip)
+        pendingSkip?.let { recycleNode(it.candidate.node) }
+        pendingSkip = null
+    }
+
+    /** Accepted accessibility actions and completed gestures do not prove the advertisement closed. */
+    private fun verifyPendingSkip(allowFallback: Boolean = true) {
+        val pending = pendingSkip ?: return
+        if (gestureInFlight) return
+        if (!Prefs.skipSplash || !ProtectionStore.allows(pending.pkg) || !isScreenInteractive() ||
+            splashSession.packageName != pending.pkg) { clearPendingSkip(); return }
+        val root = rootInActiveWindow
+        try {
+            val pkg = root?.packageName?.toString()
+            val elapsed = SystemClock.elapsedRealtime() - pending.startedAt
+            val node = pending.candidate.node
+            val refreshed = node.refresh()
+            val sameNode = refreshed && node.packageName?.toString() == pending.pkg
+            val matches = sameNode && if (pending.candidate.rule != null) nodeLabel(node) == pending.candidate.label
+                else SkipRule.match(skipNodeLabel(node)) >= (if (pending.candidate.weak) SkipRule.WEAK else SkipRule.STRONG)
+            if (pkg != pending.pkg) {
+                if (sameNode && !matches && (pkg == null || pkg in IGNORED_PACKAGES || pkg in imePackages)) {
+                    recordSplashSkip(pending.pkg, pending.candidate.label, pending.candidate.rule?.name)
+                    return
+                }
+                if (elapsed < 800L && (pkg == null || pkg in IGNORED_PACKAGES || pkg in imePackages)) {
+                    handler.removeCallbacks(verifySkip)
+                    handler.postDelayed(verifySkip, 100L)
+                } else { clearPendingSkip(); scheduleSplashScan(100L) }
+                return
+            }
+            val stillTarget = matches && (node.isVisibleToUser || applicationCovered(checkNotNull(root).windowId))
+            if (!stillTarget) {
+                // Countdown widgets can replace their node every tick; look for the same control before counting.
+                val replacement = findReplacementSkip(checkNotNull(root), pending)
+                if (replacement != null) {
+                    recycleNode(node)
+                    pendingSkip = pending.copy(candidate = pending.candidate.copy(node = replacement))
+                } else {
+                    recordSplashSkip(pending.pkg, pending.candidate.label, pending.candidate.rule?.name)
+                    return
+                }
+            }
+            if (sameNode && matches && !node.isEnabled && elapsed < 800L) {
+                handler.removeCallbacks(verifySkip)
+                handler.postDelayed(verifySkip, 100L)
+                return
+            }
+            if (!allowFallback || elapsed < 180L) {
+                handler.removeCallbacks(verifySkip)
+                handler.postDelayed(verifySkip, (180L - elapsed).coerceAtLeast(40L))
+                return
+            }
+            val current = pendingSkip ?: return
+            pendingSkip = null // Transfer ownership until submission has copied its node.
+            handler.removeCallbacks(verifySkip)
+            try {
+                if (!current.gesture && current.candidate.gestureAllowed) submitGesture(current.candidate, current.pkg)
+                if (pendingSkip == null) {
+                    if (current.gesture || !current.candidate.gestureAllowed) {
+                        failedSkips.removeAll { failed ->
+                            (failed.node == current.candidate.node).also { if (it) recycleNode(failed.node) }
+                        }
+                        if (failedSkips.size >= 8) recycleNode(failedSkips.removeAt(0).node)
+                        failedSkips.add(FailedSkip(copyNode(current.candidate.node), skipNodeLabel(current.candidate.node)))
+                    }
+                    scheduleSplashScan(120L)
+                }
+            } finally { recycleNode(current.candidate.node) }
+        } finally { root?.let(::recycleNode) }
+    }
+
+    private fun applicationCovered(windowId: Int): Boolean {
+        val screenWindows = windows.orEmpty()
+        return try { hasSystemCover(windowId, screenWindows) } finally { recycleWindows(screenWindows) }
+    }
+
+    private fun findReplacementSkip(root: AccessibilityNodeInfo, pending: PendingSkip): AccessibilityNodeInfo? {
+        val rule = pending.candidate.rule
+        val nodes = if (rule != null) root.findAccessibilityNodeInfosByViewId(rule.viewId).orEmpty()
+            else root.findAccessibilityNodeInfosByText(if (pending.candidate.weak) pending.candidate.label
+                else if (pending.candidate.label.contains("广告") && !pending.candidate.label.contains("跳过")) "广告"
+                else if (pending.candidate.label.contains("skip", ignoreCase = true)) "skip" else "跳过").orEmpty()
+        try {
+            for (node in nodes.take(8)) {
+                val bounds = Rect().also(node::getBoundsInScreen)
+                if (node.packageName?.toString() != pending.pkg || node.isEditable ||
+                    (!node.isVisibleToUser && !applicationCovered(root.windowId)) ||
+                    !Rect.intersects(bounds, pending.bounds) || !SkipTargetPolicy.smallTarget(bounds.toTargetBounds(), screenSize().x, screenSize().y)) continue
+                val matches = if (rule != null) node.viewIdResourceName == rule.viewId && nodeLabel(node) == pending.candidate.label
+                    else SkipRule.match(skipNodeLabel(node)) >= (if (pending.candidate.weak) SkipRule.WEAK else SkipRule.STRONG)
+                if (matches) return copyNode(node)
+            }
+            return null
+        } finally { nodes.forEach(::recycleNode) }
     }
 
     private fun recordSplashSkip(pkg: String, label: String, ruleName: String? = null) {
@@ -729,6 +844,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg ||
             !candidate.node.isEnabled || candidate.node.isEditable || (!covered && !candidate.node.isVisibleToUser)) return null
         val self = Rect().also(candidate.node::getBoundsInScreen)
+        if (failedSkips.any { it.node == candidate.node && it.label == skipNodeLabel(candidate.node) }) return null
         candidate.rule?.let { rule ->
             val screen = screenSize()
             return self.takeIf { rule in ProtectionStore.rules && rule.matches(pkg, foregroundActivity,
@@ -788,7 +904,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     val parentRect = Rect()
                     node.getBoundsInScreen(parentRect)
                     val precise = SkipTargetPolicy.preciseParent(self.toTargetBounds(), parentRect.toTargetBounds())
-                    if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                    if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        beginSkipVerification(candidate, pkg, gesture = false)
+                        return true
+                    }
                     if (!precise) candidate.gestureAllowed = false
                 }
                 val parent = node.parent
@@ -808,18 +927,21 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val bounds = validatedBounds(candidate, pkg, covered = false) ?: return
         if (!canTapApplication(pkg, candidate.node.windowId, bounds.centerX(), bounds.centerY())) return
         val generation = actionGeneration
-        val label = candidate.label
-        val ruleName = candidate.rule?.name
         val path = Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 60L)).build()
         gestureInFlight = true
+        beginSkipVerification(candidate, pkg, gesture = true, schedule = false)
         fun complete(success: Boolean) {
             if (generation != actionGeneration || !gestureInFlight) return
             gestureInFlight = false
             gestureTimeout?.let(handler::removeCallbacks)
             gestureTimeout = null
-            if (success && Prefs.skipSplash && ProtectionStore.allows(pkg) && splashSession.packageName == pkg && isScreenInteractive()) recordSplashSkip(pkg, label, ruleName)
-            else scheduleSplashScan(100L)
+            if (success && Prefs.skipSplash && ProtectionStore.allows(pkg) && splashSession.packageName == pkg && isScreenInteractive()) {
+                handler.postDelayed(verifySkip, 80L)
+            } else {
+                clearPendingSkip()
+                scheduleSplashScan(100L)
+            }
         }
         gestureTimeout = Runnable { complete(false) }.also { handler.postDelayed(it, 700L) }
         val accepted = runCatching {
