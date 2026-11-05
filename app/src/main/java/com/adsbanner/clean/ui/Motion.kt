@@ -137,7 +137,7 @@ object Motion {
             returning = true
             val animated = pageAnimationsEnabled(activity)
             work.beginReturn()
-            if (content is ViewGroup) {
+            if (content is ViewGroup && Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) TransitionManager.endTransitions(content)
                 content.descendants.filterIsInstance<RecyclerView>().forEach {
                     (it.parent as? ViewGroup)?.let(TransitionManager::endTransitions)
