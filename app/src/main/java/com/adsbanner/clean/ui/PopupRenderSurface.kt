@@ -17,6 +17,11 @@ internal class PopupRenderSurface private constructor(
     private val node: RenderNode,
     private val visibility: Int
 ) {
+    fun setContentAlpha(alpha: Float) {
+        node.alpha = alpha
+        view.invalidate()
+    }
+
     fun release(restore: Boolean) {
         parent.overlay.remove(view)
         node.discardDisplayList()
