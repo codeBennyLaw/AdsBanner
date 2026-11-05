@@ -8,7 +8,7 @@ import android.view.View
 import com.adsbanner.clean.R
 import kotlin.math.sin
 
-/** One short wave is driven by the page's load controller; no idle timer or endless animation. */
+/** Short waves run only while the visible page waits for local data. */
 class LocalLoadingDots @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.brand) }
     private val density = resources.displayMetrics.density
