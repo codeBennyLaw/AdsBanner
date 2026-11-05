@@ -12,7 +12,6 @@ import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 import com.adsbanner.clean.R
-import androidx.core.graphics.ColorUtils
 
 /** Retract popup-sized contents toward their entry; never morph them into a returning button. */
 internal class PopupReturnMotion(
@@ -20,8 +19,7 @@ internal class PopupReturnMotion(
     private val scrim: View,
     origin: Rect,
     private val onEnd: () -> Unit,
-    private val originRadius: Float = panel.resources.getDimension(R.dimen.corner_control),
-    private val originColor: Int = panel.context.getColor(R.color.surface)
+    private val originRadius: Float = panel.resources.getDimension(R.dimen.corner_control)
 ) {
     private val destination = Rect(origin)
     private val initialClip = panel.clipBounds
@@ -29,7 +27,6 @@ internal class PopupReturnMotion(
     private val initialScrimAlpha = scrim.alpha
     private val initialX = panel.translationX
     private val initialY = panel.translationY
-    private val panelColor = panel.context.getColor(R.color.surface)
     private var transform: OriginReturnTransform? = null
     private var surface: PopupRenderSurface? = null
     private var attached = false
@@ -71,7 +68,7 @@ internal class PopupReturnMotion(
         attach()
         val token = generation
         val remaining = 1f - progress
-        val durationMs = (300L * remaining).toLong().coerceAtLeast(80L)
+        val durationMs = (RetractionVisuals.DURATION_MS * remaining).toLong().coerceAtLeast(80L)
         val velocity = if (SystemClock.uptimeMillis() - lastSeekAt <= 80L) progressVelocity.coerceAtLeast(0f) else 0f
         val tangent = if (remaining > 0f) (0.2f * velocity * durationMs / 1000f / remaining).coerceIn(0f, 0.8f) else 0f
         animator = ValueAnimator.ofFloat(progress, 1f).apply {
@@ -107,10 +104,9 @@ internal class PopupReturnMotion(
         val target = movingView
         transform?.apply(value)
         if (Build.VERSION.SDK_INT >= 29) surface?.apply {
-            view.setBackgroundColor(ColorUtils.blendARGB(panelColor, originColor, motionFraction(0f, 0.95f, value)))
-            setContentAlpha(1f - motionFraction(0.3f, 0.9f, value))
+            setContentAlpha(RetractionVisuals.contentAlpha(value))
         }
-        target.alpha = initialAlpha * (1f - motionFraction(0.9f, 1f, value))
+        target.alpha = initialAlpha * RetractionVisuals.panelAlpha(value)
         scrim.alpha = initialScrimAlpha * (1f - value)
     }
 

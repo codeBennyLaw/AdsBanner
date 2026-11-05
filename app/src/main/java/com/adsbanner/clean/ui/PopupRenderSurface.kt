@@ -14,6 +14,7 @@ internal class PopupRenderSurface private constructor(
     val view: View,
     private val panel: View,
     private val parent: ViewGroup,
+    private val backdrop: RenderNode,
     private val node: RenderNode,
     private val visibility: Int
 ) {
@@ -24,6 +25,7 @@ internal class PopupRenderSurface private constructor(
 
     fun release(restore: Boolean) {
         parent.overlay.remove(view)
+        backdrop.discardDisplayList()
         node.discardDisplayList()
         if (restore) panel.visibility = visibility
     }
@@ -33,13 +35,15 @@ internal class PopupRenderSurface private constructor(
             if (!panel.isHardwareAccelerated || panel.width <= 0 || panel.height <= 0) return null
             val parent = panel.parent as? ViewGroup ?: return null
             val node = RenderNode("AdsBanner popup return").apply { setPosition(0, 0, panel.width, panel.height) }
-            val recording = node.beginRecording()
+            val backdrop = RenderNode("AdsBanner popup background").apply { setPosition(0, 0, panel.width, panel.height) }
             val background = panel.background
+            val backgroundRecording = backdrop.beginRecording()
+            try { background?.draw(backgroundRecording) } finally { backdrop.endRecording() }
+            val recording = node.beginRecording()
             val backgroundAlpha = background?.alpha
             try {
                 // View.draw may reference the view's mutable background RenderNode, which is
                 // cleared when the real panel is hidden. Record that drawable independently.
-                background?.draw(recording)
                 background?.alpha = 0
                 panel.draw(recording)
             } finally {
@@ -49,7 +53,10 @@ internal class PopupRenderSurface private constructor(
             val shape = Outline().also { panel.outlineProvider?.getOutline(panel, it) }
             val surface = object : View(panel.context) {
                 override fun onDraw(canvas: Canvas) {
-                    if (canvas.isHardwareAccelerated && node.hasDisplayList()) canvas.drawRenderNode(node)
+                    if (canvas.isHardwareAccelerated) {
+                        if (backdrop.hasDisplayList()) canvas.drawRenderNode(backdrop)
+                        if (node.hasDisplayList()) canvas.drawRenderNode(node)
+                    }
                 }
             }.apply {
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -72,7 +79,7 @@ internal class PopupRenderSurface private constructor(
             val visibility = panel.visibility
             parent.overlay.add(surface)
             panel.visibility = View.INVISIBLE
-            return PopupRenderSurface(surface, panel, parent, node, visibility)
+            return PopupRenderSurface(surface, panel, parent, backdrop, node, visibility)
         }
     }
 }

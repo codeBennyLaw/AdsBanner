@@ -200,7 +200,7 @@ internal class OriginDialog private constructor(
                 work?.beginPreview()
                 freezeLists()
                 returnMotion = (returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss,
-                    originCornerRadius(), originContainerColor())).also { it.preview() }
+                    originCornerRadius())).also { it.preview() }
             }
             override fun handleOnBackProgressed(backEvent: BackEventCompat) {
                 panelBackStart?.let { applyPanelEnter(it * (1f - backEvent.progress.coerceIn(0f, 1f))); return }
@@ -513,7 +513,7 @@ internal class OriginDialog private constructor(
     private fun startRetraction() {
         if (!placeAnchor()) { finishDismiss(); return }
         val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss,
-            originCornerRadius(), originContainerColor())
+            originCornerRadius())
         returnMotion = motion
         motion.start()
     }
