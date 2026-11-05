@@ -10,10 +10,15 @@ internal object SkipTargetPolicy {
     }
 
     fun score(strength: Int, target: Bounds, width: Int, height: Int): Int {
-        if (!smallTarget(target, width, height)) return 0
+        if (!insideScreen(target, width, height)) return 0
         val x = (target.left.toLong() + target.right) / 2f
         val y = (target.top.toLong() + target.bottom) / 2f
         val topRight = x > width * 0.55f && y < height * 0.30f
+        // Some SDKs expose the skip control's padded hit area rather than only its glyph bounds.
+        // Keep the 2.2.0 height tolerance for strong upper controls, not generic close buttons.
+        val upperHitArea = strength == SkipRule.STRONG && (topRight || y < height * 0.25f) &&
+            target.width <= width * 0.6f && target.height <= height * 0.25f
+        if (!smallTarget(target, width, height) && !upperHitArea) return 0
         // Blank space below an ad may raise its skip pill into the middle of the screen.
         // Prefer familiar corners, but allow compact strong targets anywhere with live ad evidence.
         val compact = target.width <= width * 0.32f && target.height <= height * 0.08f
@@ -28,9 +33,11 @@ internal object SkipTargetPolicy {
         }
     }
 
-    fun smallTarget(target: Bounds, width: Int, height: Int): Boolean = width > 0 && height > 0 &&
+    private fun insideScreen(target: Bounds, width: Int, height: Int): Boolean = width > 0 && height > 0 &&
         target.width > 0 && target.height > 0 && target.left >= 0 && target.top >= 0 &&
-        target.right <= width && target.bottom <= height &&
+        target.right <= width && target.bottom <= height
+
+    fun smallTarget(target: Bounds, width: Int, height: Int): Boolean = insideScreen(target, width, height) &&
         target.width <= width * 0.6f && target.height <= height * 0.12f
 
     fun preciseParent(target: Bounds, parent: Bounds): Boolean = target.area > 0 && parent.area > 0 &&
