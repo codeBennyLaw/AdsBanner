@@ -10,9 +10,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -32,15 +30,12 @@ import androidx.core.view.descendants
 import androidx.core.view.doOnPreDraw
 import androidx.core.view.OneShotPreDrawListener
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.shape.MaterialShapeDrawable
 import com.google.android.material.shape.Shapeable
 import java.lang.ref.WeakReference
 
@@ -65,16 +60,10 @@ internal class OriginDialog private constructor(
     private var actionTaken = false
     private var backPreview = false
     private var dropdown = false
-    private var expandPanelFromSource = false
     private var enterAnimator: ValueAnimator? = null
-    private var enterSurface: PopupRenderSurface? = null
-    private var enterGeometry: OriginReturnTransform? = null
-    private var enterProgress = 0f
     private var panelEnterGeometry: OriginReturnTransform? = null
     private var panelEnterProgress = 0f
     private var panelBackStart: Float? = null
-    private var entrySourceColor = 0
-    private var entryPanelColor = 0
     private var originLayoutWait: OneShotPreDrawListener? = null
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
@@ -228,19 +217,12 @@ internal class OriginDialog private constructor(
                 stage.viewTreeObserver.removeOnPreDrawListener(this)
                 if (finished) return true
                 if (closing) { finishDismiss(); return false }
-                if (animationsEnabled() && expandPanelFromSource) {
-                    startPanelEnter()
-                    return true
-                }
-                if (!animationsEnabled() || !placeAnchor()) {
+                if (!animationsEnabled()) {
                     entering = false
                     scrim.alpha = 1f
                     work?.completeImmediately()
-                    return true
-                }
-                startEnterTransform()
-                // Capture the final state on the next pre-draw, before displaying any dialog frame.
-                return false
+                } else startPanelEnter()
+                return true
             }
         })
     }
@@ -328,63 +310,6 @@ internal class OriginDialog private constructor(
         return true
     }
 
-    private fun startEnterTransform() {
-        if (Build.VERSION.SDK_INT >= 29 && startRecordedEnter()) return
-        startPanelEnter()
-    }
-
-    @androidx.annotation.RequiresApi(29)
-    private fun startRecordedEnter(): Boolean {
-        val surface = PopupRenderSurface.capture(panel) ?: return false
-        enterSurface = surface
-        entrySourceColor = originContainerColor()
-        entryPanelColor = context.getColor(R.color.surface)
-        enterGeometry = OriginReturnTransform(surface.view, originBounds, originCornerRadius())
-        work?.beginEnter()
-        applyRecordedEnter(0f)
-        animateRecordedEnter(1f)
-        return true
-    }
-
-    @androidx.annotation.RequiresApi(29)
-    private fun applyRecordedEnter(progress: Float) {
-        enterProgress = progress
-        enterGeometry?.apply(1f - progress)
-        enterSurface?.apply {
-            view.setBackgroundColor(ColorUtils.blendARGB(entrySourceColor, entryPanelColor,
-                motionFraction(0.05f, 0.9f, progress)))
-            setContentAlpha(motionFraction(0.1f, 0.72f, progress))
-        }
-        scrim.alpha = progress
-    }
-
-    @androidx.annotation.RequiresApi(29)
-    private fun animateRecordedEnter(destination: Float) {
-        enterAnimator = ValueAnimator.ofFloat(enterProgress, destination).apply {
-            duration = (280L * kotlin.math.abs(destination - enterProgress)).toLong().coerceAtLeast(70L)
-            interpolator = if (destination == 1f) PathInterpolator(0.2f, 0f, 0f, 1f)
-                else PathInterpolator(0.3f, 0f, 0.6f, 1f)
-            addUpdateListener { applyRecordedEnter(it.animatedValue as Float) }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    enterAnimator = null
-                    if (finished) return
-                    if (closing) {
-                        if (destination == 0f) finishDismiss()
-                    } else {
-                        enterSurface?.release(restore = true)
-                        enterSurface = null
-                        enterGeometry = null
-                        entering = false
-                        restoreOrigin()
-                        work?.endEnter()
-                    }
-                }
-            })
-            start()
-        }
-    }
-
     private fun startPanelEnter() {
         work?.beginEnter()
         // Only borrow the entry's bounds. Animate the popup itself; never draw its button.
@@ -445,29 +370,6 @@ internal class OriginDialog private constructor(
         work?.endEnter()
     }
 
-    private fun originContainerColor(): Int {
-        var view = validOrigin()
-        while (view != null) {
-            val background = view.background
-            val color = when {
-                view is MaterialCardView -> view.cardBackgroundColor.getColorForState(view.drawableState,
-                    view.cardBackgroundColor.defaultColor)
-                view is MaterialButton -> view.backgroundTintList?.getColorForState(view.drawableState,
-                    view.backgroundTintList?.defaultColor ?: Color.TRANSPARENT)
-                background is ColorDrawable -> background.color
-                background is MaterialShapeDrawable -> background.fillColor?.getColorForState(view.drawableState,
-                    background.fillColor?.defaultColor ?: Color.TRANSPARENT)
-                background is GradientDrawable -> background.color?.getColorForState(view.drawableState,
-                    background.color?.defaultColor ?: Color.TRANSPARENT)
-                else -> null
-            }
-            // Ripple masks are not a button's fill. Continue to the actual opaque surface.
-            if (color != null && Color.alpha(color) == 255) return color
-            view = view.parent as? View
-        }
-        return context.getColor(R.color.surface)
-    }
-
     override fun dismiss() {
         if (closing || finished) return
         closing = true
@@ -486,12 +388,7 @@ internal class OriginDialog private constructor(
             animatePanelEnter(0f)
             return
         }
-        if (entering && enterSurface != null && Build.VERSION.SDK_INT >= 29) {
-            enterAnimator?.cancel()
-            animateRecordedEnter(0f)
-            return
-        }
-        if (entering && !expandPanelFromSource) {
+        if (entering) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
         } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
@@ -565,9 +462,6 @@ internal class OriginDialog private constructor(
         originLayoutWait = null
         enterAnimator?.cancel()
         enterAnimator = null
-        if (Build.VERSION.SDK_INT >= 29) enterSurface?.release(restore = false)
-        enterSurface = null
-        enterGeometry = null
         panelEnterGeometry = null
         returnMotion?.cancel()
         returnMotion = null
@@ -590,7 +484,6 @@ internal class OriginDialog private constructor(
     class Builder(activity: AppCompatActivity, source: View?) {
         private val dialog = OriginDialog(activity, source, MaterialAlertDialogBuilder(activity))
         fun asDropdown() = apply { dialog.dropdown = true }
-        fun expandFromSource() = apply { dialog.expandPanelFromSource = true }
         fun setTitle(title: CharSequence) = apply { dialog.setTitle(title) }
         fun setMessage(message: CharSequence) = apply { dialog.setMessage(message) }
         fun setView(view: View) = apply { dialog.setView(view) }
