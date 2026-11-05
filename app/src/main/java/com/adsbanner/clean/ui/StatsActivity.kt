@@ -299,6 +299,7 @@ class StatsActivity : AppCompatActivity() {
 
     private fun render(animate: Boolean = false) {
         loading // Start only when this data region is requested.
+        if (!loading.isComplete) finishViewSwitch(false)
         if (animate) rowMotion.enabled = renderedKey != null && ValueAnimator.areAnimatorsEnabled() &&
             android.provider.Settings.Global.getFloat(contentResolver,
                 android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
