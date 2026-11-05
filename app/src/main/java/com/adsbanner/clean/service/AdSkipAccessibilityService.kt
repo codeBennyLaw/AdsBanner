@@ -62,7 +62,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         /** 弱匹配：文案是「关闭 / ×」这类到处都是的按钮，点击前要额外确认 */
         val weak: Boolean,
         val rule: LocalAdRule? = null,
-        var gestureAllowed: Boolean = true
+        var gestureAllowed: Boolean = true,
+        val treeEvidence: Boolean = false
     )
 
     private data class PendingSkip(val candidate: Candidate, val pkg: String, val bounds: Rect,
@@ -779,15 +780,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
         var standaloneAdHints = 0
 
         fun walk(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 30 || visited > 700) return
+            if (depth > 30 || visited >= 700) return
             visited++
 
             // 遮挡时只保留明确的跳过匹配供节点动作使用，不允许弱匹配或坐标点击。
-            if (!covered && depth > 0 && !node.isVisibleToUser) return
-
+            // A rendering host may omit its own visible flag while exposing visible child controls.
+            val visible = node.isVisibleToUser
             val label = nodeLabel(node)
 
-            if (label.isNotEmpty()) {
+            if (label.isNotEmpty() && (visible || covered)) {
                 val hintBounds = Rect().also(node::getBoundsInScreen)
                 if (label.length <= 16 && hintBounds.centerY() < screen.y * 0.35f && SkipRule.hasAdEvidence(label)) adHints++
                 if (SkipRule.isStandaloneAdMarker(label) && SkipTargetPolicy.smallTarget(hintBounds.toTargetBounds(), screen.x, screen.y)) standaloneAdHints++
@@ -804,14 +805,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
                                 node.packageName?.toString()?.let { jumpGuard.onAdCandidate(it, buttonLabel) }
                             }
                             candidates.add(
-                                Candidate(copyNode(node), buttonLabel, score, strength == SkipRule.WEAK)
+                                Candidate(copyNode(node), buttonLabel, score, strength == SkipRule.WEAK, treeEvidence = true)
                             )
                         }
                     }
                 }
             }
 
+            if (depth == 30) return
             for (i in 0 until node.childCount) {
+                if (visited >= 700) break
                 val child = node.getChild(i) ?: continue
                 try {
                     walk(child, depth + 1)
@@ -860,29 +863,47 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val score = scoreOf(strength, self, screenSize())
         if (score <= 0) return null
         if ((candidate.weak || !JumpAdRule.isAdSkip(label)) && !hasLiveAdMarker(pkg, candidate.node.windowId, covered,
-                topOnly = candidate.weak, standaloneOnly = score == 80)) return null
+                topOnly = candidate.weak, standaloneOnly = score == 80, treeEvidence = candidate.treeEvidence)) return null
         return self
     }
 
-    private fun hasLiveAdMarker(pkg: String, windowId: Int, covered: Boolean, topOnly: Boolean, standaloneOnly: Boolean): Boolean {
+    private fun hasLiveAdMarker(pkg: String, windowId: Int, covered: Boolean, topOnly: Boolean,
+        standaloneOnly: Boolean, treeEvidence: Boolean): Boolean {
         val screenWindows = windows.orEmpty()
-        val root = screenWindows.firstOrNull { it.id == windowId }?.root ?: run { recycleWindows(screenWindows); return false }
+        val root = screenWindows.firstOrNull { it.id == windowId }?.root ?: rootInActiveWindow
+            ?: run { recycleWindows(screenWindows); return false }
         try {
             if (root.packageName?.toString() != pkg || root.windowId != windowId || (!covered && hasSystemCover(windowId, screenWindows))) return false
             val screen = screenSize()
+            fun marker(node: AccessibilityNodeInfo): Boolean {
+                val bounds = Rect().also(node::getBoundsInScreen)
+                val text = nodeLabel(node)
+                return node.packageName?.toString() == pkg && node.windowId == windowId && (node.isVisibleToUser || covered) &&
+                    ((!standaloneOnly && text.length <= 16 && SkipRule.hasAdEvidence(text) && bounds.centerY() < screen.y * 0.35f) ||
+                        (!topOnly && SkipRule.isStandaloneAdMarker(text) && SkipTargetPolicy.smallTarget(bounds.toTargetBounds(), screen.x, screen.y)))
+            }
             for (query in if (topOnly) arrayOf("广告") else arrayOf("广告", "ad")) {
                 val markers = root.findAccessibilityNodeInfosByText(query).orEmpty()
-                try {
-                    if (markers.take(8).any { node ->
-                        val bounds = Rect().also(node::getBoundsInScreen)
-                        val text = nodeLabel(node)
-                        node.packageName?.toString() == pkg && node.windowId == windowId && (node.isVisibleToUser || covered) &&
-                            ((!standaloneOnly && text.length <= 16 && SkipRule.hasAdEvidence(text) && bounds.centerY() < screen.y * 0.35f) ||
-                                (!topOnly && SkipRule.isStandaloneAdMarker(text) && SkipTargetPolicy.smallTarget(bounds.toTargetBounds(), screen.x, screen.y)))
-                    }) return true
-                } finally { markers.forEach(::recycleNode) }
+                try { if (markers.take(8).any(::marker)) return true }
+                finally { markers.forEach(::recycleNode) }
             }
-            return false
+            // Only a candidate from a budgeted tree pass may repeat that pass for live proof.
+            // SDK virtual labels can be readable as nodes while their text-search API returns nothing.
+            if (!treeEvidence) return false
+            var visited = 0
+            fun walk(node: AccessibilityNodeInfo, depth: Int): Boolean {
+                if (depth > 30 || visited >= (if (topOnly) SPLASH_MAX_NODES else 700)) return false
+                visited++
+                if (marker(node)) return true
+                if (depth == 30) return false
+                for (index in 0 until node.childCount) {
+                    val child = node.getChild(index) ?: continue
+                    try { if (walk(child, depth + 1)) return true } finally { recycleNode(child) }
+                    if (visited >= (if (topOnly) SPLASH_MAX_NODES else 700)) break
+                }
+                return false
+            }
+            return walk(root, 0)
         } finally { recycleNode(root); recycleWindows(screenWindows) }
     }
 
