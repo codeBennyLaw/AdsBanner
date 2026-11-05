@@ -59,8 +59,11 @@
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnAddRule"
                     style="@style/Button.AdsBanner.Tonal" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="8dp" android:minHeight="48dp" android:text="新增规则" />
+                <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                 <androidx.recyclerview.widget.RecyclerView android:id="@+id/rulesList" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
+                    <include android:id="@+id/rulesLoading" layout="@layout/view_local_loading" />
+                </FrameLayout>
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnAllRules"
                     style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:minHeight="48dp" android:text="查看全部规则" android:visibility="gone" />
@@ -81,8 +84,11 @@
                     android:text="记录最近开屏与跳转操作" android:textColor="@color/text_primary" android:textSize="14sp" />
                 <TextView android:id="@+id/tvHistoryHint" style="@style/Text.RowSub" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:text="仅保留最近 100 条的应用、时间、动作和规则名称，不保存页面文字或截图。点击记录可将应用加入例外。" />
+                <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                 <androidx.recyclerview.widget.RecyclerView android:id="@+id/actionsList" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
+                    <include android:id="@+id/actionsLoading" layout="@layout/view_local_loading" />
+                </FrameLayout>
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnAllHistory"
                     style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:minHeight="48dp" android:text="查看全部操作" android:visibility="gone" />
@@ -91,6 +97,5 @@
                     android:minHeight="48dp" android:text="清除操作记录" />
             </LinearLayout>
         </ScrollView>
-        <include layout="@layout/view_local_loading" />
     </FrameLayout>
 </LinearLayout>

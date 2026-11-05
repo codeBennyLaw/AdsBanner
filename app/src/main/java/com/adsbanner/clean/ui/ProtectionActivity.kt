@@ -63,6 +63,7 @@ class ProtectionActivity : AppCompatActivity() {
     private var ioBusy = false
     private var alive = true
     private lateinit var loading: LocalPageLoading
+    private lateinit var actionsLoading: LocalPageLoading
     private val refreshKey = Any()
     private val changed: () -> Unit = { Motion.whenPageReady(this, refreshKey) { if (alive) refresh() } }
     private val importFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -85,8 +86,10 @@ class ProtectionActivity : AppCompatActivity() {
         configureList(findViewById(R.id.rulesList), rulesAdapter)
         configureList(findViewById(R.id.actionsList), actionsAdapter)
         val scroll = findViewById<ScrollView>(R.id.protectionScroll)
-        loading = LocalPageLoading(this, scroll, findViewById(R.id.pageLoading),
-            getString(R.string.local_loading_protection), ::restoreEditorWhenReady)
+        loading = LocalPageLoading(this, findViewById(R.id.rulesList), findViewById(R.id.rulesLoading),
+            "正在读取补充规则…", onContentReady = ::restoreEditorWhenReady)
+        actionsLoading = LocalPageLoading(this, findViewById(R.id.actionsList), findViewById(R.id.actionsLoading),
+            "正在读取操作记录…", onContentReady = ::restoreEditorWhenReady)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             view.setPadding(bars.left, bars.top, bars.right, 0)
@@ -135,7 +138,7 @@ class ProtectionActivity : AppCompatActivity() {
     }
 
     private fun restoreEditorWhenReady() {
-        if (!loading.isComplete) return
+        if (!loading.isComplete || !actionsLoading.isComplete) return
         pendingEditor?.let { draft ->
             Motion.whenPageReady(this, "editor") {
                 pendingEditor = null
@@ -202,15 +205,18 @@ class ProtectionActivity : AppCompatActivity() {
             result.onSuccess { (rules, actions) ->
                 loading.bind {
                     ruleRows = rules
-                    actionRows = actions
-                    var remaining = 2
-                    val committed = { if (--remaining == 0) loading.ready() }
-                    rulesAdapter.submitList(rules.take(5), committed)
-                    actionsAdapter.submitList(actions.take(5), committed)
+                    rulesAdapter.submitList(rules.take(5)) { loading.ready() }
                     allRulesAdapter?.submitList(rules)
+                }
+                actionsLoading.bind {
+                    actionRows = actions
+                    actionsAdapter.submitList(actions.take(5)) { actionsLoading.ready() }
                     allActionsAdapter?.submitList(actions)
                 }
-            }.onFailure { loading.failed("管理信息读取失败，请重试", ::refresh) }
+            }.onFailure {
+                loading.failed("规则读取失败，请重试", ::refresh)
+                actionsLoading.failed("操作记录读取失败，请重试", ::refresh)
+            }
         }
     }
 
