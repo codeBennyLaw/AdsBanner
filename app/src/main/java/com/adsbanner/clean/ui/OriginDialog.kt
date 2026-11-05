@@ -6,7 +6,6 @@ import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.content.res.Configuration
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
@@ -37,17 +36,12 @@ import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.RecyclerView
-import androidx.transition.Transition
-import androidx.transition.TransitionListenerAdapter
-import androidx.transition.TransitionManager
 import com.adsbanner.clean.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.shape.MaterialShapeDrawable
-import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.shape.Shapeable
-import com.google.android.material.transition.MaterialContainerTransform
 import java.lang.ref.WeakReference
 
 /** Native alert content in a transparent stage, so its container can reach an external anchor. */
@@ -59,8 +53,6 @@ internal class OriginDialog private constructor(
     private val origin = WeakReference(source)
     private val originDescription = source?.contentDescription?.toString()
     private val originBounds = Rect().also { source?.getGlobalVisibleRect(it) }
-    private var originOffsetX = 0
-    private var originOffsetY = 0
     private lateinit var stage: FrameLayout
     private lateinit var panel: ViewGroup
     private lateinit var anchor: View
@@ -90,7 +82,6 @@ internal class OriginDialog private constructor(
     private val frozen = mutableListOf<RecyclerView>()
     private val activityObserver = object : DefaultLifecycleObserver {
         override fun onStop(owner: LifecycleOwner) {
-            if (::stage.isInitialized) TransitionManager.endTransitions(stage)
             if (closing) finishDismiss()
             else if (backPreview || returnMotion != null) restoreBackPreview()
         }
@@ -142,16 +133,11 @@ internal class OriginDialog private constructor(
         panel.clipToOutline = true
         panel.isClickable = true
         stage.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
-        anchor = object : View(context) {
-            override fun onDraw(canvas: Canvas) {
-                // Only opening samples the entry. Closing retracts the existing popup instead.
-                if (closing) return
-                canvas.save()
-                canvas.translate(-originOffsetX.toFloat(), -originOffsetY.toFloat())
-                validOrigin()?.draw(canvas)
-                canvas.restore()
-            }
-        }.apply { visibility = View.INVISIBLE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        // Geometry marker only: entry buttons are never copied into the dialog window.
+        anchor = View(context).apply {
+            visibility = View.INVISIBLE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         stage.addView(anchor, FrameLayout.LayoutParams(1, 1))
         parent.addView(stage, ViewGroup.LayoutParams(-1, -1))
         stage.setOnClickListener { cancel() }
@@ -324,8 +310,6 @@ internal class OriginDialog private constructor(
                     location[0] + source.width, location[1] + source.height - source.insetBottom)) {
                 originBounds.setEmpty()
             }
-            originOffsetX = originBounds.left - location[0]
-            originOffsetY = originBounds.top - location[1]
         }
         if (originBounds.isEmpty) return false
         val destination = originBounds
@@ -346,48 +330,7 @@ internal class OriginDialog private constructor(
 
     private fun startEnterTransform() {
         if (Build.VERSION.SDK_INT >= 29 && startRecordedEnter()) return
-        val rounded = (validOrigin() as? Shapeable)?.shapeAppearanceModel
-            ?: ShapeAppearanceModel.builder().setAllCornerSizes(context.resources.getDimension(R.dimen.corner_card)).build()
-        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(
-            context.resources.getDimension(if (dropdown) R.dimen.corner_card else R.dimen.corner_dialog)).build()
-        val sourceColor = originContainerColor()
-        val dialogColor = context.getColor(R.color.surface)
-        val transition = MaterialContainerTransform().apply {
-            drawingViewId = stage.id
-            startView = anchor
-            endView = panel
-            addTarget(panel)
-            startShapeAppearanceModel = rounded
-            endShapeAppearanceModel = dialogShape
-            duration = 280L
-            transitionDirection = MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
-            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
-            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
-            fadeProgressThresholds = MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-            scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            containerColor = sourceColor
-            startContainerColor = sourceColor
-            endContainerColor = dialogColor
-            scrimColor = this@OriginDialog.scrimColor
-            addListener(object : TransitionListenerAdapter() {
-                override fun onTransitionEnd(transition: Transition) {
-                    restoreOrigin()
-                    if (closing) finishDismiss() else {
-                        entering = false
-                        scrim.alpha = 1f
-                        work?.endEnter()
-                    }
-                }
-            })
-        }
-        work?.beginEnter()
-        anchor.visibility = View.VISIBLE
-        panel.visibility = View.INVISIBLE
-        TransitionManager.beginDelayedTransition(stage, transition)
-        scrim.alpha = 0f
-        anchor.visibility = View.INVISIBLE
-        panel.visibility = View.VISIBLE
+        startPanelEnter()
     }
 
     @androidx.annotation.RequiresApi(29)
@@ -630,7 +573,6 @@ internal class OriginDialog private constructor(
         returnMotion = null
         if (!closing) { closing = true; onClosing?.invoke() }
         work?.close()
-        if (::stage.isInitialized) TransitionManager.endTransitions(stage)
         restoreOrigin()
         frozen.forEach { it.suppressLayout(false) }
         frozen.clear()
