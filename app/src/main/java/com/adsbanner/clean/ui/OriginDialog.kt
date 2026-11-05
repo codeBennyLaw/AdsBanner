@@ -500,7 +500,8 @@ internal class OriginDialog private constructor(
             enterAnimator?.cancel()
             enterAnimator = null
             val source = validOrigin()
-            if (returnMotion == null && source?.isLayoutRequested == true) {
+            val layoutPending = source != null && generateSequence(source) { it.parent as? View }.any { it.isLayoutRequested }
+            if (returnMotion == null && source != null && layoutPending) {
                 originLayoutWait = source.doOnPreDraw {
                     originLayoutWait = null
                     if (!finished && closing) startRetraction()
