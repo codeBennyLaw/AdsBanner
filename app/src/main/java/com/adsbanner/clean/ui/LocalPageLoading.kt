@@ -250,7 +250,7 @@ internal class LocalPageLoading(
         layoutWait?.removeListener()
         layoutWait = null
         pendingBind = null
-        fadingViews.forEach { it.alpha = 1f }
+        // Keep the visible pose: a containing popup may capture it for its exit transition.
         fadingViews = emptyList()
         motionHosts.forEach { host -> regions(host).remove(this) }
         activity.lifecycle.removeObserver(this)
