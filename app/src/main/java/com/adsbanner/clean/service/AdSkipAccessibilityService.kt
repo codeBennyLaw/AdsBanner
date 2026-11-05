@@ -311,11 +311,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
             activeRules = ProtectionStore.rules.filter { it.enabled && it.packageName == pkg }
         }
 
-        // Initial splash -> main activity transitions keep the original short weak-match budget.
+        // Initial activity transitions retain the original launch deadline; weak matching still ends at 3s.
         // Wake/share returns get a new finite, strong-only window even if the package is unchanged.
         val earlyLaunch = (entry == SplashResumeTracker.Entry.ACTIVITY || entry == SplashResumeTracker.Entry.RETURN) &&
             splashSession.packageName == pkg &&
-            !splashSession.resumed && splashSession.pending(now, Prefs.splashWindowMs) && splashSession.age(now) <= 3_000L
+            !splashSession.resumed && splashSession.pending(now, Prefs.splashWindowMs)
         val awaitingResult = pkg == prev && pendingSkip?.let { it.pkg == pkg && now - it.startedAt < 800L } == true
         if (pkg != prev || (entry != SplashResumeTracker.Entry.NONE && !earlyLaunch && !awaitingResult)) {
             stopSplashScan()
