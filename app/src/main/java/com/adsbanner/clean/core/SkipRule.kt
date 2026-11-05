@@ -9,6 +9,7 @@ package com.adsbanner.clean.core
  */
 object SkipRule {
     private val whitespace = Regex("\\s+")
+    private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
 
     const val NONE = 0
@@ -22,7 +23,8 @@ object SkipRule {
         // 5s 跳过 / 5秒跳过 / 3s跳过广告
         Regex("^[0-9]{1,2}\\s*[sS秒]\\s*跳过(广告)?$"),
         // 跳过丨5 / 跳过|5 / 跳过 · 5
-        Regex("^跳过\\s*[|丨/·•]\\s*[0-9]{1,2}$"),
+        Regex("^跳过\\s*[|｜丨/·•]\\s*[0-9]{1,2}\\s*[sS秒]?$"),
+        Regex("^跳过\\s*[（(]\\s*[0-9]{1,2}\\s*[sS秒]?\\s*[）)]$"),
         // 部分广告会把倒计时和按钮文案拆成「跳过 广告 3 秒」。
         Regex("^跳过\\s*(广告)?\\s*[0-9]{1,2}\\s*[sS秒]$"),
         // 点击跳过 / 点击跳过广告
@@ -63,6 +65,26 @@ object SkipRule {
             if (p.matches(text)) return WEAK
         }
         return NONE
+    }
+
+    /** Join only an exact countdown belonging to this same small skip control. */
+    fun withCountdown(label: String, countdown: String): String? {
+        val part = countdown.trim()
+        if (!countdownPart.matches(part) || match(label) != STRONG) return null
+        return listOf("$label $part", "$part $label").firstOrNull {
+            match(it) == STRONG && JumpAdRule.isAdSkip(it)
+        }
+    }
+
+    /** Some SDKs put the timer in text and the skip action in contentDescription. */
+    fun buttonLabel(text: String, description: String): String {
+        val primary = text.trim()
+        val alternate = description.trim()
+        if (primary.isEmpty()) return alternate
+        withCountdown(primary, alternate)?.let { return it }
+        withCountdown(alternate, primary)?.let { return it }
+        if (match(primary) != NONE && match(alternate) == STRONG && JumpAdRule.isAdSkip(alternate)) return alternate
+        return primary
     }
 
     /** A plain countdown also belongs to alarms/timers; it cannot authorize a generic close. */

@@ -531,7 +531,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         var gestureFallback: Candidate? = null
         fun candidateOf(node: AccessibilityNodeInfo): Candidate? {
             if (node.packageName?.toString() != pkg || !node.isEnabled) return null
-            val label = nodeLabel(node)
+            val label = skipNodeLabel(node)
             if (SkipRule.match(label) != SkipRule.STRONG) return null
             val rect = Rect().also(node::getBoundsInScreen)
             val score = scoreOf(SkipRule.STRONG, rect, screen)
@@ -676,7 +676,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 if (label.length <= 16 && hintBounds.centerY() < screen.y * 0.35f && SkipRule.hasAdEvidence(label)) adHints++
                 if (SkipRule.isStandaloneAdMarker(label) && SkipTargetPolicy.smallTarget(hintBounds.toTargetBounds(), screen.x, screen.y)) standaloneAdHints++
 
-                val strength = SkipRule.match(label)
+                val buttonLabel = skipNodeLabel(node)
+                val strength = SkipRule.match(buttonLabel)
                 if (strength != SkipRule.NONE) {
                     val rect = Rect()
                     node.getBoundsInScreen(rect)
@@ -684,10 +685,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
                         val score = scoreOf(strength, rect, screen)
                         if (score > 0) {
                             if (strength == SkipRule.STRONG && node.isVisibleToUser) {
-                                node.packageName?.toString()?.let { jumpGuard.onAdCandidate(it, label) }
+                                node.packageName?.toString()?.let { jumpGuard.onAdCandidate(it, buttonLabel) }
                             }
                             candidates.add(
-                                Candidate(copyNode(node), label, score, strength == SkipRule.WEAK)
+                                Candidate(copyNode(node), buttonLabel, score, strength == SkipRule.WEAK)
                             )
                         }
                     }
@@ -735,7 +736,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 nodeLabel(candidate.node), self.toTargetBounds(), screen.x, screen.y) }
         }
         // 页面可能已更新；旧节点不能仅凭之前读到的文案继续点击。
-        val label = nodeLabel(candidate.node)
+        val label = skipNodeLabel(candidate.node)
         val strength = SkipRule.match(label)
         if (strength == SkipRule.NONE || (!candidate.weak && strength != SkipRule.STRONG) ||
             (covered && strength != SkipRule.STRONG)) return null
@@ -849,6 +850,34 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 window.layer > target.layer && bounds.contains(x, y)
             }
         } finally { recycleNode(active); recycleWindows(screenWindows) }
+    }
+
+    /** Read a split countdown only inside the same precise, clickable skip control. */
+    private fun skipNodeLabel(node: AccessibilityNodeInfo): String {
+        val label = SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty())
+        if (SkipRule.match(label) != SkipRule.STRONG || JumpAdRule.isAdSkip(label)) return label
+        val parent = node.parent ?: return label
+        try {
+            val screen = screenSize()
+            val self = Rect().also(node::getBoundsInScreen)
+            val box = Rect().also(parent::getBoundsInScreen)
+            if (parent.packageName != node.packageName || parent.windowId != node.windowId ||
+                !parent.isEnabled || parent.childCount > 6 ||
+                !SkipTargetPolicy.smallTarget(box.toTargetBounds(), screen.x, screen.y) ||
+                !SkipTargetPolicy.preciseParent(self.toTargetBounds(), box.toTargetBounds()) ||
+                !(parent.isClickable || parent.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK })) return label
+            for (index in 0 until parent.childCount) {
+                val sibling = parent.getChild(index) ?: continue
+                try {
+                    val bounds = Rect().also(sibling::getBoundsInScreen)
+                    if (sibling != node && sibling.packageName == node.packageName && sibling.windowId == node.windowId &&
+                        sibling.isEnabled && sibling.isVisibleToUser && box.contains(bounds)) {
+                        SkipRule.withCountdown(label, nodeLabel(sibling))?.let { return it }
+                    }
+                } finally { recycleNode(sibling) }
+            }
+            return label
+        } finally { recycleNode(parent) }
     }
 
     private fun nodeLabel(node: AccessibilityNodeInfo): String =
