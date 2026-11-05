@@ -10,28 +10,21 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Outline
 import android.graphics.Rect
-import android.graphics.RectF
 import android.graphics.RenderNode
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
-import android.view.ViewOutlineProvider
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.annotation.RequiresApi
 import androidx.activity.BackEventCompat
 import androidx.core.graphics.drawable.toDrawable
-import androidx.core.graphics.withScale
 import androidx.core.graphics.ColorUtils
-import androidx.core.view.descendants
-import androidx.recyclerview.widget.RecyclerView
 import androidx.transition.TransitionManager
 import com.adsbanner.clean.R
 import java.lang.ref.WeakReference
-import kotlin.math.roundToInt
 
 /** An in-window card morph, so the activity itself never has a scene-transition back stack. */
 @RequiresApi(34)
@@ -57,9 +50,11 @@ internal class PageOriginMotion(
     private var latestBackEvent: BackEventCompat? = null
     private var revealedHome: WeakReference<Activity>? = null
     private var homeWindowAnimations = 0
-    private val backMotion = BackProgressMotion(page)
+    // Keep the real hierarchy attached: drawable, text and property animations remain live.
+    private val surface = FrameLayout(activity).apply { setBackgroundColor(this@PageOriginMotion.background) }
+    private val backMotion = BackProgressMotion(surface)
     private var returnPose: View? = null
-    private var returnNode: RenderNode? = null
+    private var returnGeometry: OriginReturnTransform? = null
     private var homeBackdropNode: RenderNode? = null
     private val homeBackdrop = object : View(activity) {
         override fun onDraw(canvas: Canvas) {
@@ -76,7 +71,6 @@ internal class PageOriginMotion(
     private data class EntryAppearance(val progress: Float, val fill: Int, val contents: Float, val alpha: Float)
     private var entryExit: EntryAppearance? = null
     private var entryResume: EntryAppearance? = null
-    private var returnRadius = 0f
     private var returnAnimator: ValueAnimator? = null
     private var poseFill = background
     private val anchor = View(activity).apply {
@@ -85,19 +79,23 @@ internal class PageOriginMotion(
     }
 
     init {
+        val index = stage.indexOfChild(page)
+        val params = page.layoutParams
+        stage.removeView(page)
+        surface.addView(page, FrameLayout.LayoutParams(-1, -1))
+        stage.addView(surface, index, params)
         pendingOrigin = null
         stage.addView(homeBackdrop, 0, ViewGroup.LayoutParams(-1, -1))
         stage.addView(anchor, ViewGroup.LayoutParams(1, 1))
         if (!restored && animated() && placeAnchor() && revealHome()) {
-            page.visibility = View.INVISIBLE
+            surface.visibility = View.INVISIBLE
             anchor.visibility = View.VISIBLE
             stage.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
                 override fun onPreDraw(): Boolean {
                     stage.viewTreeObserver.removeOnPreDrawListener(this)
                     if (!entering || closed || returning || previewing || activity.isFinishing) return true
-                    // Record only after layout, then let the transform capture its end state
-                    // on the next pre-draw. Never submit the full-size snapshot in between.
-                    capturePagePose()
+                    // Begin after layout and apply the starting pose before the first visible draw.
+                    preparePagePose()
                     startEntryMorph()
                     return false
                 }
@@ -142,7 +140,7 @@ internal class PageOriginMotion(
         animateEntry(1f)
     }
 
-    private fun entryAppearance() = EntryAppearance(entryProgress, poseFill, returnNode?.alpha ?: 1f, returnPose?.alpha ?: 1f)
+    private fun entryAppearance() = EntryAppearance(entryProgress, poseFill, page.alpha, returnPose?.alpha ?: 1f)
 
     private fun applyEntry(progress: Float) {
         entryProgress = progress
@@ -152,19 +150,19 @@ internal class PageOriginMotion(
         when {
             exit != null -> {
                 val fraction = ((exit.progress - progress) / exit.progress.coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-                poseFill = exit.fill
-                returnNode?.alpha = exit.contents * RetractionVisuals.contentAlpha(fraction)
+                setPoseFill(exit.fill)
+                page.alpha = exit.contents * RetractionVisuals.contentAlpha(fraction)
                 returnPose?.alpha = exit.alpha * RetractionVisuals.panelAlpha(fraction)
             }
             resume != null -> {
                 val fraction = ((progress - resume.progress) / (1f - resume.progress).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-                poseFill = ColorUtils.blendARGB(resume.fill, background, fraction)
-                returnNode?.alpha = resume.contents + (1f - resume.contents) * fraction
+                setPoseFill(ColorUtils.blendARGB(resume.fill, background, fraction))
+                page.alpha = resume.contents + (1f - resume.contents) * fraction
                 returnPose?.alpha = resume.alpha + (1f - resume.alpha) * fraction
             }
             else -> {
-                poseFill = ColorUtils.blendARGB(color, background, motionFraction(0.05f, 0.9f, progress))
-                returnNode?.alpha = motionFraction(0.12f, 0.72f, progress)
+                setPoseFill(ColorUtils.blendARGB(color, background, motionFraction(0.05f, 0.9f, progress)))
+                page.alpha = motionFraction(0.12f, 0.72f, progress)
                 returnPose?.alpha = motionFraction(0f, 0.12f, progress)
             }
         }
@@ -221,8 +219,8 @@ internal class PageOriginMotion(
         }
         fun startReturn() {
             if (!placeAnchor()) { finish(); return }
-            capturePagePose()
-            // The pose is already placed. Prepare the overlay before the next draw.
+            preparePagePose()
+            // Continue transforming the same hierarchy from the current gesture pose.
             startReturnMorph()
         }
         if (homeReady || homeBackdropNode != null) startReturn() else whenHomeFrameReady {
@@ -237,7 +235,8 @@ internal class PageOriginMotion(
         val location = IntArray(2).also(anchor::getLocationOnScreen)
         val destination = Rect(location[0], location[1], location[0] + anchor.width, location[1] + anchor.height)
         val geometry = OriginReturnTransform(pose, destination, activity.resources.getDimension(R.dimen.corner_card))
-        val heightDistance = destination.height() - pose.height.toFloat()
+        returnGeometry = geometry
+        val heightDistance = destination.height() - pose.height * pose.scaleY
         val speed = if (returningFromGesture && heightDistance != 0f) (returnHeightVelocity / heightDistance).coerceIn(0f, 4f) else 0f
         anchor.visibility = View.INVISIBLE
         pose.visibility = View.VISIBLE
@@ -248,8 +247,8 @@ internal class PageOriginMotion(
             addUpdateListener {
                 val progress = it.animatedValue as Float
                 geometry.apply(progress)
-                poseFill = background
-                returnNode?.alpha = RetractionVisuals.contentAlpha(progress)
+                setPoseFill(background)
+                page.alpha = RetractionVisuals.contentAlpha(progress)
                 pose.alpha = RetractionVisuals.panelAlpha(progress)
                 pose.invalidate()
             }
@@ -270,15 +269,17 @@ internal class PageOriginMotion(
         anchor.visibility = View.INVISIBLE
         // A committed return must leave the child window transparent until it is removed.
         // Showing the full page here can expose one last stale frame over the home activity.
-        page.visibility = if (!returning && !closed && !activity.isFinishing) View.VISIBLE else View.INVISIBLE
+        surface.visibility = if (!returning && !closed && !activity.isFinishing) View.VISIBLE else View.INVISIBLE
+        entryGeometry?.restore()
+        returnGeometry?.restore()
+        returnGeometry = null
         backMotion.reset()
-        returnPose?.let { stage.removeView(it) }
+        page.alpha = 1f
+        setPoseFill(background)
         returnPose = null
         entryGeometry = null
         entryExit = null
         entryResume = null
-        returnNode?.discardDisplayList()
-        returnNode = null
         if (!returning && !activity.isFinishing && !closed && translucent) {
             activity.window.setBackgroundDrawable(background.toDrawable())
             activity.setTranslucent(false)
@@ -343,7 +344,7 @@ internal class PageOriginMotion(
         TransitionManager.endTransitions(stage)
         if (entering) {
             entering = false
-            page.visibility = View.VISIBLE
+            surface.visibility = View.VISIBLE
             work.endEnter()
         }
         prepareHomeBackdrop()
@@ -353,10 +354,6 @@ internal class PageOriginMotion(
         }
         previewing = true
         work.beginPreview()
-        page.descendants.filterIsInstance<RecyclerView>().forEach {
-            it.stopScroll()
-            it.itemAnimator?.endAnimations()
-        }
         backMotion.start(event)
         latestBackEvent = null
         if (!homeReady) whenHomeFrameReady {
@@ -473,47 +470,17 @@ internal class PageOriginMotion(
         revealedHome = null
     }
 
-    /** Material's bounds capture ignores scale. Hand it a live view at the exact gesture pose. */
-    @SuppressLint("RtlHardcoded")
-    private fun capturePagePose() {
-        val bounds = RectF(0f, 0f, page.width.toFloat(), page.height.toFloat())
-        page.matrix.mapRect(bounds)
-        bounds.offset(page.left.toFloat(), page.top.toFloat())
-        returnRadius = backMotion.cornerRadius
-        // Record the settled page once. Replaying its display list avoids traversing the
-        // entire RecyclerView hierarchy for every frame of the container transform.
-        val node = RenderNode("AdsBanner page morph").apply { setPosition(0, 0, page.width, page.height) }
-        val recording = node.beginRecording()
-        try { page.draw(recording) } finally { node.endRecording() }
-        returnNode = node
-        val pose = object : View(activity) {
-            override fun onDraw(canvas: Canvas) {
-                canvas.drawColor(poseFill)
-                canvas.withScale(width.toFloat() / page.width, height.toFloat() / page.height) {
-                    if (isHardwareAccelerated && node.hasDisplayList()) drawRenderNode(node)
-                    else page.draw(this)
-                }
-            }
-        }.apply {
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            clipToOutline = returnRadius > 0f
-            outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) =
-                    outline.setRoundRect(0, 0, view.width, view.height, returnRadius)
-            }
-            layoutParams = FrameLayout.LayoutParams(bounds.width().roundToInt(), bounds.height().roundToInt()).apply {
-                gravity = Gravity.TOP or Gravity.LEFT
-                leftMargin = bounds.left.roundToInt()
-                topMargin = bounds.top.roundToInt()
-            }
+    private fun setPoseFill(color: Int) {
+        if (poseFill != color) {
+            poseFill = color
+            surface.setBackgroundColor(color)
         }
-        stage.addView(pose)
-        pose.measure(View.MeasureSpec.makeMeasureSpec(bounds.width().roundToInt(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(bounds.height().roundToInt(), View.MeasureSpec.EXACTLY))
-        pose.layout(bounds.left.roundToInt(), bounds.top.roundToInt(), bounds.right.roundToInt(), bounds.bottom.roundToInt())
-        returnPose = pose
-        page.visibility = View.INVISIBLE
-        backMotion.reset()
+    }
+
+    /** Transform the attached hierarchy; no image or one-off display list replaces the page. */
+    private fun preparePagePose() {
+        returnPose = surface
+        surface.visibility = View.VISIBLE
     }
 
     fun close() {
