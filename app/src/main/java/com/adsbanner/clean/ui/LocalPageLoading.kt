@@ -24,12 +24,15 @@ internal class LocalPageLoading(
     private val revealTargets: () -> List<View> = { listOfNotNull(content) },
     private val schedule: (Any, () -> Unit) -> Unit = { key, task -> Motion.whenPageReady(activity, key, task) },
     navigationHost: View? = null,
-    private val onContentReady: () -> Unit = {}
+    private val onContentReady: () -> Unit = {},
+    private val onRevealProgress: (Float) -> Unit = {}
 ) : DefaultLifecycleObserver, AutoCloseable {
     private val dots = overlay.findViewById<LocalLoadingDots>(R.id.loadingDots)
     private val label = overlay.findViewById<TextView>(R.id.loadingLabel)
     private val retry = overlay.findViewById<View>(R.id.loadingRetry)
     private var animator: ValueAnimator? = null
+    private var pulse: ValueAnimator? = null
+    private var revealProgress = 0f
     private var layoutWait: OneShotPreDrawListener? = null
     private var generation = 0
     private var begun = false
@@ -51,6 +54,7 @@ internal class LocalPageLoading(
 
     init {
         content?.visibility = View.INVISIBLE
+        onRevealProgress(0f)
         overlay.visibility = View.VISIBLE
         label.text = message
         motionHosts.forEach { host -> regions(host).add(this) }
@@ -62,32 +66,34 @@ internal class LocalPageLoading(
         activity.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
 
     private fun beginCycle() {
-        if (closed || stopped || navigationPaused || !regionActive || failedState || binding || begun || revealing || isComplete) return
+        if (closed || stopped || !regionActive || failedState || begun || isComplete) return
         begun = true
         if (!animationsEnabled()) {
             cycleDone = true
-            if (pendingBind != null) applyPendingBind() else requestReveal()
+            advanceReady()
             return
         }
         val ticket = generation
-        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+        pulse = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 280L
+            repeatCount = ValueAnimator.INFINITE
             interpolator = android.view.animation.LinearInterpolator()
             addUpdateListener { dots.phase = it.animatedValue as Float }
             addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
+                override fun onAnimationRepeat(animation: Animator) {
                     if (closed || generation != ticket) return
-                    animator = null
                     cycleDone = true
-                    when {
-                        pendingBind != null -> applyPendingBind()
-                        dataReady -> requestReveal()
-                        else -> { begun = false; beginCycle() }
-                    }
+                    advanceReady()
                 }
             })
             start()
         }
+        if (cycleDone) advanceReady()
+    }
+
+    private fun advanceReady() {
+        if (navigationPaused || revealing || binding || closed || stopped || !regionActive) return
+        if (pendingBind != null) applyPendingBind() else if (dataReady) requestReveal()
     }
 
     fun ready() {
@@ -106,7 +112,7 @@ internal class LocalPageLoading(
         }
         if (revealing || binding) { action(); return }
         pendingBind = action
-        if (cycleDone && animator == null) applyPendingBind()
+        if (cycleDone) applyPendingBind()
     }
 
     private fun applyPendingBind() {
@@ -124,15 +130,16 @@ internal class LocalPageLoading(
         schedule(this) {
             if (closed || stopped || navigationPaused || !regionActive || revealing || isComplete) return@schedule
             revealing = true
-            animator?.cancel()
-            animator = null
+            // Hide data before making its region visible; newly attached rows use the same progress.
+            fadingViews = revealTargets()
+            applyReveal(0f)
             content?.visibility = View.VISIBLE
             // Both views share the data region; trade their opacity without an empty frame.
             layoutWait = layoutHost.doOnPreDraw {
                 layoutWait = null
                 if (!closed) {
                     fadingViews = revealTargets()
-                    fadingViews.forEach { it.alpha = 0f }
+                    applyReveal(revealProgress)
                     reveal()
                 }
             }
@@ -140,18 +147,21 @@ internal class LocalPageLoading(
         }
     }
 
+    private fun applyReveal(progress: Float) {
+        revealProgress = progress
+        overlay.alpha = 1f - progress
+        fadingViews.forEach { it.alpha = progress }
+        onRevealProgress(progress)
+    }
+
     private fun reveal() {
         if (navigationPaused || !regionActive || stopped || closed) return
         if (!animationsEnabled()) { finish(); return }
         val ticket = generation
-        animator = ValueAnimator.ofFloat(fadingViews.firstOrNull()?.alpha ?: 0f, 1f).apply {
-            duration = 180L
-            interpolator = PathInterpolator(0.2f, 0f, 0.1f, 1f)
-            addUpdateListener { value ->
-                val progress = value.animatedValue as Float
-                overlay.alpha = 1f - progress
-                fadingViews.forEach { it.alpha = progress }
-            }
+        animator = ValueAnimator.ofFloat(revealProgress, 1f).apply {
+            duration = (240L * (1f - revealProgress)).toLong().coerceAtLeast(1L)
+            interpolator = PathInterpolator(0.2f, 0f, 0.3f, 1f)
+            addUpdateListener { value -> applyReveal(value.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) { if (!closed && generation == ticket) finish() }
             })
@@ -162,6 +172,9 @@ internal class LocalPageLoading(
     private fun finish() {
         animator = null
         isComplete = true
+        pulse?.cancel()
+        pulse = null
+        applyReveal(1f)
         overlay.visibility = View.GONE
         overlay.alpha = 1f
         fadingViews.forEach { it.alpha = 1f }
@@ -182,6 +195,8 @@ internal class LocalPageLoading(
             if (closed || isComplete) return@schedule
             generation++
             failedState = true
+            pulse?.cancel()
+            pulse = null
             animator?.cancel()
             animator = null
             layoutWait?.removeListener()
@@ -223,13 +238,8 @@ internal class LocalPageLoading(
 
     override fun onStop(owner: LifecycleOwner) {
         stopped = true
-        if (revealing) animator?.pause()
-        if (!revealing && !isComplete) {
-            generation++
-            animator?.cancel()
-            animator = null
-            begun = false
-        }
+        pulse?.pause()
+        animator?.pause()
     }
 
     override fun onStart(owner: LifecycleOwner) {
@@ -254,7 +264,9 @@ internal class LocalPageLoading(
         layoutWait?.removeListener()
         layoutWait = null
         pendingBind = null
-        // Keep the visible pose: a containing popup may capture it for its exit transition.
+        pulse?.cancel()
+        pulse = null
+        // Keep the final visible state until its owning window is removed.
         fadingViews = emptyList()
         motionHosts.forEach { host -> regions(host).remove(this) }
         activity.lifecycle.removeObserver(this)
@@ -263,7 +275,7 @@ internal class LocalPageLoading(
     fun pauseForNavigation() {
         if (closed || isComplete) return
         navigationPaused = true
-        animator?.pause()
+        // Defer model/layout delivery, while existing visible animations keep running.
     }
 
     fun resumeAfterNavigation() {
@@ -273,13 +285,14 @@ internal class LocalPageLoading(
 
     fun setActive(active: Boolean) {
         regionActive = active
-        if (active) resumeRegion() else animator?.pause()
+        if (active) resumeRegion() else { pulse?.pause(); animator?.pause() }
     }
 
     private fun resumeRegion() {
         if (closed || stopped || navigationPaused || !regionActive || isComplete) return
+        pulse?.resume()
         if (revealing && animator == null && layoutWait == null) reveal() else animator?.resume()
-        if (animator == null && !revealing) schedule(this) {
+        if (!revealing) schedule(this) {
             when {
                 cycleDone && pendingBind != null -> applyPendingBind()
                 cycleDone && dataReady -> requestReveal()

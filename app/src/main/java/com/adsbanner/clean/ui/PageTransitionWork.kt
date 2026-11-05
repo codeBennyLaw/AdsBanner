@@ -61,7 +61,6 @@ internal class PageTransitionWork(private val view: View, private var entering: 
 
     fun beginReturn() {
         returning = true
-        LocalPageLoading.pause(view)
         view.removeCallbacks(release)
         view.removeCallbacks(drain)
         draining = false
@@ -71,7 +70,6 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     fun beginPreview() {
         if (closed || returning) return
         previewing = true
-        LocalPageLoading.pause(view)
         view.removeCallbacks(release)
         view.removeCallbacks(drain)
     }
