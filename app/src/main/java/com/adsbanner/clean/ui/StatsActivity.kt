@@ -66,6 +66,7 @@ class StatsActivity : AppCompatActivity() {
     private var type = Type.ALL
     private var sort = StatsSort()
     private var heatmapVisible = false
+    private var viewSwitchPending = false
     private var typeMenu: OriginDialog? = null
     private var sortMenu: OriginDialog? = null
 
@@ -167,9 +168,17 @@ class StatsActivity : AppCompatActivity() {
         rowMotion.enabled = false
         heatmapVisible = !heatmapVisible
         updateViewButton()
-        Motion.switchViews(if (heatmapVisible) heatmapScroll else list,
-            if (heatmapVisible) list else heatmapScroll, forward = heatmapVisible)
+        viewSwitchPending = true
         if (heatmapVisible) renderHeatmap() else render()
+    }
+
+    private fun finishViewSwitch(readyHeatmap: Boolean) {
+        if (!viewSwitchPending || readyHeatmap != heatmapVisible) return
+        viewSwitchPending = false
+        val show = if (heatmapVisible) heatmapScroll else list
+        val hide = if (heatmapVisible) list else heatmapScroll
+        if (show.visibility == View.VISIBLE && hide.visibility == View.GONE) return
+        Motion.switchViews(show, hide, forward = heatmapVisible)
     }
 
     private fun updateViewButton() {
@@ -310,7 +319,7 @@ class StatsActivity : AppCompatActivity() {
                 models.forEach { cachedRows[it.key.range to it.key.type] = it }
                 if (!heatmapVisible) render()
             }.onFailure {
-                if (loading.isComplete) summary.text = "加载失败，请返回后重试"
+                if (loading.isComplete) { summary.text = "加载失败，请返回后重试"; finishViewSwitch(false) }
                 else loading.failed("拦截记录读取失败，请重试") { render() }
             }
         }
@@ -356,19 +365,22 @@ class StatsActivity : AppCompatActivity() {
 
     private fun showRows(data: Rows) {
         val key = RenderKey(data.key, sort)
-        if ((pendingKey ?: renderedKey) == key) return
+        if ((pendingKey ?: renderedKey) == key) { finishViewSwitch(false); return }
         pendingKey = key
         // Even a return to the currently displayed range must supersede an in-flight diff.
         // Sorting reuses loaded labels and icons; it never rereads statistics or rebuilds rows.
-        adapter.submitList(sort.apply(data.rows)) {
-            Motion.whenPageReady(this, summary) {
-                if (pendingKey != key) return@whenPageReady
-                pendingKey = null
-                renderedKey = key
-                sortCaption.text = getString(R.string.stats_sort_caption, sortLabel(key.sort.field),
-                    getString(if (key.sort.descending) R.string.stats_sort_descending else R.string.stats_sort_ascending))
-                showOverview(data.key.snapshot, data.key.range, data.key.type, data.total, data.rows.size)
-                loading.ready()
+        loading.bind {
+            adapter.submitList(sort.apply(data.rows)) {
+                Motion.whenPageReady(this, summary) {
+                    if (pendingKey != key) return@whenPageReady
+                    pendingKey = null
+                    renderedKey = key
+                    sortCaption.text = getString(R.string.stats_sort_caption, sortLabel(key.sort.field),
+                        getString(if (key.sort.descending) R.string.stats_sort_descending else R.string.stats_sort_ascending))
+                    showOverview(data.key.snapshot, data.key.range, data.key.type, data.total, data.rows.size)
+                    loading.ready()
+                    finishViewSwitch(false)
+                }
             }
         }
     }
@@ -408,14 +420,17 @@ class StatsActivity : AppCompatActivity() {
         loadingType = null
         worker.submit({ Triple(StatsStore.dailyCounts(), StatsStore.installedOn(), LocalDate.now()) }) { result ->
             result.onSuccess { (counts, installed, today) ->
-                val changed = heatmap.submit(counts, installed, today)
-                if (changed) showHeatmapLegend()
-                val span = ChronoUnit.DAYS.between(installed, today) + 1
-                heatMeta.text = "自 $installed 起 · $span 天 · ${counts.count { it.value > 0 }} 天有拦截 · 共 ${counts.values.sum()} 次"
-                if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
-                loading.ready()
+                loading.bind {
+                    val changed = heatmap.submit(counts, installed, today)
+                    if (changed) showHeatmapLegend()
+                    val span = ChronoUnit.DAYS.between(installed, today) + 1
+                    heatMeta.text = "自 $installed 起 · $span 天 · ${counts.count { it.value > 0 }} 天有拦截 · 共 ${counts.values.sum()} 次"
+                    if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
+                    loading.ready()
+                    finishViewSwitch(true)
+                }
             }.onFailure {
-                if (loading.isComplete) heatMeta.text = "加载失败，请返回后重试"
+                if (loading.isComplete) { heatMeta.text = "加载失败，请返回后重试"; finishViewSwitch(true) }
                 else loading.failed("热力图读取失败，请重试") { renderHeatmap() }
             }
         }

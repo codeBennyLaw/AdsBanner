@@ -7,11 +7,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
 import androidx.core.view.isVisible
+import androidx.core.view.OneShotPreDrawListener
+import androidx.core.view.doOnPreDraw
 
 /** Keep both settled viewports mounted through a switch; rapid reversals retain their current pose. */
 internal class ViewSwitchMotion(parent: ViewGroup) : View.OnAttachStateChangeListener {
     private var animator: ValueAnimator? = null
     private var generation = 0
+    private var layoutWait: OneShotPreDrawListener? = null
     private var show: View? = null
     private var hide: View? = null
     private var hiddenAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
@@ -21,6 +24,8 @@ internal class ViewSwitchMotion(parent: ViewGroup) : View.OnAttachStateChangeLis
     fun switch(show: View, hide: View, forward: Boolean, animated: Boolean) {
         generation++
         animator?.cancel()
+        layoutWait?.removeListener()
+        layoutWait = null
         this.hide?.importantForAccessibility = hiddenAccessibility
         this.show = show
         this.hide = hide
@@ -38,20 +43,24 @@ internal class ViewSwitchMotion(parent: ViewGroup) : View.OnAttachStateChangeLis
         hide.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         show.alpha = startShowAlpha
         show.translationX = startShowX
-        animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 200L
-            interpolator = PathInterpolator(0.2f, 0f, 0.1f, 1f)
-            addUpdateListener {
-                val progress = it.animatedValue as Float
-                show.alpha = startShowAlpha + (1f - startShowAlpha) * progress
-                show.translationX = startShowX * (1f - progress)
-                hide.alpha = startHideAlpha * (1f - progress)
-                hide.translationX = startHideX + (-distance - startHideX) * progress
+        layoutWait = show.doOnPreDraw {
+            layoutWait = null
+            if (generation != token) return@doOnPreDraw
+            animator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 200L
+                interpolator = PathInterpolator(0.2f, 0f, 0.1f, 1f)
+                addUpdateListener {
+                    val progress = it.animatedValue as Float
+                    show.alpha = startShowAlpha + (1f - startShowAlpha) * progress
+                    show.translationX = startShowX * (1f - progress)
+                    hide.alpha = startHideAlpha * (1f - progress)
+                    hide.translationX = startHideX + (-distance - startHideX) * progress
+                }
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) { if (generation == token) settle() }
+                })
+                start()
             }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) { if (generation == token) settle() }
-            })
-            start()
         }
     }
 
@@ -67,6 +76,8 @@ internal class ViewSwitchMotion(parent: ViewGroup) : View.OnAttachStateChangeLis
     override fun onViewAttachedToWindow(view: View) = Unit
     override fun onViewDetachedFromWindow(view: View) {
         generation++
+        layoutWait?.removeListener()
+        layoutWait = null
         animator?.cancel()
         settle()
     }
