@@ -3,6 +3,7 @@ package com.adsbanner.clean.ui
 import android.animation.ValueAnimator
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.text.Layout
 import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.TextView
@@ -113,6 +114,7 @@ class StatsActivity : AppCompatActivity() {
         heatLegend = findViewById(R.id.tvHeatLegend)
         heatDetail = findViewById(R.id.tvHeatDetail)
         heatmapButton = findViewById(R.id.btnHeatmap)
+        reserveViewButtonWidth()
         heatmap.onCellClick = { date, total ->
             heatDetail.visibility = View.VISIBLE
             heatDetail.text = "${date.year} 年 ${date.monthValue} 月 ${date.dayOfMonth} 日 · 拦截 $total 次"
@@ -170,6 +172,15 @@ class StatsActivity : AppCompatActivity() {
         heatmapButton.setText(if (heatmapVisible) R.string.stats_view_list else R.string.stats_view_heatmap)
         ViewCompat.setStateDescription(heatmapButton, getString(if (heatmapVisible)
             R.string.stats_viewing_heatmap else R.string.stats_viewing_list))
+    }
+
+    private fun reserveViewButtonWidth() {
+        val textWidth = listOf(R.string.stats_view_heatmap, R.string.stats_view_list).maxOf {
+            kotlin.math.ceil(Layout.getDesiredWidth(getString(it), heatmapButton.paint).toDouble()).toInt()
+        }
+        val width = maxOf(heatmapButton.minimumWidth, textWidth +
+            heatmapButton.compoundPaddingLeft + heatmapButton.compoundPaddingRight)
+        heatmapButton.layoutParams = heatmapButton.layoutParams.apply { this.width = width }
     }
 
     private fun showTypeMenu() {
