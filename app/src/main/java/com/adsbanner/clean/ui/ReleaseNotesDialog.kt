@@ -1,8 +1,6 @@
 package com.adsbanner.clean.ui
 
 import android.app.Dialog
-import android.animation.ValueAnimator
-import android.provider.Settings
 import android.text.StaticLayout
 import android.view.LayoutInflater
 import android.view.View
@@ -37,7 +35,8 @@ internal object ReleaseNotesDialog {
         }
         val retry = content.findViewById<View>(R.id.btnRetryReleases)
         val list = content.findViewById<RecyclerView>(R.id.listReleases)
-        list.layoutParams = list.layoutParams.apply {
+        content.findViewById<View>(R.id.releaseDataRegion).layoutParams =
+            content.findViewById<View>(R.id.releaseDataRegion).layoutParams.apply {
             height = (activity.resources.displayMetrics.heightPixels * .5f).toInt()
         }
         list.layoutManager = LinearLayoutManager(activity)
@@ -57,18 +56,23 @@ internal object ReleaseNotesDialog {
         var nextPage: Int? = 1
         var loading = false
         var closed = false
-
-        fun revealFirstItems(wasEmpty: Boolean) {
-            if (!wasEmpty || adapter.itemCount == 0 || !ValueAnimator.areAnimatorsEnabled() ||
-                Settings.Global.getFloat(activity.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) == 0f) return
-            list.alpha = 0f
-            list.animate().alpha(1f).setDuration(160L).start()
+        lateinit var local: LocalPageLoading
+        var refreshLoading: LocalPageLoading? = null
+        val refreshPlaceholder = content.findViewById<View>(R.id.releaseRefreshLoading).apply {
+            minimumHeight = 0
+            setPadding(0, 0, 0, 0)
+            findViewById<View>(R.id.loadingLabel).visibility = View.GONE
         }
 
         fun loadNext() {
             val page = nextPage ?: return
             if (loading || closed) return
             loading = true
+            if (adapter.itemCount > 0 && local.isComplete && refreshLoading?.isComplete != false) {
+                refreshLoading?.close()
+                refreshLoading = LocalPageLoading(activity, null, refreshPlaceholder, "",
+                    schedule = dialog::whenReady, navigationHost = dialog.loadingHost())
+            }
             retry.visibility = View.GONE
             status.text = if (page == 1 && adapter.itemCount > 0) "已显示缓存，正在刷新更新日志…"
                 else if (adapter.itemCount == 0) "正在加载更新日志…"
@@ -78,29 +82,36 @@ internal object ReleaseNotesDialog {
                 loading = false
                 if (closed || activity.isFinishing || activity.isDestroyed) return@submit
                 result.onSuccess { data ->
-                    val wasEmpty = adapter.itemCount == 0
-                    if (page == 1) adapter.replace(data.notes) else adapter.append(data.notes)
-                    revealFirstItems(wasEmpty)
-                    nextPage = data.nextPage
-                    status.text = when {
-                        nextPage != null -> "正在加载全部版本…（已加载 ${adapter.itemCount} 个）"
-                        adapter.itemCount == 0 -> "暂无更新日志"
-                        else -> "共 ${adapter.itemCount} 个版本 · 点选查看更新说明"
+                    local.bind {
+                        if (page == 1) adapter.replace(data.notes) else adapter.append(data.notes)
+                        local.ready()
+                        nextPage = data.nextPage
+                        status.text = when {
+                            nextPage != null -> "正在加载全部版本…（已加载 ${adapter.itemCount} 个）"
+                            adapter.itemCount == 0 -> "暂无更新日志"
+                            else -> "共 ${adapter.itemCount} 个版本 · 点选查看更新说明"
+                        }
+                        if (nextPage != null) content.post { if (!closed) loadNext() }
+                        else refreshLoading?.ready()
                     }
-                    // Yield to input/drawing between cached pages, as well as network pages.
-                    if (nextPage != null) content.post { if (!closed) loadNext() }
                 }.onFailure {
-                    status.text = if (adapter.itemCount == 0) "暂时无法获取更新日志，请重试"
-                        else "暂时无法刷新，已保存的更新日志仍可查看"
-                    status.setTextColor(activity.getColor(R.color.warning))
-                    retry.visibility = View.VISIBLE
+                    refreshLoading?.ready()
+                    if (adapter.itemCount == 0) {
+                        status.text = "更新日志"
+                        local.failed("暂时无法获取更新日志，请重试", ::loadNext)
+                    } else {
+                        status.text = "暂时无法刷新，已保存的更新日志仍可查看"
+                        status.setTextColor(activity.getColor(R.color.warning))
+                        retry.visibility = View.VISIBLE
+                    }
                 }
             }
         }
         retry.setOnClickListener { loadNext() }
         dialog.onClosing = {
             closed = true
-            list.animate().cancel()
+            local.close()
+            refreshLoading?.close()
             worker.close()
             (details as? OriginDialog)?.dismissImmediately()
         }
@@ -108,6 +119,8 @@ internal object ReleaseNotesDialog {
             list.adapter = null
         }
         dialog.show()
+        local = LocalPageLoading(activity, list, content.findViewById(R.id.releaseLoading),
+            "正在读取更新日志…", schedule = dialog::whenReady, navigationHost = dialog.loadingHost())
         // Read disk/memory first, so a slow connection never hides previously fetched releases.
         worker.submit({
             buildList<ReleaseNote> {
@@ -121,12 +134,10 @@ internal object ReleaseNotesDialog {
             }
         }) { result ->
             if (closed || activity.isFinishing || activity.isDestroyed) return@submit
-            result.getOrNull()?.let {
-                val wasEmpty = adapter.itemCount == 0
-                adapter.replace(it)
-                revealFirstItems(wasEmpty)
-            }
-            loadNext()
+            val cached = result.getOrNull().orEmpty()
+            if (cached.isNotEmpty()) {
+                local.bind { adapter.replace(cached); local.ready(); loadNext() }
+            } else loadNext()
         }
         return dialog
     }
