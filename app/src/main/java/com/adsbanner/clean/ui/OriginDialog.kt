@@ -269,6 +269,8 @@ internal class OriginDialog private constructor(
         if (!closing && !finished) work?.submit(key, task) ?: task()
     }
 
+    fun loadingHost(): View = panel
+
     private fun validOrigin(): View? = origin.get()?.takeIf {
         it.isAttachedToWindow && it.isShown && it.contentDescription?.toString() == originDescription
     }

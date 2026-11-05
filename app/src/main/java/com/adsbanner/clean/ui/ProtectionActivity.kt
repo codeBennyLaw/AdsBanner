@@ -10,6 +10,7 @@ import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.ListView
@@ -54,7 +55,6 @@ class ProtectionActivity : AppCompatActivity() {
     private var actionRows = emptyList<ActionRow>()
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private val io = UiWorker()
-    private val appWorker = UiWorker()
     private val dialogs = mutableSetOf<OriginDialog>()
     private var editor: Editor? = null
     private var pendingEditor: Bundle? = null
@@ -375,38 +375,61 @@ class ProtectionActivity : AppCompatActivity() {
     }
 
     private fun pickApp(source: View, selected: (String) -> Unit) {
-        appWorker.submit({ AppInfoHelper.launchableApps(applicationContext) }) { result ->
-            result.onSuccess { apps ->
-                val form = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), dp(12))
-                    minimumHeight = minOf(dp(440), resources.displayMetrics.heightPixels / 2)
-                }
-                val search = input(form, "搜索名称或包名")
-                val adapter = object : ArrayAdapter<String>(this, R.layout.item_app_picker, apps.map { "${it.second}\n${it.first}" }) {
-                    override fun getView(position: Int, convertView: View?, parent: ViewGroup) =
-                        (super.getView(position, convertView, parent) as TextView).apply {
-                            minHeight = dp(64); textSize = 14f; setTextColor(getColor(R.color.text_primary)); maxLines = 3
-                        }
-                }
-                val list = ListView(this).apply { this.adapter = adapter; divider = null; selector = ContextCompat.getDrawable(context, R.drawable.bg_round_feedback) }
-                form.addView(list, LinearLayout.LayoutParams(-1, 0, 1f))
-                val dialog = OriginDialog.Builder(this, source).setTitle("选择应用").setView(form).setNegativeButton("取消", null).create()
-                search.addTextChangedListener(object : TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                    override fun afterTextChanged(s: Editable?) {
-                        val key = s.toString().trim().lowercase(Locale.ROOT)
-                        adapter.clear()
-                        adapter.addAll(apps.filter { key in "${it.first}\n${it.second}".lowercase(Locale.ROOT) }.map { "${it.second}\n${it.first}" })
-                    }
-                })
-                list.setOnItemClickListener { _, _, position, _ ->
-                    adapter.getItem(position)?.substringAfterLast('\n')?.let(selected)
-                    dialog.dismiss()
-                }
-                track(dialog).show()
-            }.onFailure { toast("无法读取应用列表") }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), dp(12))
+            minimumHeight = minOf(dp(440), resources.displayMetrics.heightPixels / 2)
         }
+        val search = input(form, "搜索名称或包名")
+        val region = FrameLayout(this)
+        val adapter = object : ArrayAdapter<String>(this, R.layout.item_app_picker, mutableListOf<String>()) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup) =
+                (super.getView(position, convertView, parent) as TextView).apply {
+                    minHeight = dp(64); textSize = 14f; setTextColor(getColor(R.color.text_primary)); maxLines = 3
+                }
+        }
+        val list = ListView(this).apply {
+            this.adapter = adapter; divider = null
+            selector = ContextCompat.getDrawable(context, R.drawable.bg_round_feedback)
+        }
+        region.addView(list, FrameLayout.LayoutParams(-1, -1))
+        val placeholder = layoutInflater.inflate(R.layout.view_local_loading, region, false)
+        region.addView(placeholder)
+        form.addView(region, LinearLayout.LayoutParams(-1, 0, 1f))
+        val dialog = OriginDialog.Builder(this, source).setTitle("选择应用").setView(form)
+            .setNegativeButton("取消", null).create()
+        var closed = false
+        val pickerWorker = UiWorker { key, task -> dialog.whenReady(key, task) }
+        var apps = emptyList<Pair<String, String>>()
+        fun filter() {
+            val key = search.text.toString().trim().lowercase(Locale.ROOT)
+            adapter.setNotifyOnChange(false)
+            adapter.clear()
+            adapter.addAll(apps.filter { key in "${it.first}\n${it.second}".lowercase(Locale.ROOT) }
+                .map { "${it.second}\n${it.first}" })
+            adapter.notifyDataSetChanged()
+        }
+        lateinit var local: LocalPageLoading
+        fun load() {
+            pickerWorker.submit({ AppInfoHelper.launchableApps(applicationContext) }) { result ->
+                if (!closed) result.onSuccess { values ->
+                    local.bind { apps = values; filter(); local.ready() }
+                }.onFailure { local.failed("应用列表读取失败，请重试", ::load) }
+            }
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) { if (apps.isNotEmpty()) filter() }
+        })
+        list.setOnItemClickListener { _, _, position, _ ->
+            adapter.getItem(position)?.substringAfterLast('\n')?.let(selected)
+            dialog.dismiss()
+        }
+        track(dialog) { closed = true; local.close(); pickerWorker.close() }.show()
+        local = LocalPageLoading(this, list, placeholder, getString(R.string.local_loading_apps),
+            schedule = dialog::whenReady, navigationHost = dialog.loadingHost())
+        dialog.onClosing = { closed = true; local.close(); pickerWorker.close() }
+        load()
     }
 
     private fun importRules(uri: Uri) {
@@ -467,7 +490,7 @@ class ProtectionActivity : AppCompatActivity() {
     }
     override fun onDestroy() {
         alive = false
-        worker.close(); io.close(); appWorker.close()
+        worker.close(); io.close()
         dialogs.toList().forEach { it.dismissImmediately() }
         dialogs.clear()
         super.onDestroy()
