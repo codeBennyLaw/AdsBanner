@@ -8,6 +8,7 @@
     android:paddingVertical="16dp"
     android:gravity="center"
     android:orientation="vertical"
+    android:clickable="true"
     android:importantForAccessibility="no">
     <com.adsbanner.clean.ui.LocalLoadingDots
         android:id="@+id/loadingDots"
