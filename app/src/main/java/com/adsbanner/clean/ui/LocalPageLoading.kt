@@ -112,6 +112,7 @@ internal class LocalPageLoading(
             revealing = true
             animator?.cancel()
             animator = null
+            overlay.setBackgroundColor(activity.getColor(R.color.bg))
             content.visibility = View.VISIBLE
             // The real content is measured behind an opaque overlay before its first visible frame.
             layoutWait = content.doOnPreDraw {
@@ -140,6 +141,7 @@ internal class LocalPageLoading(
         animator = null
         isComplete = true
         overlay.visibility = View.GONE
+        overlay.background = null
         overlay.alpha = 1f
         notifyContentReady()
     }
@@ -166,6 +168,7 @@ internal class LocalPageLoading(
             binding = false
             pendingBind = null
             content.visibility = View.INVISIBLE
+            overlay.background = null
             overlay.alpha = 1f
             dots.visibility = View.GONE
             label.text = text

@@ -1,38 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/pageLoading"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
+    android:paddingHorizontal="32dp"
+    android:paddingVertical="24dp"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:importantForAccessibility="no"
     android:clickable="true">
-    <LinearLayout
+    <com.adsbanner.clean.ui.LocalLoadingDots
+        android:id="@+id/loadingDots"
+        android:layout_width="64dp"
+        android:layout_height="24dp"
+        android:importantForAccessibility="no" />
+    <TextView
+        android:id="@+id/loadingLabel"
+        style="@style/Text.RowSub"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:paddingHorizontal="32dp"
-        android:paddingVertical="24dp"
+        android:layout_marginTop="8dp"
         android:gravity="center"
-        android:orientation="vertical">
-        <com.adsbanner.clean.ui.LocalLoadingDots
-            android:id="@+id/loadingDots"
-            android:layout_width="64dp"
-            android:layout_height="24dp"
-            android:importantForAccessibility="no" />
-        <TextView
-            android:id="@+id/loadingLabel"
-            style="@style/Text.RowSub"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center"
-            android:accessibilityLiveRegion="polite" />
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/loadingRetry"
-            style="@style/Button.AdsBanner.Tonal"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/local_loading_retry"
-            android:visibility="gone" />
-    </LinearLayout>
-</FrameLayout>
+        android:accessibilityLiveRegion="polite" />
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/loadingRetry"
+        style="@style/Button.AdsBanner.Tonal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/local_loading_retry"
+        android:visibility="gone" />
+</LinearLayout>
