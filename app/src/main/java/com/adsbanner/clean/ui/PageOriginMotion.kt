@@ -76,17 +76,10 @@ internal class PageOriginMotion(
     private var returnRadius = 0f
     private var returnAnimator: ValueAnimator? = null
     private var poseFill = background
-    private var originOffsetX = 0
-    private var originOffsetY = 0
-    private val anchor = object : View(activity) {
-        override fun onDraw(canvas: Canvas) {
-            if (returning) return
-            canvas.save()
-            canvas.translate(-originOffsetX.toFloat(), -originOffsetY.toFloat())
-            source()?.draw(canvas)
-            canvas.restore()
-        }
-    }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = View.INVISIBLE }
+    private val anchor = View(activity).apply {
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        visibility = View.INVISIBLE
+    }
 
     init {
         pendingOrigin = null
@@ -120,9 +113,6 @@ internal class PageOriginMotion(
         val view = source() ?: return false
         val rect = Rect()
         if (!view.getGlobalVisibleRect(rect)) return false
-        val sourceLocation = IntArray(2).also(view::getLocationOnScreen)
-        originOffsetX = rect.left - sourceLocation[0]
-        originOffsetY = rect.top - sourceLocation[1]
         val location = IntArray(2)
         stage.getLocationOnScreen(location)
         anchor.layoutParams = FrameLayout.LayoutParams(rect.width(), rect.height()).apply {

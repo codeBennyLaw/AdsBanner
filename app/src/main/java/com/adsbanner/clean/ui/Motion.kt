@@ -30,7 +30,6 @@ import com.google.android.material.transition.platform.MaterialContainerTransfor
 /** Shared motion tokens. Android's animator scale is the reduced-motion contract. */
 object Motion {
     private const val ENTER_MS = 240L
-    private const val SWITCH_MS = 180L
     private const val PAGE_ENTER_MS = 320L
     private const val PAGE_RETURN_MS = 260L
     private const val EXTRA_CARD_TRANSITION = "com.adsbanner.clean.CARD_TRANSITION"

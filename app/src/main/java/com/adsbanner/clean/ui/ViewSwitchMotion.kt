@@ -6,6 +6,7 @@ import android.animation.ValueAnimator
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
+import androidx.core.view.isVisible
 
 /** Keep both settled viewports mounted through a switch; rapid reversals retain their current pose. */
 internal class ViewSwitchMotion(parent: ViewGroup) : View.OnAttachStateChangeListener {
@@ -27,8 +28,8 @@ internal class ViewSwitchMotion(parent: ViewGroup) : View.OnAttachStateChangeLis
         if (!animated) { settle(); return }
         val token = generation
         val distance = show.resources.displayMetrics.density * 8f * if (forward) 1 else -1
-        val startShowAlpha = if (show.visibility == View.VISIBLE) show.alpha else 0f
-        val startShowX = if (show.visibility == View.VISIBLE) show.translationX else distance
+        val startShowAlpha = if (show.isVisible) show.alpha else 0f
+        val startShowX = if (show.isVisible) show.translationX else distance
         val startHideAlpha = hide.alpha
         val startHideX = hide.translationX
         show.visibility = View.VISIBLE
