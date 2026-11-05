@@ -62,5 +62,5 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
         android:layout_marginBottom="12dp"
-        android:text="正在加载应用…" />
+        android:text="应用列表" />
 </LinearLayout>

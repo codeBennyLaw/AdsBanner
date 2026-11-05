@@ -8,6 +8,7 @@ import android.view.View
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.children
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -34,6 +35,7 @@ class TargetListActivity : AppCompatActivity() {
     private var allApps: List<TargetAppRow> = emptyList()
     private val selected = LinkedHashSet<String>()
     private var installedSelectedCount = 0
+    private var appsLoaded = false
     private var query = ""
     private val exclusionsMode get() = intent.getBooleanExtra(EXTRA_EXCLUSIONS, false)
 
@@ -49,7 +51,6 @@ class TargetListActivity : AppCompatActivity() {
         if (exclusionsMode) findViewById<TextView>(R.id.tvPageTitle).text = "例外应用"
         Motion.preparePage(this, getString(if (exclusionsMode) R.string.transition_exclusions else R.string.transition_targets), R.color.surface, savedInstanceState != null)
         list = findViewById(R.id.appList)
-        loading = LocalPageLoading(this, list, findViewById(R.id.pageLoading), getString(R.string.local_loading_apps))
         list.layoutManager = LinearLayoutManager(this)
         val header = layoutInflater.inflate(R.layout.header_targets, list, false)
         empty = layoutInflater.inflate(R.layout.item_empty_targets, list, false) as TextView
@@ -69,7 +70,13 @@ class TargetListActivity : AppCompatActivity() {
             updateSelectionSummary()
         }
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
-        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
+        val placeholder = layoutInflater.inflate(R.layout.view_local_loading, list, false)
+        loading = LocalPageLoading(this, null, placeholder, getString(R.string.local_loading_apps),
+            layoutHost = list, revealTargets = {
+                list.children.filter { it !== header && it !== placeholder }.toList()
+            })
+        list.adapter = ConcatAdapter(SingleViewAdapter(header), SingleViewAdapter(placeholder), adapter, SingleViewAdapter(empty))
+        selectionSummary.text = if (exclusionsMode) "例外应用" else "拦截目标"
         // Navigation owns the motion; list updates should settle in one layout.
         list.itemAnimator = null
         val listBottom = list.paddingBottom
@@ -101,6 +108,7 @@ class TargetListActivity : AppCompatActivity() {
             AppInfoHelper.launchableApps(applicationContext).map { (pkg, name) -> TargetAppRow(pkg, name) }
         }) { result ->
             result.onSuccess {
+                appsLoaded = true
                 allApps = it
                 installedSelectedCount = allApps.count { row -> row.pkg in selected }
                 updateSelectionSummary()
@@ -112,6 +120,7 @@ class TargetListActivity : AppCompatActivity() {
     }
 
     private fun render() {
+        if (!appsLoaded) return
         val key = query.trim().lowercase(Locale.ROOT)
         val rows = if (key.isEmpty()) allApps else allApps.filter { key in it.searchKey }
         loading.bind {
