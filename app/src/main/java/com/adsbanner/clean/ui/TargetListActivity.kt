@@ -70,10 +70,10 @@ class TargetListActivity : AppCompatActivity() {
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
         emptyAdapter = EmptyStateAdapter(R.layout.item_empty_targets)
         list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, emptyAdapter)
-        loading = listDataLoading(this, list, header, getString(R.string.local_loading_apps))
         selectionSummary.text = if (exclusionsMode) "例外应用" else "拦截目标"
         // Navigation owns the motion; list updates should settle in one layout.
         list.itemAnimator = null
+        loading = listDataLoading(this, list, header, getString(R.string.local_loading_apps))
         val listBottom = list.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or
