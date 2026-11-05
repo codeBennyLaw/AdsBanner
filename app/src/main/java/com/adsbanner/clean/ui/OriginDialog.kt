@@ -9,6 +9,7 @@ import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -192,7 +193,7 @@ internal class OriginDialog private constructor(
                 backPreview = true
                 work?.beginPreview()
                 freezeLists()
-                returnMotion = (returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)).also { it.preview() }
+                returnMotion = (returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss, originCornerRadius())).also { it.preview() }
             }
             override fun handleOnBackProgressed(backEvent: BackEventCompat) {
                 if (backPreview && !closing) returnMotion?.seek(backEvent.progress)
@@ -425,7 +426,7 @@ internal class OriginDialog private constructor(
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
         } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
-            val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)
+            val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss, originCornerRadius())
             returnMotion = motion
             motion.start()
         } else finishDismiss()
@@ -435,6 +436,13 @@ internal class OriginDialog private constructor(
         validOrigin()?.let {
             clearOriginFeedback(it)
         }
+    }
+
+    private fun originCornerRadius(): Float {
+        val source = validOrigin()
+        return (source as? Shapeable)?.shapeAppearanceModel?.topLeftCornerSize?.getCornerSize(
+            RectF(0f, 0f, source.width.toFloat(), source.height.toFloat()))
+            ?: context.resources.getDimension(R.dimen.corner_card)
     }
 
     private fun freezeLists() {
