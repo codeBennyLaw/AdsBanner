@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun clickToSkipCountdownKeepsLegacyLabelCoverage() {
+        for (label in listOf("点击跳过 5s", "轻点跳过广告 3秒", "点击跳过5")) {
+            assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+            assertTrue(label, JumpAdRule.isAdSkip(label))
+        }
+        for (label in listOf("点击跳过登录", "点击跳过教程", "点击跳过验证"))
+            assertEquals(label, SkipRule.NONE, SkipRule.match(label))
+    }
+
     @Test fun timerAndDescriptionOnTheSameControlFormAnExplicitSkip() {
         assertEquals("跳过 5s", SkipRule.buttonLabel("5s", "跳过"))
         assertEquals("跳过 5 秒", SkipRule.buttonLabel("跳过", "5 秒"))
