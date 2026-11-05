@@ -24,7 +24,6 @@ import androidx.transition.TransitionManager
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.adsbanner.clean.R
-import com.google.android.material.transition.MaterialSharedAxis
 import com.google.android.material.transition.platform.MaterialContainerTransform
 import com.google.android.material.transition.platform.MaterialContainerTransformSharedElementCallback
 
@@ -206,26 +205,10 @@ object Motion {
 
     fun switchViews(show: View, hide: View, forward: Boolean) {
         val parent = show.parent as ViewGroup
-        // Finish the previous switch before capturing another one. Visibility always reflects
-        // the current selection, even when the user toggles twice in the same frame.
-        TransitionManager.endTransitions(parent)
-        if (!ValueAnimator.areAnimatorsEnabled()) {
-            hide.visibility = View.GONE
-            hide.alpha = 1f
-            show.visibility = View.VISIBLE
-            show.alpha = 1f
-            return
-        }
-        TransitionManager.beginDelayedTransition(
-            parent,
-            MaterialSharedAxis(MaterialSharedAxis.X, forward).apply {
-                duration = SWITCH_MS
-                addTarget(show)
-                addTarget(hide)
-            }
-        )
-        hide.visibility = View.GONE
-        show.visibility = View.VISIBLE
+        val motion = parent.getTag(R.id.motion_view_switch) as? ViewSwitchMotion
+            ?: ViewSwitchMotion(parent).also { parent.setTag(R.id.motion_view_switch, it) }
+        motion.switch(show, hide, forward, ValueAnimator.areAnimatorsEnabled() &&
+            Settings.Global.getFloat(parent.context.contentResolver,
+                Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f)
     }
-
 }
