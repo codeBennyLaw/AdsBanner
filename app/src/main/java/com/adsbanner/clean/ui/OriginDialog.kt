@@ -12,6 +12,7 @@ import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -81,6 +82,9 @@ internal class OriginDialog private constructor(
         val parent = panel.parent as ViewGroup
         parent.removeView(panel)
         stage = object : FrameLayout(context) {
+            override fun onInterceptTouchEvent(event: MotionEvent) = closing || super.onInterceptTouchEvent(event)
+            override fun onTouchEvent(event: MotionEvent) = closing || super.onTouchEvent(event)
+
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec)
                 if (!dropdown && ::panel.isInitialized) {
