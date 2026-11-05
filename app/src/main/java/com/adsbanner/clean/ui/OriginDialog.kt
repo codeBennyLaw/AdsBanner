@@ -73,7 +73,7 @@ internal class OriginDialog private constructor(
     private var actionTaken = false
     private var backPreview = false
     private var dropdown = false
-    private var expandInPlace = false
+    private var expandPanelFromSource = false
     private var enterAnimator: ValueAnimator? = null
     private var enterSurface: PopupRenderSurface? = null
     private var enterGeometry: OriginReturnTransform? = null
@@ -242,7 +242,7 @@ internal class OriginDialog private constructor(
                 stage.viewTreeObserver.removeOnPreDrawListener(this)
                 if (finished) return true
                 if (closing) { finishDismiss(); return false }
-                if (animationsEnabled() && expandInPlace) {
+                if (animationsEnabled() && expandPanelFromSource) {
                     startPanelEnter()
                     return true
                 }
@@ -442,13 +442,18 @@ internal class OriginDialog private constructor(
 
     private fun startPanelEnter() {
         work?.beginEnter()
-        val location = IntArray(2).also(panel::getLocationOnScreen)
-        val seedWidth = (panel.width * 0.9f).toInt().coerceAtLeast(1)
-        val seedHeight = minOf(dp(96), (panel.height * 0.25f).toInt()).coerceAtLeast(1)
-        val left = location[0] + (panel.width - seedWidth) / 2
-        val top = location[1] + (panel.height - seedHeight) / 2
-        panelEnterGeometry = OriginReturnTransform(panel, Rect(left, top, left + seedWidth, top + seedHeight),
-            context.resources.getDimension(R.dimen.corner_dialog))
+        // Only borrow the entry's bounds. Animate the popup itself; never draw its button.
+        val hasOrigin = placeAnchor()
+        val bounds = if (hasOrigin) Rect(originBounds) else {
+            val location = IntArray(2).also(panel::getLocationOnScreen)
+            val width = (panel.width * 0.9f).toInt().coerceAtLeast(1)
+            val height = minOf(dp(96), (panel.height * 0.25f).toInt()).coerceAtLeast(1)
+            val left = location[0] + (panel.width - width) / 2
+            val top = location[1] + (panel.height - height) / 2
+            Rect(left, top, left + width, top + height)
+        }
+        panelEnterGeometry = OriginReturnTransform(panel, bounds, if (hasOrigin) originCornerRadius()
+            else context.resources.getDimension(R.dimen.corner_dialog))
         applyPanelEnter(0f)
         animatePanelEnter(1f)
     }
@@ -541,7 +546,7 @@ internal class OriginDialog private constructor(
             animateRecordedEnter(0f)
             return
         }
-        if (entering && !expandInPlace) {
+        if (entering && !expandPanelFromSource) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
         } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
@@ -641,7 +646,7 @@ internal class OriginDialog private constructor(
     class Builder(activity: AppCompatActivity, source: View?) {
         private val dialog = OriginDialog(activity, source, MaterialAlertDialogBuilder(activity))
         fun asDropdown() = apply { dialog.dropdown = true }
-        fun expandInPlace() = apply { dialog.expandInPlace = true }
+        fun expandFromSource() = apply { dialog.expandPanelFromSource = true }
         fun setTitle(title: CharSequence) = apply { dialog.setTitle(title) }
         fun setMessage(message: CharSequence) = apply { dialog.setMessage(message) }
         fun setView(view: View) = apply { dialog.setView(view) }
