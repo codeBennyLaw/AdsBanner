@@ -63,7 +63,8 @@ class ProtectionActivity : AppCompatActivity() {
     private var ioBusy = false
     private var alive = true
     private lateinit var loading: LocalPageLoading
-    private val changed: () -> Unit = { if (alive) refresh() }
+    private val refreshKey = Any()
+    private val changed: () -> Unit = { Motion.whenPageReady(this, refreshKey) { if (alive) refresh() } }
     private val importFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importRules(uri)
     }

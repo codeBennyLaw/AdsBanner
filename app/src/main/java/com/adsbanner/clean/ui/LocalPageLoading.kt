@@ -93,7 +93,11 @@ internal class LocalPageLoading(
 
     fun bind(action: () -> Unit) {
         if (closed || failedState) return
-        if (isComplete || revealing || binding) { action(); return }
+        if (isComplete) {
+            Motion.whenPageReady(activity, this) { if (!closed) action() }
+            return
+        }
+        if (revealing || binding) { action(); return }
         pendingBind = action
         if (cycleDone && animator == null) applyPendingBind()
     }
