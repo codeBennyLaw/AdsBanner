@@ -27,7 +27,7 @@ internal object ReleaseNotesDialog {
         status.text = "正在读取更新日志…"
         val density = activity.resources.displayMetrics.density
         val statusWidth = (minOf(activity.resources.displayMetrics.widthPixels - (48 * density).toInt(),
-            (560 * density).toInt()) - (48 * density).toInt()).coerceAtLeast(1)
+            (560 * density).toInt()) - (112 * density).toInt()).coerceAtLeast(1)
         // Reserve common status wrapping before measuring the expanding popup.
         status.minLines = listOf("正在加载全部版本…（已加载 9999 个）", "共 9999 个版本 · 点选查看更新说明",
             "已显示缓存，正在刷新更新日志…", "暂时无法刷新，已保存的更新日志仍可查看").maxOf {
