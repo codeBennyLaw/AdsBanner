@@ -13,6 +13,8 @@ import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
+import androidx.core.view.isGone
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -177,7 +179,7 @@ class StatsActivity : AppCompatActivity() {
         viewSwitchPending = false
         val show = if (heatmapVisible) heatmapScroll else list
         val hide = if (heatmapVisible) list else heatmapScroll
-        if (show.visibility == View.VISIBLE && hide.visibility == View.GONE) return
+        if (show.isVisible && hide.isGone) return
         Motion.switchViews(show, hide, forward = heatmapVisible)
     }
 
