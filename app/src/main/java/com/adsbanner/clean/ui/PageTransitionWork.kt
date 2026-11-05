@@ -73,6 +73,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     }
 
     fun endPreview() {
+        if (closed || returning) return
         previewing = false
         if (entering) completeEnter() else {
             draining = true

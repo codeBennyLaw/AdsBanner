@@ -153,6 +153,7 @@ internal class PageOriginMotion(
         entryGeometry?.apply(1f - progress)
         poseFill = ColorUtils.blendARGB(color, background, motionFraction(0.05f, 0.9f, progress))
         returnNode?.alpha = motionFraction(0.12f, 0.72f, progress)
+        returnPose?.alpha = motionFraction(0f, 0.12f, progress)
         returnPose?.invalidate()
     }
 
@@ -317,6 +318,11 @@ internal class PageOriginMotion(
             return
         }
         TransitionManager.endTransitions(stage)
+        if (entering) {
+            entering = false
+            page.visibility = View.VISIBLE
+            work.endEnter()
+        }
         prepareHomeBackdrop()
         if (!revealHome()) {
             clearHomeBackdrop()
