@@ -217,15 +217,15 @@ internal class PageOriginMotion(
         anchor.visibility = View.INVISIBLE
         pose.visibility = View.VISIBLE
         returnAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = if (returningFromGesture) 280L else 340L
+            duration = RetractionVisuals.DURATION_MS
             interpolator = if (returningFromGesture) PathInterpolator(0.2f, (0.2f * speed * duration / 1000f).coerceIn(0f, 0.8f), 0.2f, 1f)
-                else PathInterpolator(0.2f, 0f, 0.1f, 1f)
+                else PathInterpolator(0.3f, 0f, 0.4f, 1f)
             addUpdateListener {
                 val progress = it.animatedValue as Float
                 geometry.apply(progress)
-                poseFill = ColorUtils.blendARGB(background, color, motionFraction(0f, 0.85f, progress))
-                returnNode?.alpha = 1f - motionFraction(0.2f, 0.9f, progress)
-                pose.alpha = 1f - motionFraction(0.88f, 1f, progress)
+                poseFill = background
+                returnNode?.alpha = RetractionVisuals.contentAlpha(progress)
+                pose.alpha = RetractionVisuals.panelAlpha(progress)
                 pose.invalidate()
             }
             addListener(object : AnimatorListenerAdapter() {
