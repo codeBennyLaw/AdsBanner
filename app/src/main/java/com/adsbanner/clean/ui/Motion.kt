@@ -31,7 +31,7 @@ import com.google.android.material.transition.platform.MaterialContainerTransfor
 object Motion {
     private const val ENTER_MS = 240L
     private const val PAGE_ENTER_MS = 320L
-    private const val PAGE_RETURN_MS = 260L
+    private const val PAGE_RETURN_MS = RetractionVisuals.DURATION_MS
     private const val EXTRA_CARD_TRANSITION = "com.adsbanner.clean.CARD_TRANSITION"
     private const val EXTRA_ORIGIN_COLOR = "com.adsbanner.clean.ORIGIN_COLOR"
 
@@ -89,10 +89,10 @@ object Motion {
         fun transform(entering: Boolean) = MaterialContainerTransform().apply {
             addTarget(android.R.id.content)
             duration = if (!enabled) 0L else if (entering) PAGE_ENTER_MS else PAGE_RETURN_MS
-            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
+            fadeMode = if (entering) MaterialContainerTransform.FADE_MODE_CROSS else MaterialContainerTransform.FADE_MODE_OUT
             interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
             fadeProgressThresholds = if (entering) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
+                else MaterialContainerTransform.ProgressThresholds(RetractionVisuals.CONTENT_FADE_START, RetractionVisuals.CONTENT_FADE_END)
             scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             containerColor = if (entering) background else Color.TRANSPARENT
