@@ -26,13 +26,11 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.descendants
 import androidx.core.view.doOnPreDraw
 import androidx.core.view.OneShotPreDrawListener
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.button.MaterialButton
@@ -68,7 +66,6 @@ internal class OriginDialog private constructor(
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
     var onClosing: (() -> Unit)? = null
-    private val frozen = mutableListOf<RecyclerView>()
     private val activityObserver = object : DefaultLifecycleObserver {
         override fun onStop(owner: LifecycleOwner) {
             if (closing) finishDismiss()
@@ -187,7 +184,6 @@ internal class OriginDialog private constructor(
                     panel.height == 0 || !placeAnchor()) return
                 backPreview = true
                 work?.beginPreview()
-                freezeLists()
                 returnMotion = (returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss,
                     originCornerRadius())).also { it.preview() }
             }
@@ -382,7 +378,6 @@ internal class OriginDialog private constructor(
             finishDismiss()
             return
         }
-        freezeLists()
         if (entering && panelEnterGeometry != null) {
             enterAnimator?.cancel()
             animatePanelEnter(0f)
@@ -428,22 +423,11 @@ internal class OriginDialog private constructor(
             ?: context.resources.getDimension(R.dimen.corner_card)
     }
 
-    private fun freezeLists() {
-        panel.descendants.filterIsInstance<RecyclerView>().forEach {
-            if (it !in frozen) {
-                it.stopScroll(); it.itemAnimator?.endAnimations(); it.suppressLayout(true)
-                frozen.add(it)
-            }
-        }
-    }
-
     private fun restoreBackPreview() {
         backPreview = false
         if (panelBackStart != null) finishPanelEnter()
         returnMotion?.restore()
         returnMotion = null
-        frozen.forEach { it.suppressLayout(false) }
-        frozen.clear()
         work?.endPreview()
     }
 
@@ -468,8 +452,6 @@ internal class OriginDialog private constructor(
         if (!closing) { closing = true; onClosing?.invoke() }
         work?.close()
         restoreOrigin()
-        frozen.forEach { it.suppressLayout(false) }
-        frozen.clear()
         activity.lifecycle.removeObserver(activityObserver)
         super.dismiss()
     }

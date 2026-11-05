@@ -4,7 +4,6 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.graphics.Rect
-import android.os.Build
 import android.os.SystemClock
 import android.view.View
 import android.view.animation.PathInterpolator
@@ -28,7 +27,6 @@ internal class PopupReturnMotion(
     private val initialX = panel.translationX
     private val initialY = panel.translationY
     private var transform: OriginReturnTransform? = null
-    private var surface: PopupRenderSurface? = null
     private var attached = false
     private var generation = 0
     private var animator: ValueAnimator? = null
@@ -38,12 +36,11 @@ internal class PopupReturnMotion(
     private var progressVelocity = 0f
     var progress = 0f
         private set
-    private val movingView get() = if (Build.VERSION.SDK_INT >= 29) surface?.view ?: panel else panel
+    private val movingView get() = panel
 
     private fun attach() {
         if (attached) return
         attached = true
-        if (Build.VERSION.SDK_INT >= 29) surface = PopupRenderSurface.capture(panel)
         transform = OriginReturnTransform(movingView, destination, originRadius)
     }
 
@@ -103,9 +100,6 @@ internal class PopupReturnMotion(
         progress = value
         val target = movingView
         transform?.apply(value)
-        if (Build.VERSION.SDK_INT >= 29) surface?.apply {
-            setContentAlpha(RetractionVisuals.contentAlpha(value))
-        }
         target.alpha = initialAlpha * RetractionVisuals.panelAlpha(value)
         scrim.alpha = initialScrimAlpha * (1f - value)
     }
@@ -127,8 +121,7 @@ internal class PopupReturnMotion(
 
     fun restore() {
         freeze()
-        if (Build.VERSION.SDK_INT >= 29) surface?.release(restore = true)
-        surface = null; attached = false
+        attached = false
         restoreProperties()
         scrim.alpha = initialScrimAlpha
         progress = 0f
@@ -137,9 +130,8 @@ internal class PopupReturnMotion(
     /** Closing must not expose the original full popup for a frame. */
     fun cancel() {
         freeze()
-        if (Build.VERSION.SDK_INT >= 29 && surface != null) surface?.release(restore = false)
-        else restoreProperties()
-        surface = null; attached = false
+        // Keep the live panel at its final pose until the dialog window is removed.
+        attached = false
         transform = null
     }
 }
