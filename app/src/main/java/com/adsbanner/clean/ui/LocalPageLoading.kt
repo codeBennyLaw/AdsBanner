@@ -37,6 +37,7 @@ internal class LocalPageLoading(
     private var binding = false
     private var pendingBind: (() -> Unit)? = null
     private var failedState = false
+    private var notified = false
     var isComplete = false
         private set
 
@@ -54,7 +55,11 @@ internal class LocalPageLoading(
     private fun beginCycle() {
         if (closed || stopped || failedState || binding || begun || revealing || isComplete) return
         begun = true
-        if (!animationsEnabled()) { cycleDone = true; requestReveal(); return }
+        if (!animationsEnabled()) {
+            cycleDone = true
+            if (pendingBind != null) applyPendingBind() else requestReveal()
+            return
+        }
         val ticket = generation
         animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 280L
@@ -136,7 +141,14 @@ internal class LocalPageLoading(
         isComplete = true
         overlay.visibility = View.GONE
         overlay.alpha = 1f
-        onContentReady()
+        notifyContentReady()
+    }
+
+    private fun notifyContentReady() {
+        if (!closed && !stopped && isComplete && !notified) {
+            notified = true
+            onContentReady()
+        }
     }
 
     fun failed(text: String, retryWork: () -> Unit) {
@@ -188,6 +200,7 @@ internal class LocalPageLoading(
 
     override fun onStart(owner: LifecycleOwner) {
         stopped = false
+        if (isComplete) { notifyContentReady(); return }
         Motion.whenPageReady(activity, this) {
             when {
                 cycleDone && pendingBind != null -> applyPendingBind()
