@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun timerAndDescriptionOnTheSameControlFormAnExplicitSkip() {
+        assertEquals("跳过 5s", SkipRule.buttonLabel("5s", "跳过"))
+        assertEquals("跳过 5 秒", SkipRule.buttonLabel("跳过", "5 秒"))
+        assertEquals("跳过广告", SkipRule.buttonLabel("跳过", "跳过广告"))
+        assertEquals("跳过登录", SkipRule.buttonLabel("跳过登录", "跳过广告"))
+    }
+
+    @Test fun onlyStandaloneCountdownsCanJoinTheirSkipControl() {
+        assertEquals("跳过 5s", SkipRule.withCountdown("跳过", "5s"))
+        assertEquals(null, SkipRule.withCountdown("跳过", "5秒后可跳过"))
+        assertEquals(null, SkipRule.withCountdown("跳过", "广告设置"))
+        assertEquals(null, SkipRule.withCountdown("关闭", "5s"))
+        listOf("跳过｜5", "跳过丨5s", "跳过(5秒)", "跳过（5）").forEach {
+            assertEquals(it, SkipRule.STRONG, SkipRule.match(it))
+            assertTrue(it, JumpAdRule.isAdSkip(it))
+        }
+    }
     @Test fun ordinaryFlowsAndFutureCountdownsAreNotAdSkipButtons() {
         listOf("跳过登录", "跳过设置", "不跳过", "是否跳过", "跳过教程", "跳过验证", "跳过片头", "3秒后跳过", "5秒后可跳过")
             .forEach { assertEquals(it, SkipRule.NONE, SkipRule.match(it)) }
