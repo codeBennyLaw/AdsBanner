@@ -949,7 +949,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val checkedAt = SystemClock.elapsedRealtime()
         val bounds = validatedBounds(candidate, pkg, covered = false) ?: return
         if (!canTapApplication(pkg, candidate.node.windowId, bounds.centerX(), bounds.centerY(), checkedAt)) return
-        val generation = actionGeneration
+        val generation = ++actionGeneration
         val path = Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 60L)).build()
         gestureInFlight = true
