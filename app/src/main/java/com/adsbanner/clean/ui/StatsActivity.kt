@@ -15,6 +15,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.isGone
+import androidx.core.view.children
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -56,7 +57,17 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatMeta: TextView
     private lateinit var heatLegend: HeatmapLegendView
     private lateinit var heatDetail: TextView
-    private lateinit var loading: LocalPageLoading
+    private lateinit var listLoadingView: View
+    private val loading by lazy {
+        LocalPageLoading(this, null, listLoadingView, getString(R.string.local_loading_stats),
+            layoutHost = list, revealTargets = {
+                list.children.filter { it.id != R.id.statsHeader && it !== listLoadingView }.toList()
+            })
+    }
+    private val heatLoading by lazy {
+        LocalPageLoading(this, findViewById(R.id.heatData), findViewById(R.id.heatLoading),
+            "正在读取每日拦截…")
+    }
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var renderedKey: RenderKey? = null
     private var pendingKey: RenderKey? = null
@@ -106,7 +117,8 @@ class StatsActivity : AppCompatActivity() {
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = StatAppAdapter(icons)
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
-        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
+        listLoadingView = layoutInflater.inflate(R.layout.view_local_loading, list, false)
+        list.adapter = ConcatAdapter(SingleViewAdapter(header), SingleViewAdapter(listLoadingView), adapter, SingleViewAdapter(empty))
         list.itemAnimator = rowMotion
         heatmapScroll = findViewById(R.id.heatmapScroll)
         heatScroll = findViewById(R.id.heatScroll)
@@ -119,9 +131,6 @@ class StatsActivity : AppCompatActivity() {
         heatDetail = findViewById(R.id.tvHeatDetail)
         heatmapButton = findViewById(R.id.btnHeatmap)
         reserveViewButtonWidth()
-        heatmapButton.isEnabled = false
-        loading = LocalPageLoading(this, findViewById(R.id.statsContent), findViewById(R.id.pageLoading),
-            getString(R.string.local_loading_stats)) { heatmapButton.isEnabled = true }
         heatmap.onCellClick = { date, total ->
             heatDetail.visibility = View.VISIBLE
             heatDetail.text = "${date.year} 年 ${date.monthValue} 月 ${date.dayOfMonth} 日 · 拦截 $total 次"
@@ -288,6 +297,7 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun render(animate: Boolean = false) {
+        loading // Start only when this data region is requested.
         if (animate) rowMotion.enabled = renderedKey != null && ValueAnimator.areAnimatorsEnabled() &&
             android.provider.Settings.Global.getFloat(contentResolver,
                 android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
@@ -409,7 +419,7 @@ class StatsActivity : AppCompatActivity() {
             selectedRange == Range.TODAY -> "今天暂无这类拦截记录\n可以切换“全部时间”查看历史记录"
             else -> "当前类型暂无拦截记录\n试试切换其他广告类型"
         }
-        rowMotion.showEmpty(empty, apps == 0)
+        rowMotion.showEmpty(empty, renderedKey != null && apps == 0)
     }
 
     private fun typeLabel(value: Type) = when (value) {
@@ -420,21 +430,23 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun renderHeatmap() {
+        heatLoading // The first graph read has its own local placeholder.
+        if (!heatLoading.isComplete) finishViewSwitch(true)
         loadingType = null
         worker.submit({ Triple(StatsStore.dailyCounts(), StatsStore.installedOn(), LocalDate.now()) }) { result ->
             result.onSuccess { (counts, installed, today) ->
-                loading.bind {
+                heatLoading.bind {
                     val changed = heatmap.submit(counts, installed, today)
                     if (changed) showHeatmapLegend()
                     val span = ChronoUnit.DAYS.between(installed, today) + 1
                     heatMeta.text = "自 $installed 起 · $span 天 · ${counts.count { it.value > 0 }} 天有拦截 · 共 ${counts.values.sum()} 次"
                     if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
-                    loading.ready()
+                    heatLoading.ready()
                     finishViewSwitch(true)
                 }
             }.onFailure {
-                if (loading.isComplete) { heatMeta.text = "加载失败，请返回后重试"; finishViewSwitch(true) }
-                else loading.failed("热力图读取失败，请重试") { renderHeatmap() }
+                if (heatLoading.isComplete) { heatMeta.text = "加载失败，请返回后重试"; finishViewSwitch(true) }
+                else heatLoading.failed("热力图读取失败，请重试") { renderHeatmap() }
             }
         }
     }

@@ -91,6 +91,9 @@
                                 android:layout_height="wrap_content"
                                 android:text="每日拦截"
                                 android:fontFamily="sans-serif-medium" />
+                            <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+                                <LinearLayout android:id="@+id/heatData" android:layout_width="match_parent"
+                                    android:layout_height="wrap_content" android:orientation="vertical">
                             <TextView
                                 android:id="@+id/tvHeatMeta"
                                 style="@style/Text.RowSub"
@@ -133,11 +136,13 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="16dp"
                                 android:text="点击日期查看次数，左右滑动查看历史记录" />
+                                </LinearLayout>
+                                <include android:id="@+id/heatLoading" layout="@layout/view_local_loading" />
+                            </FrameLayout>
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
                 </LinearLayout>
             </ScrollView>
         </FrameLayout>
-        <include layout="@layout/view_local_loading" />
     </FrameLayout>
 </LinearLayout>
