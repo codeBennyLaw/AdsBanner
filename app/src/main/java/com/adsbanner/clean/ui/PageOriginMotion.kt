@@ -28,12 +28,8 @@ import androidx.core.graphics.withScale
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.descendants
 import androidx.recyclerview.widget.RecyclerView
-import androidx.transition.Transition
-import androidx.transition.TransitionListenerAdapter
 import androidx.transition.TransitionManager
 import com.adsbanner.clean.R
-import com.google.android.material.shape.ShapeAppearanceModel
-import com.google.android.material.transition.MaterialContainerTransform
 import java.lang.ref.WeakReference
 import kotlin.math.roundToInt
 
@@ -72,6 +68,10 @@ internal class PageOriginMotion(
     }.apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; visibility = View.INVISIBLE }
     private var homeFrameObserver: ViewTreeObserver? = null
     private var homeFrameCallback: Runnable? = null
+    private var entryAnimator: ValueAnimator? = null
+    private var entryGeometry: OriginReturnTransform? = null
+    private var entryProgress = 0f
+    private var entryBackStart: Float? = null
     private var returnRadius = 0f
     private var returnAnimator: ValueAnimator? = null
     private var poseFill = background
@@ -101,7 +101,7 @@ internal class PageOriginMotion(
                     // Record only after layout, then let the transform capture its end state
                     // on the next pre-draw. Never submit the full-size snapshot in between.
                     capturePagePose()
-                    morph(forward = true)
+                    startEntryMorph()
                     return false
                 }
             })
@@ -135,57 +135,62 @@ internal class PageOriginMotion(
         return true
     }
 
-    private fun morph(forward: Boolean) {
-        val cardShape = ShapeAppearanceModel.builder().setAllCornerSizes(
-            activity.resources.getDimension(R.dimen.corner_card)).build()
-        val pageShape = ShapeAppearanceModel.builder().setAllCornerSizes(0f).build()
-        val transition = MaterialContainerTransform().apply {
-            drawingViewId = android.R.id.content
-            startView = if (forward) anchor else returnPose ?: page
-            endView = if (forward) returnPose ?: page else anchor
-            addTarget(if (forward) returnPose ?: page else anchor)
-            startShapeAppearanceModel = if (forward) cardShape else
-                ShapeAppearanceModel.builder().setAllCornerSizes(returnRadius).build()
-            endShapeAppearanceModel = if (forward) pageShape else cardShape
-            startContainerColor = if (forward) color else background
-            endContainerColor = if (forward) background else Color.TRANSPARENT
-            scrimColor = Color.TRANSPARENT
-            duration = if (!forward && returningFromGesture) 280L else 320L
-            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
-            // A released gesture is already moving: continue immediately and decelerate.
-            // A tap starts at rest. Both routes settle into exactly the same card geometry.
-            interpolator = if (!forward && returningFromGesture) PathInterpolator(0.2f, 0.6f, 0.2f, 1f)
-                else PathInterpolator(0.2f, 0f, 0f, 1f)
-            fadeProgressThresholds = if (forward) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
-            scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            transitionDirection = if (forward) MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
-                else MaterialContainerTransform.TRANSITION_DIRECTION_RETURN
-            // Keep the final card covering the child window until the home card has drawn.
-            isHoldAtEndEnabled = !forward
-            addListener(object : TransitionListenerAdapter() {
-                override fun onTransitionEnd(transition: Transition) {
-                    entering = false
-                    if (returning) handOffToHome() else {
+    private fun startEntryMorph() {
+        val pose = returnPose ?: return
+        val location = IntArray(2).also(anchor::getLocationOnScreen)
+        entryGeometry = OriginReturnTransform(pose,
+            Rect(location[0], location[1], location[0] + anchor.width, location[1] + anchor.height),
+            activity.resources.getDimension(R.dimen.corner_card))
+        anchor.visibility = View.INVISIBLE
+        pose.visibility = View.VISIBLE
+        work.beginEnter()
+        applyEntry(0f)
+        animateEntry(1f)
+    }
+
+    private fun applyEntry(progress: Float) {
+        entryProgress = progress
+        entryGeometry?.apply(1f - progress)
+        poseFill = ColorUtils.blendARGB(color, background, motionFraction(0.05f, 0.9f, progress))
+        returnNode?.alpha = motionFraction(0.12f, 0.72f, progress)
+        returnPose?.invalidate()
+    }
+
+    private fun animateEntry(destination: Float) {
+        entryAnimator = ValueAnimator.ofFloat(entryProgress, destination).apply {
+            duration = (340L * kotlin.math.abs(destination - entryProgress)).toLong().coerceAtLeast(80L)
+            interpolator = if (destination == 1f) PathInterpolator(0.2f, 0f, 0f, 1f)
+                else PathInterpolator(0.3f, 0f, 0.6f, 1f)
+            addUpdateListener { applyEntry(it.animatedValue as Float) }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    entryAnimator = null
+                    if (closed || activity.isFinishing || previewing) return
+                    if (returning) handOffToHome()
+                    else if (entering) {
+                        entering = false
                         restore()
                         work.endEnter()
                     }
                 }
             })
+            start()
         }
-        if (forward) work.beginEnter()
-        TransitionManager.beginDelayedTransition(stage, transition)
-        returnPose?.visibility = if (forward) View.VISIBLE else View.INVISIBLE
-        anchor.visibility = if (forward) View.INVISIBLE else View.VISIBLE
-        page.visibility = if (forward && returnPose == null) View.VISIBLE else View.INVISIBLE
     }
 
     fun returnToOrigin() {
         if (closed || returning || activity.isFinishing) return
         if (entering) {
-            close()
-            finish()
+            if (entryGeometry == null) { close(); finish(); return }
+            returning = true
+            entering = false
+            previewing = false
+            entryBackStart = null
+            // Cancelling retains the current pose; the reverse uses the same geometry.
+            previewing = true
+            entryAnimator?.cancel()
+            previewing = false
+            animateEntry(0f)
             return
         }
         returning = true
@@ -248,6 +253,7 @@ internal class PageOriginMotion(
         backMotion.reset()
         returnPose?.let { stage.removeView(it) }
         returnPose = null
+        entryGeometry = null
         returnNode?.discardDisplayList()
         returnNode = null
         if (!returning && !activity.isFinishing && !closed && translucent) {
@@ -302,13 +308,14 @@ internal class PageOriginMotion(
 
     fun startBack(event: BackEventCompat) {
         if (closed || returning || activity.isFinishing || !animated()) return
-        val interruptedEntry = entering
-        TransitionManager.endTransitions(stage)
-        if (interruptedEntry) {
-            entering = false
-            restore()
-            work.endEnter()
+        if (entering && entryGeometry != null) {
+            previewing = true
+            entryAnimator?.cancel()
+            entryBackStart = entryProgress
+            work.beginPreview()
+            return
         }
+        TransitionManager.endTransitions(stage)
         prepareHomeBackdrop()
         if (!revealHome()) {
             clearHomeBackdrop()
@@ -331,6 +338,7 @@ internal class PageOriginMotion(
 
     fun progressBack(event: BackEventCompat) {
         if (previewing && !returning) {
+            entryBackStart?.let { applyEntry(it * (1f - event.progress.coerceIn(0f, 1f))); return }
             latestBackEvent = event
             if (homeReady || homeBackdropNode != null) backMotion.update(event)
         }
@@ -339,6 +347,12 @@ internal class PageOriginMotion(
     fun cancelBack() {
         if (!previewing || returning) return
         previewing = false
+        if (entryBackStart != null) {
+            entryBackStart = null
+            work.endPreview()
+            animateEntry(1f)
+            return
+        }
         clearHomeFrameWait()
         backMotion.settle(animated()) {
             if (!closed && !returning && !previewing) {
@@ -350,6 +364,15 @@ internal class PageOriginMotion(
 
     fun stop() {
         if (closed) return
+        if (entering && !returning) {
+            entering = false
+            entryAnimator?.cancel()
+            entryAnimator = null
+            entryBackStart = null
+            previewing = false
+            restore()
+            work.endEnter()
+        }
         if (returning) {
             if (!activity.isFinishing) {
                 TransitionManager.endTransitions(stage)
@@ -464,6 +487,8 @@ internal class PageOriginMotion(
     fun close() {
         if (closed) return
         closed = true
+        entryAnimator?.cancel()
+        entryAnimator = null
         returnAnimator?.cancel()
         returnAnimator = null
         clearHomeFrameWait()
