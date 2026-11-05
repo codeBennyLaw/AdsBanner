@@ -10,34 +10,23 @@ import android.view.animation.PathInterpolator
 import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
-import kotlin.math.abs
-import kotlin.math.roundToInt
+import com.adsbanner.clean.R
 
 /** Retract popup-sized contents toward their entry; never morph them into a returning button. */
 internal class PopupReturnMotion(
     private val panel: View,
     private val scrim: View,
     origin: Rect,
-    private val onEnd: () -> Unit
+    private val onEnd: () -> Unit,
+    private val originRadius: Float = panel.resources.getDimension(R.dimen.corner_control)
 ) {
-    private val width = panel.width
-    private val height = panel.height
-    private val clip = Rect(0, 0, width, height)
+    private val destination = Rect(origin)
     private val initialClip = panel.clipBounds
     private val initialAlpha = panel.alpha
     private val initialScrimAlpha = scrim.alpha
     private val initialX = panel.translationX
     private val initialY = panel.translationY
-    private val location = IntArray(2).also(panel::getLocationOnScreen)
-    private val dx = origin.exactCenterX() - (location[0] + width / 2f)
-    private val dy = origin.exactCenterY() - (location[1] + height / 2f)
-    private val vertical = abs(dy) / height >= abs(dx) / width
-    private val positive = if (vertical) dy >= 0f else dx >= 0f
-    private val travel = if (vertical) {
-        (if (positive) origin.top - location[1] else origin.bottom - location[1] - height).toFloat()
-    } else {
-        (if (positive) origin.left - location[0] else origin.right - location[0] - width).toFloat()
-    }
+    private var transform: OriginReturnTransform? = null
     private var surface: PopupRenderSurface? = null
     private var attached = false
     private var generation = 0
@@ -52,6 +41,7 @@ internal class PopupReturnMotion(
         if (attached) return
         attached = true
         if (Build.VERSION.SDK_INT >= 29) surface = PopupRenderSurface.capture(panel)
+        transform = OriginReturnTransform(movingView, destination, originRadius)
     }
 
     fun preview() {
@@ -67,7 +57,7 @@ internal class PopupReturnMotion(
         attach()
         val token = generation
         animator = ValueAnimator.ofFloat(progress, 1f).apply {
-            duration = (220L * (1f - progress)).toLong().coerceAtLeast(80L)
+            duration = (300L * (1f - progress)).toLong().coerceAtLeast(80L)
             interpolator = if (progress > 0f) PathInterpolator(0.2f, 0.6f, 0.2f, 1f)
                 else PathInterpolator(0.3f, 0f, 0.4f, 1f)
             addUpdateListener { apply(it.animatedValue as Float) }
@@ -96,22 +86,8 @@ internal class PopupReturnMotion(
     private fun apply(value: Float) {
         progress = value
         val target = movingView
-        val retract = value * 0.75f
-        clip.set(0, 0, width, height)
-        if (vertical) {
-            if (positive) clip.bottom = (height * (1f - retract)).roundToInt()
-            else clip.top = (height * retract).roundToInt()
-            target.translationX = initialX + dx * retract
-            target.translationY = initialY + travel * retract
-        } else {
-            if (positive) clip.right = (width * (1f - retract)).roundToInt()
-            else clip.left = (width * retract).roundToInt()
-            target.translationX = initialX + travel * retract
-            target.translationY = initialY + dy * retract
-        }
-        target.clipBounds = clip
-        val fade = ((value - 0.15f) / 0.85f).coerceIn(0f, 1f)
-        target.alpha = initialAlpha * (1f - fade * fade * (3f - 2f * fade))
+        transform?.apply(value)
+        target.alpha = initialAlpha * (1f - motionFraction(0.65f, 1f, value))
         scrim.alpha = initialScrimAlpha * (1f - value)
     }
 
@@ -122,6 +98,8 @@ internal class PopupReturnMotion(
     }
 
     private fun restoreProperties() {
+        transform?.restore()
+        transform = null
         panel.clipBounds = initialClip
         panel.translationX = initialX
         panel.translationY = initialY
