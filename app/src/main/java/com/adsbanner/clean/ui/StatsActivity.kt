@@ -15,7 +15,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.isGone
-import androidx.core.view.children
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -45,7 +44,6 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var summary: TextView
     private lateinit var count: TextView
     private lateinit var caption: TextView
-    private lateinit var empty: TextView
     private lateinit var typeButton: MaterialButton
     private lateinit var sortButton: MaterialButton
     private lateinit var sortDirectionButton: MaterialButton
@@ -57,12 +55,11 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatMeta: TextView
     private lateinit var heatLegend: HeatmapLegendView
     private lateinit var heatDetail: TextView
-    private lateinit var listLoadingView: View
+    private lateinit var header: View
+    private lateinit var emptyAdapter: EmptyStateAdapter
+    private lateinit var listRegion: View
     private val listLoading = lazy {
-        LocalPageLoading(this, null, listLoadingView, getString(R.string.local_loading_stats),
-            layoutHost = list, revealTargets = {
-                list.children.filter { it.id != R.id.statsHeader && it !== listLoadingView }.toList()
-            })
+        listDataLoading(this, list, header, getString(R.string.local_loading_stats))
     }
     private val loading by listLoading
     private val graphLoading = lazy {
@@ -104,8 +101,8 @@ class StatsActivity : AppCompatActivity() {
         heatmapVisible = savedInstanceState?.getBoolean("heatmap") ?: false
         list = findViewById(R.id.listScroll)
         list.layoutManager = LinearLayoutManager(this)
-        val header = layoutInflater.inflate(R.layout.header_stats, list, false)
-        empty = layoutInflater.inflate(R.layout.item_empty_stats, list, false) as TextView
+        header = layoutInflater.inflate(R.layout.header_stats, list, false)
+        listRegion = findViewById(R.id.statsListRegion)
         summary = header.findViewById(R.id.tvSummary)
         count = header.findViewById(R.id.tvStatCount)
         caption = header.findViewById(R.id.tvStatCaption)
@@ -119,8 +116,8 @@ class StatsActivity : AppCompatActivity() {
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = StatAppAdapter(icons)
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
-        listLoadingView = layoutInflater.inflate(R.layout.view_local_loading, list, false)
-        list.adapter = ConcatAdapter(SingleViewAdapter(header), SingleViewAdapter(listLoadingView), adapter, SingleViewAdapter(empty))
+        emptyAdapter = EmptyStateAdapter(R.layout.item_empty_stats)
+        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, emptyAdapter)
         list.itemAnimator = rowMotion
         heatmapScroll = findViewById(R.id.heatmapScroll)
         heatScroll = findViewById(R.id.heatScroll)
@@ -165,7 +162,7 @@ class StatsActivity : AppCompatActivity() {
                 if (!heatmapVisible) render(animate = true)
             }
         }
-        list.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
+        listRegion.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
         heatmapScroll.visibility = if (heatmapVisible) View.VISIBLE else View.GONE
         updateViewButton()
     }
@@ -190,8 +187,8 @@ class StatsActivity : AppCompatActivity() {
     private fun finishViewSwitch(readyHeatmap: Boolean) {
         if (!viewSwitchPending || readyHeatmap != heatmapVisible) return
         viewSwitchPending = false
-        val show = if (heatmapVisible) heatmapScroll else list
-        val hide = if (heatmapVisible) list else heatmapScroll
+        val show = if (heatmapVisible) heatmapScroll else listRegion
+        val hide = if (heatmapVisible) listRegion else heatmapScroll
         if (show.isVisible && hide.isGone) return
         Motion.switchViews(show, hide, forward = heatmapVisible)
     }
@@ -418,12 +415,12 @@ class StatsActivity : AppCompatActivity() {
         count.contentDescription = "${caption.text} $total 次"
         val sources = if (snapshot.apps.any { it.isHistoricalSource }) "个来源" else "个应用"
         summary.text = "${typeLabel(selectedType)} · $apps $sources"
-        empty.text = when {
+        val emptyMessage = when {
             snapshot.total == 0 -> "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
             selectedRange == Range.TODAY -> "今天暂无这类拦截记录\n可以切换“全部时间”查看历史记录"
             else -> "当前类型暂无拦截记录\n试试切换其他广告类型"
         }
-        rowMotion.showEmpty(empty, renderedKey != null && apps == 0)
+        emptyAdapter.submit(emptyMessage.takeIf { renderedKey != null && apps == 0 })
     }
 
     private fun typeLabel(value: Type) = when (value) {
