@@ -127,8 +127,7 @@ internal class LocalPageLoading(
             animator?.cancel()
             animator = null
             content?.visibility = View.VISIBLE
-            overlay.visibility = View.GONE
-            // Remove only this placeholder, then fade the newly laid-out data, never the page.
+            // Both views share the data region; trade their opacity without an empty frame.
             layoutWait = layoutHost.doOnPreDraw {
                 layoutWait = null
                 if (!closed) {
@@ -148,7 +147,11 @@ internal class LocalPageLoading(
         animator = ValueAnimator.ofFloat(fadingViews.firstOrNull()?.alpha ?: 0f, 1f).apply {
             duration = 180L
             interpolator = PathInterpolator(0.2f, 0f, 0.1f, 1f)
-            addUpdateListener { value -> fadingViews.forEach { it.alpha = value.animatedValue as Float } }
+            addUpdateListener { value ->
+                val progress = value.animatedValue as Float
+                overlay.alpha = 1f - progress
+                fadingViews.forEach { it.alpha = progress }
+            }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) { if (!closed && generation == ticket) finish() }
             })
@@ -160,6 +163,7 @@ internal class LocalPageLoading(
         animator = null
         isComplete = true
         overlay.visibility = View.GONE
+        overlay.alpha = 1f
         fadingViews.forEach { it.alpha = 1f }
         fadingViews = emptyList()
         notifyContentReady()
