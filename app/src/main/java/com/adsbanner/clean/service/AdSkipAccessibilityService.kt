@@ -131,7 +131,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }.getOrDefault(emptySet())
     }
 
-    private var lastSkipTryAt = 0L
     private var skipTryCount = 0
     private var gestureInFlight = false
     private var actionGeneration = 0
@@ -321,7 +320,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
             stopSplashScan()
             if (Prefs.skipSplash && ProtectionStore.allows(pkg) && embeddedPagePackage != pkg && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
                 splashSession.start(pkg, now, resumed = entry != SplashResumeTracker.Entry.LAUNCH)
-                lastSkipTryAt = 0L
                 skipTryCount = 0
             }
         }
@@ -493,7 +491,6 @@ class AdSkipAccessibilityService : AccessibilityService() {
         pkg: String, now: Long, covered: Boolean,
         active: AccessibilityNodeInfo?, screenWindows: List<AccessibilityWindowInfo>
     ) {
-        lastSkipTryAt = now
         splashCadence.queried(now)
         if (!covered) skipTryCount++
 
@@ -949,8 +946,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private fun submitGesture(candidate: Candidate, pkg: String) {
         if (!candidate.gestureAllowed) return
+        val checkedAt = SystemClock.elapsedRealtime()
         val bounds = validatedBounds(candidate, pkg, covered = false) ?: return
-        if (!canTapApplication(pkg, candidate.node.windowId, bounds.centerX(), bounds.centerY())) return
+        if (!canTapApplication(pkg, candidate.node.windowId, bounds.centerX(), bounds.centerY(), checkedAt)) return
         val generation = actionGeneration
         val path = Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 60L)).build()
@@ -979,11 +977,11 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     /** 触摸会落到最上层窗口，提交手势前再次确认目标窗口及点击点没有被系统界面遮住。 */
-    private fun canTapApplication(pkg: String, windowId: Int, x: Int, y: Int): Boolean {
+    private fun canTapApplication(pkg: String, windowId: Int, x: Int, y: Int, checkedAt: Long): Boolean {
         // 节点遍历期间系统窗口可能已变化，而事件仍在主线程队列里，不能信任此前的窗口缓存。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             clearCache()
-        } else if (SystemClock.elapsedRealtime() - lastSkipTryAt > 250L) {
+        } else if (SystemClock.elapsedRealtime() - checkedAt > 250L) {
             return false
         }
         val active = rootInActiveWindow ?: return false
