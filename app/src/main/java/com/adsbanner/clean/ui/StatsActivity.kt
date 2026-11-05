@@ -365,7 +365,8 @@ class StatsActivity : AppCompatActivity() {
 
     private fun showRows(data: Rows) {
         val key = RenderKey(data.key, sort)
-        if ((pendingKey ?: renderedKey) == key) { finishViewSwitch(false); return }
+        if (pendingKey == key) return
+        if (pendingKey == null && renderedKey == key) { finishViewSwitch(false); return }
         pendingKey = key
         // Even a return to the currently displayed range must supersede an in-flight diff.
         // Sorting reuses loaded labels and icons; it never rereads statistics or rebuilds rows.
