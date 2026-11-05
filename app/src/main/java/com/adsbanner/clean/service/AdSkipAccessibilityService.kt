@@ -636,7 +636,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 val bounds = Rect().also(node::getBoundsInScreen)
                 if (node.packageName?.toString() != pending.pkg || node.isEditable ||
                     (!node.isVisibleToUser && !applicationCovered(root.windowId)) ||
-                    !Rect.intersects(bounds, pending.bounds) || !SkipTargetPolicy.smallTarget(bounds.toTargetBounds(), screenSize().x, screenSize().y)) continue
+                    !Rect.intersects(bounds, pending.bounds) || SkipTargetPolicy.score(
+                        if (pending.candidate.weak) SkipRule.WEAK else SkipRule.STRONG,
+                        bounds.toTargetBounds(), screenSize().x, screenSize().y) == 0) continue
                 val matches = if (rule != null) node.viewIdResourceName == rule.viewId && nodeLabel(node) == pending.candidate.label
                     else SkipRule.match(skipNodeLabel(node)) >= (if (pending.candidate.weak) SkipRule.WEAK else SkipRule.STRONG)
                 if (matches) return copyNode(node)
@@ -674,9 +676,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 gestureFallback = null
                 return candidate
             }
-            // Explicit ad controls can reuse this candidate, regardless of their screen position.
+            // Launch skip labels retain 2.2.0's own-coordinate fallback even without an accessible ad marker.
             if (!covered && gestureFallback == null && candidate.gestureAllowed &&
-                JumpAdRule.isAdSkip(candidate.label)) gestureFallback = candidate
+                (JumpAdRule.isAdSkip(candidate.label) || allowLaunchSkip(candidate.score))) gestureFallback = candidate
             else recycleNode(candidate.node)
             return null
         }
@@ -839,7 +841,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         return candidates.filter { candidate ->
             val allowed = if (candidate.weak) weakAllowed && adHints > 0 && visited <= SPLASH_MAX_NODES
-                else JumpAdRule.isAdSkip(candidate.label) || standaloneAdHints > 0 || (candidate.score != 80 && adHints > 0)
+                else JumpAdRule.isAdSkip(candidate.label) || allowLaunchSkip(candidate.score) ||
+                    standaloneAdHints > 0 || (candidate.score != 80 && adHints > 0)
             if (!allowed) recycleNode(candidate.node)
             allowed
         }
@@ -850,6 +853,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
      */
     private fun scoreOf(strength: Int, rect: Rect, screen: Point): Int =
         SkipTargetPolicy.score(strength, rect.toTargetBounds(), screen.x, screen.y)
+
+    private fun allowLaunchSkip(score: Int): Boolean =
+        splashSession.allowPlainSkip(SystemClock.elapsedRealtime(), Prefs.splashWindowMs, score)
 
     private fun Rect.toTargetBounds() = SkipTargetPolicy.Bounds(left, top, right, bottom)
 
@@ -873,7 +879,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             (covered && strength != SkipRule.STRONG)) return null
         val score = scoreOf(strength, self, screenSize())
         if (score <= 0) return null
-        if ((candidate.weak || !JumpAdRule.isAdSkip(label)) && !hasLiveAdMarker(pkg, candidate.node.windowId, covered,
+        if ((candidate.weak || (!JumpAdRule.isAdSkip(label) && !allowLaunchSkip(score))) && !hasLiveAdMarker(pkg, candidate.node.windowId, covered,
                 topOnly = candidate.weak, standaloneOnly = score == 80, treeEvidence = candidate.treeEvidence)) return null
         return self
     }
