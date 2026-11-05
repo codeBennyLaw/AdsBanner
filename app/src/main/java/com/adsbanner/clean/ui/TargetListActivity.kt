@@ -8,7 +8,6 @@ import android.view.View
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.children
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -26,7 +25,7 @@ class TargetListActivity : AppCompatActivity() {
     private lateinit var list: RecyclerView
     private lateinit var adapter: TargetAppAdapter
     private lateinit var icons: AppIconLoader
-    private lateinit var empty: TextView
+    private lateinit var emptyAdapter: EmptyStateAdapter
     private lateinit var search: EditText
     private lateinit var selectionSummary: TextView
     private lateinit var listMeta: TextView
@@ -53,7 +52,6 @@ class TargetListActivity : AppCompatActivity() {
         list = findViewById(R.id.appList)
         list.layoutManager = LinearLayoutManager(this)
         val header = layoutInflater.inflate(R.layout.header_targets, list, false)
-        empty = layoutInflater.inflate(R.layout.item_empty_targets, list, false) as TextView
         search = header.findViewById(R.id.etSearch)
         selectionSummary = header.findViewById(R.id.tvSelectionSummary)
         listMeta = header.findViewById(R.id.tvAppListMeta)
@@ -70,12 +68,9 @@ class TargetListActivity : AppCompatActivity() {
             updateSelectionSummary()
         }
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
-        val placeholder = layoutInflater.inflate(R.layout.view_local_loading, list, false)
-        loading = LocalPageLoading(this, null, placeholder, getString(R.string.local_loading_apps),
-            layoutHost = list, revealTargets = {
-                list.children.filter { it !== header && it !== placeholder }.toList()
-            })
-        list.adapter = ConcatAdapter(SingleViewAdapter(header), SingleViewAdapter(placeholder), adapter, SingleViewAdapter(empty))
+        emptyAdapter = EmptyStateAdapter(R.layout.item_empty_targets)
+        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, emptyAdapter)
+        loading = listDataLoading(this, list, header, getString(R.string.local_loading_apps))
         selectionSummary.text = if (exclusionsMode) "例外应用" else "拦截目标"
         // Navigation owns the motion; list updates should settle in one layout.
         list.itemAnimator = null
@@ -126,7 +121,7 @@ class TargetListActivity : AppCompatActivity() {
         loading.bind {
             listMeta.text = if (key.isEmpty()) "全部应用 · ${rows.size}" else "搜索结果 · ${rows.size}"
             adapter.submitList(rows) {
-                empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+                emptyAdapter.submit(getString(R.string.empty_app_search).takeIf { rows.isEmpty() })
                 loading.ready()
             }
         }
