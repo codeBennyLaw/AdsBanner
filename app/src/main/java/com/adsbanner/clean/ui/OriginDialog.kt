@@ -78,6 +78,8 @@ internal class OriginDialog private constructor(
     private var enterSurface: PopupRenderSurface? = null
     private var enterGeometry: OriginReturnTransform? = null
     private var enterProgress = 0f
+    private var panelEnterGeometry: OriginReturnTransform? = null
+    private var panelEnterProgress = 0f
     private var entrySourceColor = 0
     private var entryPanelColor = 0
     private var originLayoutWait: OneShotPreDrawListener? = null
@@ -425,22 +427,41 @@ internal class OriginDialog private constructor(
 
     private fun startPanelEnter() {
         work?.beginEnter()
-        panel.pivotX = panel.width / 2f
-        panel.pivotY = panel.height / 2f
-        enterAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 240L
-            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+        val location = IntArray(2).also(panel::getLocationOnScreen)
+        val seedWidth = (panel.width * 0.9f).toInt().coerceAtLeast(1)
+        val seedHeight = minOf(dp(96), (panel.height * 0.25f).toInt()).coerceAtLeast(1)
+        val left = location[0] + (panel.width - seedWidth) / 2
+        val top = location[1] + (panel.height - seedHeight) / 2
+        panelEnterGeometry = OriginReturnTransform(panel, Rect(left, top, left + seedWidth, top + seedHeight),
+            context.resources.getDimension(R.dimen.corner_dialog))
+        applyPanelEnter(0f)
+        animatePanelEnter(1f)
+    }
+
+    private fun applyPanelEnter(progress: Float) {
+        panelEnterProgress = progress
+        panelEnterGeometry?.apply(1f - progress)
+        panel.alpha = motionFraction(0f, 0.18f, progress)
+        scrim.alpha = progress
+    }
+
+    private fun animatePanelEnter(destination: Float) {
+        enterAnimator = ValueAnimator.ofFloat(panelEnterProgress, destination).apply {
+            duration = (300L * kotlin.math.abs(destination - panelEnterProgress)).toLong().coerceAtLeast(70L)
+            interpolator = if (destination == 1f) PathInterpolator(0.2f, 0f, 0f, 1f)
+                else PathInterpolator(0.3f, 0f, 0.6f, 1f)
             addUpdateListener {
-                val progress = it.animatedValue as Float
-                panel.alpha = progress
-                panel.scaleX = 0.96f + progress * 0.04f
-                panel.scaleY = panel.scaleX
-                scrim.alpha = progress
+                applyPanelEnter(it.animatedValue as Float)
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     enterAnimator = null
-                    if (!closing && !finished) {
+                    if (finished) return
+                    if (closing) {
+                        if (destination == 0f) finishDismiss()
+                    } else {
+                        panelEnterGeometry?.restore()
+                        panelEnterGeometry = null
                         entering = false
                         restoreOrigin()
                         work?.endEnter()
@@ -486,6 +507,11 @@ internal class OriginDialog private constructor(
             return
         }
         freezeLists()
+        if (entering && panelEnterGeometry != null) {
+            enterAnimator?.cancel()
+            animatePanelEnter(0f)
+            return
+        }
         if (entering && enterSurface != null && Build.VERSION.SDK_INT >= 29) {
             enterAnimator?.cancel()
             animateRecordedEnter(0f)
@@ -567,6 +593,7 @@ internal class OriginDialog private constructor(
         if (Build.VERSION.SDK_INT >= 29) enterSurface?.release(restore = false)
         enterSurface = null
         enterGeometry = null
+        panelEnterGeometry = null
         returnMotion?.cancel()
         returnMotion = null
         if (!closing) { closing = true; onClosing?.invoke() }
