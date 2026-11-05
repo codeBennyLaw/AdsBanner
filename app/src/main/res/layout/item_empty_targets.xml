@@ -10,7 +10,7 @@
     android:drawableTop="@drawable/ic_search"
     android:drawablePadding="16dp"
     android:lineSpacingExtra="6dp"
-    android:text="没有找到匹配的应用\n试试其他名称或包名"
+    android:text="@string/empty_app_search"
     android:textColor="@color/text_secondary"
     android:textSize="14sp"
     android:visibility="gone" />
