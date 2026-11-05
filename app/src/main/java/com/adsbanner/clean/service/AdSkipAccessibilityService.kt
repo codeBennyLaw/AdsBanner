@@ -546,6 +546,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (gestureInFlight) return
         if (!Prefs.skipSplash || !ProtectionStore.allows(pending.pkg) || !isScreenInteractive() ||
             splashSession.packageName != pending.pkg) { clearPendingSkip(); return }
+        // Re-read the window after a disappearance; a cached empty tree can hide a replacement control.
+        if (pending.absentAt != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) clearCache()
         val root = rootInActiveWindow
         try {
             val pkg = root?.packageName?.toString()
@@ -575,7 +577,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     recycleNode(node)
                     pendingSkip = pending.copy(candidate = pending.candidate.copy(node = replacement), absentAt = null)
                 } else {
-                    confirmPendingDisappearance(windowChanged = root.windowId != node.windowId)
+                    confirmPendingDisappearance()
                     return
                 }
             } else if (pending.absentAt != null) pendingSkip = pending.copy(absentAt = null)
@@ -608,10 +610,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
         } finally { root?.let(::recycleNode) }
     }
 
-    private fun confirmPendingDisappearance(windowChanged: Boolean = false) {
+    private fun confirmPendingDisappearance() {
         val pending = pendingSkip ?: return
         val now = SystemClock.elapsedRealtime()
-        if (windowChanged || pending.absentAt?.let { now - it >= 100L } == true) {
+        if (pending.absentAt?.let { now - it >= 200L } == true) {
             recordSplashSkip(pending.pkg, pending.candidate.label, pending.candidate.rule?.name)
         } else {
             if (pending.absentAt == null) pendingSkip = pending.copy(absentAt = now)
