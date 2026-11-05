@@ -17,8 +17,9 @@ class LocalLoadingDots @JvmOverloads constructor(context: Context, attrs: Attrib
 
     override fun onDraw(canvas: Canvas) {
         val spacing = 16f * density
+        val eased = phase * phase * (3f - 2f * phase)
         for (index in 0..2) {
-            val wave = ((sin(phase * Math.PI * 2 - index * Math.PI / 2) + 1) / 2).toFloat()
+            val wave = ((sin(eased * Math.PI * 2 - index * Math.PI / 2) + 1) / 2).toFloat()
             paint.alpha = (100 + wave * 155).toInt()
             canvas.drawCircle(width / 2f + (index - 1) * spacing,
                 height / 2f - wave * 3f * density, 3.5f * density, paint)
