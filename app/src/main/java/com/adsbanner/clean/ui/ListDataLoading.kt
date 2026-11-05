@@ -41,6 +41,15 @@ internal fun listDataLoading(
     val scrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) = position()
     }
+    var dataAlpha = 0f
+    val itemAnimator = list.itemAnimator
+    list.itemAnimator = null
+    val childListener = object : RecyclerView.OnChildAttachStateChangeListener {
+        override fun onChildViewAttachedToWindow(view: View) { if (view !== header) view.alpha = dataAlpha }
+        override fun onChildViewDetachedFromWindow(view: View) = Unit
+    }
+    list.addOnChildAttachStateChangeListener(childListener)
+    list.children.filter { it !== header }.forEach { it.alpha = 0f }
     var firstDraw: OneShotPreDrawListener? = null
     var detached: View.OnAttachStateChangeListener? = null
     fun detachListeners() {
@@ -49,6 +58,8 @@ internal fun listDataLoading(
         list.removeOnLayoutChangeListener(layoutListener)
         header.removeOnLayoutChangeListener(layoutListener)
         list.removeOnScrollListener(scrollListener)
+        list.removeOnChildAttachStateChangeListener(childListener)
+        list.itemAnimator = itemAnimator
         detached?.let(placeholder::removeOnAttachStateChangeListener)
         detached = null
     }
@@ -62,5 +73,9 @@ internal fun listDataLoading(
     firstDraw = host.doOnPreDraw { firstDraw = null; position() }
     return LocalPageLoading(activity, null, placeholder, message, layoutHost = list,
         revealTargets = { list.children.filter { it !== header }.toList() },
-        onContentReady = ::detachListeners)
+        onContentReady = ::detachListeners,
+        onRevealProgress = { alpha ->
+            dataAlpha = alpha
+            list.children.filter { it !== header }.forEach { it.alpha = alpha }
+        })
 }
