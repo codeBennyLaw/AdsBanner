@@ -895,11 +895,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         // 否则会点到容器中心 —— 广告层里「×」和「⋮」常挂在同一个可点击容器下，就会点偏。
         var node: AccessibilityNodeInfo? = copyNode(candidate.node)
         var depth = 0
+        var ownAction = false
         try {
             while (node != null && depth < 4) {
                 val hasClickAction = node.isClickable || node.actionList.any {
                     it.id == AccessibilityNodeInfo.ACTION_CLICK
                 }
+                if (depth == 0) ownAction = hasClickAction && !candidate.weak
                 if (node.packageName?.toString() == pkg && node.windowId == candidate.node.windowId &&
                     node.isEnabled && hasClickAction && (node.isVisibleToUser || covered)) {
                     val parentRect = Rect()
@@ -909,7 +911,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
                         beginSkipVerification(candidate, pkg, gesture = false)
                         return true
                     }
-                    if (!precise) candidate.gestureAllowed = false
+                    // A large ancestor cannot be clicked. It need not veto the small control's own touch target.
+                    if (!precise && !ownAction) candidate.gestureAllowed = false
                 }
                 val parent = node.parent
                 recycleNode(node)
