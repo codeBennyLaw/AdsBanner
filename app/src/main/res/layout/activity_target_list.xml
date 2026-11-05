@@ -42,6 +42,5 @@
             android:paddingBottom="28dp"
             android:clipToPadding="false"
             android:scrollbars="none" />
-        <include layout="@layout/view_local_loading" />
     </FrameLayout>
 </LinearLayout>
