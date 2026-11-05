@@ -51,6 +51,10 @@ internal class PopupRenderSurface private constructor(
                 alpha = panel.alpha
                 translationX = panel.translationX
                 translationY = panel.translationY
+                pivotX = panel.pivotX
+                pivotY = panel.pivotY
+                scaleX = panel.scaleX
+                scaleY = panel.scaleY
                 clipBounds = panel.clipBounds
                 clipToOutline = panel.clipToOutline
                 outlineProvider = object : ViewOutlineProvider() {
