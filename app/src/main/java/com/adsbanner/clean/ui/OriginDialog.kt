@@ -80,6 +80,7 @@ internal class OriginDialog private constructor(
     private var enterProgress = 0f
     private var panelEnterGeometry: OriginReturnTransform? = null
     private var panelEnterProgress = 0f
+    private var panelBackStart: Float? = null
     private var entrySourceColor = 0
     private var entryPanelColor = 0
     private var originLayoutWait: OneShotPreDrawListener? = null
@@ -200,6 +201,13 @@ internal class OriginDialog private constructor(
         work = PageTransitionWork(panel, entering = true)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                if (entering && panelEnterGeometry != null && !closing && animationsEnabled()) {
+                    backPreview = true
+                    panelBackStart = panelEnterProgress
+                    enterAnimator?.cancel()
+                    work?.beginPreview()
+                    return
+                }
                 if (entering || closing || finished || !animationsEnabled() || panel.width == 0 ||
                     panel.height == 0 || !placeAnchor()) return
                 backPreview = true
@@ -209,11 +217,18 @@ internal class OriginDialog private constructor(
                     originCornerRadius(), originContainerColor())).also { it.preview() }
             }
             override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                panelBackStart?.let { applyPanelEnter(it * (1f - backEvent.progress.coerceIn(0f, 1f))); return }
                 if (backPreview && !closing) returnMotion?.seek(backEvent.progress)
             }
             override fun handleOnBackCancelled() {
                 if (!backPreview || closing) return
                 backPreview = false
+                if (panelBackStart != null) {
+                    panelBackStart = null
+                    work?.endPreview()
+                    if (animationsEnabled()) animatePanelEnter(1f) else finishPanelEnter()
+                    return
+                }
                 if (!animationsEnabled()) restoreBackPreview()
                 else returnMotion?.settleBack {
                     if (!closing && !backPreview) restoreBackPreview()
@@ -456,20 +471,28 @@ internal class OriginDialog private constructor(
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     enterAnimator = null
-                    if (finished) return
+                    if (finished || backPreview) return
                     if (closing) {
                         if (destination == 0f) finishDismiss()
                     } else {
-                        panelEnterGeometry?.restore()
-                        panelEnterGeometry = null
-                        entering = false
-                        restoreOrigin()
-                        work?.endEnter()
+                        finishPanelEnter()
                     }
                 }
             })
             start()
         }
+    }
+
+    private fun finishPanelEnter() {
+        panelEnterGeometry?.apply(0f)
+        panelEnterGeometry?.restore()
+        panelEnterGeometry = null
+        panelBackStart = null
+        panel.alpha = 1f
+        scrim.alpha = 1f
+        entering = false
+        restoreOrigin()
+        work?.endEnter()
     }
 
     private fun originContainerColor(): Int {
@@ -499,6 +522,7 @@ internal class OriginDialog private constructor(
         if (closing || finished) return
         closing = true
         backPreview = false
+        panelBackStart = null
         onClosing?.invoke()
         work?.beginReturn()
         if (!::stage.isInitialized || !isShowing || activity.isFinishing || activity.isDestroyed ||
@@ -568,6 +592,7 @@ internal class OriginDialog private constructor(
 
     private fun restoreBackPreview() {
         backPreview = false
+        if (panelBackStart != null) finishPanelEnter()
         returnMotion?.restore()
         returnMotion = null
         frozen.forEach { it.suppressLayout(false) }
