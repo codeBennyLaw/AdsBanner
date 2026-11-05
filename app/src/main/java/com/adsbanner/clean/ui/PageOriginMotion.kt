@@ -13,6 +13,7 @@ import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RenderNode
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -51,7 +52,10 @@ internal class PageOriginMotion(
     private var revealedHome: WeakReference<Activity>? = null
     private var homeWindowAnimations = 0
     // Keep the real hierarchy attached: drawable, text and property animations remain live.
-    private val surface = FrameLayout(activity).apply { setBackgroundColor(this@PageOriginMotion.background) }
+    private val surface = object : FrameLayout(activity) {
+        override fun onInterceptTouchEvent(event: MotionEvent) = returning || super.onInterceptTouchEvent(event)
+        override fun onTouchEvent(event: MotionEvent) = returning || super.onTouchEvent(event)
+    }.apply { setBackgroundColor(this@PageOriginMotion.background) }
     private val backMotion = BackProgressMotion(surface)
     private var returnPose: View? = null
     private var returnGeometry: OriginReturnTransform? = null
