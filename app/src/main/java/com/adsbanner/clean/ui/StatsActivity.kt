@@ -54,6 +54,7 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatMeta: TextView
     private lateinit var heatLegend: HeatmapLegendView
     private lateinit var heatDetail: TextView
+    private lateinit var loading: LocalPageLoading
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var renderedKey: RenderKey? = null
     private var pendingKey: RenderKey? = null
@@ -115,6 +116,9 @@ class StatsActivity : AppCompatActivity() {
         heatDetail = findViewById(R.id.tvHeatDetail)
         heatmapButton = findViewById(R.id.btnHeatmap)
         reserveViewButtonWidth()
+        heatmapButton.isEnabled = false
+        loading = LocalPageLoading(this, findViewById(R.id.statsContent), findViewById(R.id.pageLoading),
+            getString(R.string.local_loading_stats)) { heatmapButton.isEnabled = true }
         heatmap.onCellClick = { date, total ->
             heatDetail.visibility = View.VISIBLE
             heatDetail.text = "${date.year} 年 ${date.monthValue} 月 ${date.dayOfMonth} 日 · 拦截 $total 次"
@@ -305,7 +309,10 @@ class StatsActivity : AppCompatActivity() {
                 cachedSnapshot = models.first().key.snapshot
                 models.forEach { cachedRows[it.key.range to it.key.type] = it }
                 if (!heatmapVisible) render()
-            }.onFailure { summary.text = "加载失败，请返回后重试" }
+            }.onFailure {
+                if (loading.isComplete) summary.text = "加载失败，请返回后重试"
+                else loading.failed("拦截记录读取失败，请重试") { render() }
+            }
         }
     }
 
@@ -361,6 +368,7 @@ class StatsActivity : AppCompatActivity() {
                 sortCaption.text = getString(R.string.stats_sort_caption, sortLabel(key.sort.field),
                     getString(if (key.sort.descending) R.string.stats_sort_descending else R.string.stats_sort_ascending))
                 showOverview(data.key.snapshot, data.key.range, data.key.type, data.total, data.rows.size)
+                loading.ready()
             }
         }
     }
@@ -405,7 +413,11 @@ class StatsActivity : AppCompatActivity() {
                 val span = ChronoUnit.DAYS.between(installed, today) + 1
                 heatMeta.text = "自 $installed 起 · $span 天 · ${counts.count { it.value > 0 }} 天有拦截 · 共 ${counts.values.sum()} 次"
                 if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
-            }.onFailure { heatMeta.text = "加载失败，请返回后重试" }
+                loading.ready()
+            }.onFailure {
+                if (loading.isComplete) heatMeta.text = "加载失败，请返回后重试"
+                else loading.failed("热力图读取失败，请重试") { renderHeatmap() }
+            }
         }
     }
 
