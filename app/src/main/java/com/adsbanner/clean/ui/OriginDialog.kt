@@ -13,6 +13,7 @@ import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -30,6 +31,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.descendants
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.recyclerview.widget.RecyclerView
@@ -71,6 +73,9 @@ internal class OriginDialog private constructor(
     private var dropdown = false
     private var expandInPlace = false
     private var enterAnimator: ValueAnimator? = null
+    private var enterSurface: PopupRenderSurface? = null
+    private var enterGeometry: OriginReturnTransform? = null
+    private var enterProgress = 0f
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
     var onClosing: (() -> Unit)? = null
@@ -315,6 +320,7 @@ internal class OriginDialog private constructor(
     }
 
     private fun startEnterTransform() {
+        if (Build.VERSION.SDK_INT >= 29 && startRecordedEnter()) return
         val rounded = (validOrigin() as? Shapeable)?.shapeAppearanceModel
             ?: ShapeAppearanceModel.builder().setAllCornerSizes(context.resources.getDimension(R.dimen.corner_card)).build()
         val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(
@@ -357,6 +363,56 @@ internal class OriginDialog private constructor(
         scrim.alpha = 0f
         anchor.visibility = View.INVISIBLE
         panel.visibility = View.VISIBLE
+    }
+
+    @androidx.annotation.RequiresApi(29)
+    private fun startRecordedEnter(): Boolean {
+        val surface = PopupRenderSurface.capture(panel) ?: return false
+        enterSurface = surface
+        enterGeometry = OriginReturnTransform(surface.view, originBounds, originCornerRadius())
+        work?.beginEnter()
+        applyRecordedEnter(0f)
+        animateRecordedEnter(1f)
+        return true
+    }
+
+    @androidx.annotation.RequiresApi(29)
+    private fun applyRecordedEnter(progress: Float) {
+        enterProgress = progress
+        enterGeometry?.apply(1f - progress)
+        enterSurface?.apply {
+            view.setBackgroundColor(ColorUtils.blendARGB(originContainerColor(), context.getColor(R.color.surface),
+                motionFraction(0.05f, 0.9f, progress)))
+            setContentAlpha(motionFraction(0.1f, 0.72f, progress))
+        }
+        scrim.alpha = progress
+    }
+
+    @androidx.annotation.RequiresApi(29)
+    private fun animateRecordedEnter(destination: Float) {
+        enterAnimator = ValueAnimator.ofFloat(enterProgress, destination).apply {
+            duration = (280L * kotlin.math.abs(destination - enterProgress)).toLong().coerceAtLeast(70L)
+            interpolator = if (destination == 1f) PathInterpolator(0.2f, 0f, 0f, 1f)
+                else PathInterpolator(0.3f, 0f, 0.6f, 1f)
+            addUpdateListener { applyRecordedEnter(it.animatedValue as Float) }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    enterAnimator = null
+                    if (finished) return
+                    if (closing) {
+                        if (destination == 0f) finishDismiss()
+                    } else {
+                        enterSurface?.release(restore = true)
+                        enterSurface = null
+                        enterGeometry = null
+                        entering = false
+                        restoreOrigin()
+                        work?.endEnter()
+                    }
+                }
+            })
+            start()
+        }
     }
 
     private fun startPanelEnter() {
@@ -422,6 +478,11 @@ internal class OriginDialog private constructor(
             return
         }
         freezeLists()
+        if (entering && enterSurface != null && Build.VERSION.SDK_INT >= 29) {
+            enterAnimator?.cancel()
+            animateRecordedEnter(0f)
+            return
+        }
         if (entering && !expandInPlace) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
@@ -480,6 +541,9 @@ internal class OriginDialog private constructor(
         finished = true
         enterAnimator?.cancel()
         enterAnimator = null
+        if (Build.VERSION.SDK_INT >= 29) enterSurface?.release(restore = false)
+        enterSurface = null
+        enterGeometry = null
         returnMotion?.cancel()
         returnMotion = null
         if (!closing) { closing = true; onClosing?.invoke() }
