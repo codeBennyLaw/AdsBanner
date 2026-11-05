@@ -114,10 +114,12 @@ class TargetListActivity : AppCompatActivity() {
     private fun render() {
         val key = query.trim().lowercase(Locale.ROOT)
         val rows = if (key.isEmpty()) allApps else allApps.filter { key in it.searchKey }
-        listMeta.text = if (key.isEmpty()) "全部应用 · ${rows.size}" else "搜索结果 · ${rows.size}"
-        adapter.submitList(rows) {
-            empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
-            loading.ready()
+        loading.bind {
+            listMeta.text = if (key.isEmpty()) "全部应用 · ${rows.size}" else "搜索结果 · ${rows.size}"
+            adapter.submitList(rows) {
+                empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+                loading.ready()
+            }
         }
     }
 

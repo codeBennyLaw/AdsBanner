@@ -199,14 +199,16 @@ class ProtectionActivity : AppCompatActivity() {
             }
         }) { result ->
             result.onSuccess { (rules, actions) ->
-                ruleRows = rules
-                actionRows = actions
-                var remaining = 2
-                val committed = { if (--remaining == 0) loading.ready() }
-                rulesAdapter.submitList(rules.take(5), committed)
-                actionsAdapter.submitList(actions.take(5), committed)
-                allRulesAdapter?.submitList(rules)
-                allActionsAdapter?.submitList(actions)
+                loading.bind {
+                    ruleRows = rules
+                    actionRows = actions
+                    var remaining = 2
+                    val committed = { if (--remaining == 0) loading.ready() }
+                    rulesAdapter.submitList(rules.take(5), committed)
+                    actionsAdapter.submitList(actions.take(5), committed)
+                    allRulesAdapter?.submitList(rules)
+                    allActionsAdapter?.submitList(actions)
+                }
             }.onFailure { loading.failed("管理信息读取失败，请重试", ::refresh) }
         }
     }

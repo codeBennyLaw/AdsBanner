@@ -34,6 +34,9 @@ internal class LocalPageLoading(
     private var revealing = false
     private var closed = false
     private var stopped = false
+    private var binding = false
+    private var pendingBind: (() -> Unit)? = null
+    private var failedState = false
     var isComplete = false
         private set
 
@@ -49,7 +52,7 @@ internal class LocalPageLoading(
         activity.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
 
     private fun beginCycle() {
-        if (closed || stopped || begun || revealing || isComplete) return
+        if (closed || stopped || failedState || binding || begun || revealing || isComplete) return
         begun = true
         if (!animationsEnabled()) { cycleDone = true; requestReveal(); return }
         val ticket = generation
@@ -62,7 +65,11 @@ internal class LocalPageLoading(
                     if (closed || generation != ticket) return
                     animator = null
                     cycleDone = true
-                    if (dataReady) requestReveal() else { begun = false; beginCycle() }
+                    when {
+                        pendingBind != null -> applyPendingBind()
+                        dataReady -> requestReveal()
+                        else -> { begun = false; beginCycle() }
+                    }
                 }
             })
             start()
@@ -70,9 +77,27 @@ internal class LocalPageLoading(
     }
 
     fun ready() {
-        if (closed || isComplete) return
+        if (closed || failedState || isComplete) return
         dataReady = true
+        binding = false
         requestReveal()
+    }
+
+    fun bind(action: () -> Unit) {
+        if (closed || failedState) return
+        if (isComplete || revealing || binding) { action(); return }
+        pendingBind = action
+        if (cycleDone && animator == null) applyPendingBind()
+    }
+
+    private fun applyPendingBind() {
+        Motion.whenPageReady(activity, this) {
+            if (closed || stopped) return@whenPageReady
+            val action = pendingBind ?: return@whenPageReady
+            pendingBind = null
+            binding = true
+            action()
+        }
     }
 
     private fun requestReveal() {
@@ -119,12 +144,15 @@ internal class LocalPageLoading(
         Motion.whenPageReady(activity, this) {
             if (closed || isComplete) return@whenPageReady
             generation++
+            failedState = true
             animator?.cancel()
             animator = null
             layoutWait?.removeListener()
             layoutWait = null
             revealing = false
             dataReady = false
+            binding = false
+            pendingBind = null
             content.visibility = View.INVISIBLE
             overlay.alpha = 1f
             dots.visibility = View.GONE
@@ -133,6 +161,7 @@ internal class LocalPageLoading(
             retry.visibility = View.VISIBLE
             retry.setOnClickListener {
                 retry.visibility = View.GONE
+                failedState = false
                 dots.visibility = View.VISIBLE
                 dots.phase = 0f
                 label.text = message
@@ -160,7 +189,11 @@ internal class LocalPageLoading(
     override fun onStart(owner: LifecycleOwner) {
         stopped = false
         Motion.whenPageReady(activity, this) {
-            if (cycleDone && dataReady) requestReveal() else beginCycle()
+            when {
+                cycleDone && pendingBind != null -> applyPendingBind()
+                cycleDone && dataReady -> requestReveal()
+                else -> beginCycle()
+            }
         }
     }
 
@@ -172,6 +205,7 @@ internal class LocalPageLoading(
         animator = null
         layoutWait?.removeListener()
         layoutWait = null
+        pendingBind = null
         activity.lifecycle.removeObserver(this)
     }
 }
