@@ -29,6 +29,7 @@ class TargetListActivity : AppCompatActivity() {
     private lateinit var search: EditText
     private lateinit var selectionSummary: TextView
     private lateinit var listMeta: TextView
+    private lateinit var loading: LocalPageLoading
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var allApps: List<TargetAppRow> = emptyList()
     private val selected = LinkedHashSet<String>()
@@ -48,6 +49,7 @@ class TargetListActivity : AppCompatActivity() {
         if (exclusionsMode) findViewById<TextView>(R.id.tvPageTitle).text = "例外应用"
         Motion.preparePage(this, getString(if (exclusionsMode) R.string.transition_exclusions else R.string.transition_targets), R.color.surface, savedInstanceState != null)
         list = findViewById(R.id.appList)
+        loading = LocalPageLoading(this, list, findViewById(R.id.pageLoading), getString(R.string.local_loading_apps))
         list.layoutManager = LinearLayoutManager(this)
         val header = layoutInflater.inflate(R.layout.header_targets, list, false)
         empty = layoutInflater.inflate(R.layout.item_empty_targets, list, false) as TextView
@@ -91,6 +93,10 @@ class TargetListActivity : AppCompatActivity() {
                 render()
             }
         })
+        loadApplications()
+    }
+
+    private fun loadApplications() {
         worker.submit({
             AppInfoHelper.launchableApps(applicationContext).map { (pkg, name) -> TargetAppRow(pkg, name) }
         }) { result ->
@@ -99,7 +105,9 @@ class TargetListActivity : AppCompatActivity() {
                 installedSelectedCount = allApps.count { row -> row.pkg in selected }
                 updateSelectionSummary()
                 render()
-            }.onFailure { listMeta.text = "加载失败，请返回后重试" }
+            }.onFailure {
+                loading.failed("应用名单读取失败，请重试", ::loadApplications)
+            }
         }
     }
 
@@ -109,6 +117,7 @@ class TargetListActivity : AppCompatActivity() {
         listMeta.text = if (key.isEmpty()) "全部应用 · ${rows.size}" else "搜索结果 · ${rows.size}"
         adapter.submitList(rows) {
             empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+            loading.ready()
         }
     }
 
