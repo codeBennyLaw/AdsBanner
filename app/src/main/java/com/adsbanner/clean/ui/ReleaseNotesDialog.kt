@@ -31,6 +31,7 @@ internal object ReleaseNotesDialog {
         list.layoutManager = LinearLayoutManager(activity)
         list.itemAnimator = null
         val dialog = OriginDialog.Builder(activity, activity.findViewById(R.id.btnReleaseNotes))
+            .expandInPlace()
             .setTitle("更新日志")
             .setView(content)
             .setPositiveButton("关闭", null)

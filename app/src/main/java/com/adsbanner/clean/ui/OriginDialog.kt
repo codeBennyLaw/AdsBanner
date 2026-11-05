@@ -1,6 +1,8 @@
 package com.adsbanner.clean.ui
 
 import android.animation.ValueAnimator
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.content.res.Configuration
@@ -66,6 +68,8 @@ internal class OriginDialog private constructor(
     private var actionTaken = false
     private var backPreview = false
     private var dropdown = false
+    private var expandInPlace = false
+    private var enterAnimator: ValueAnimator? = null
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
     var onClosing: (() -> Unit)? = null
@@ -209,6 +213,10 @@ internal class OriginDialog private constructor(
                 stage.viewTreeObserver.removeOnPreDrawListener(this)
                 if (finished) return true
                 if (closing) { finishDismiss(); return false }
+                if (animationsEnabled() && expandInPlace) {
+                    startPanelEnter()
+                    return true
+                }
                 if (!animationsEnabled() || !placeAnchor()) {
                     entering = false
                     scrim.alpha = 1f
@@ -350,6 +358,34 @@ internal class OriginDialog private constructor(
         panel.visibility = View.VISIBLE
     }
 
+    private fun startPanelEnter() {
+        work?.beginEnter()
+        panel.pivotX = panel.width / 2f
+        panel.pivotY = panel.height / 2f
+        enterAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 240L
+            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+            addUpdateListener {
+                val progress = it.animatedValue as Float
+                panel.alpha = progress
+                panel.scaleX = 0.96f + progress * 0.04f
+                panel.scaleY = panel.scaleX
+                scrim.alpha = progress
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    enterAnimator = null
+                    if (!closing && !finished) {
+                        entering = false
+                        restoreOrigin()
+                        work?.endEnter()
+                    }
+                }
+            })
+            start()
+        }
+    }
+
     private fun originContainerColor(): Int {
         var view = validOrigin()
         while (view != null) {
@@ -430,6 +466,8 @@ internal class OriginDialog private constructor(
     private fun finishDismiss() {
         if (finished) return
         finished = true
+        enterAnimator?.cancel()
+        enterAnimator = null
         returnMotion?.cancel()
         returnMotion = null
         if (!closing) { closing = true; onClosing?.invoke() }
@@ -452,6 +490,7 @@ internal class OriginDialog private constructor(
     class Builder(activity: AppCompatActivity, source: View?) {
         private val dialog = OriginDialog(activity, source, MaterialAlertDialogBuilder(activity))
         fun asDropdown() = apply { dialog.dropdown = true }
+        fun expandInPlace() = apply { dialog.expandInPlace = true }
         fun setTitle(title: CharSequence) = apply { dialog.setTitle(title) }
         fun setMessage(message: CharSequence) = apply { dialog.setMessage(message) }
         fun setView(view: View) = apply { dialog.setView(view) }
