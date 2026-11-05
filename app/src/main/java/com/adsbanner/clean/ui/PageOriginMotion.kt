@@ -73,6 +73,9 @@ internal class PageOriginMotion(
     private var entryGeometry: OriginReturnTransform? = null
     private var entryProgress = 0f
     private var entryBackStart: Float? = null
+    private data class EntryAppearance(val progress: Float, val fill: Int, val contents: Float, val alpha: Float)
+    private var entryExit: EntryAppearance? = null
+    private var entryResume: EntryAppearance? = null
     private var returnRadius = 0f
     private var returnAnimator: ValueAnimator? = null
     private var poseFill = background
@@ -139,12 +142,32 @@ internal class PageOriginMotion(
         animateEntry(1f)
     }
 
+    private fun entryAppearance() = EntryAppearance(entryProgress, poseFill, returnNode?.alpha ?: 1f, returnPose?.alpha ?: 1f)
+
     private fun applyEntry(progress: Float) {
         entryProgress = progress
         entryGeometry?.apply(1f - progress)
-        poseFill = ColorUtils.blendARGB(color, background, motionFraction(0.05f, 0.9f, progress))
-        returnNode?.alpha = motionFraction(0.12f, 0.72f, progress)
-        returnPose?.alpha = motionFraction(0f, 0.12f, progress)
+        val exit = entryExit
+        val resume = entryResume
+        when {
+            exit != null -> {
+                val fraction = ((exit.progress - progress) / exit.progress.coerceAtLeast(0.001f)).coerceIn(0f, 1f)
+                poseFill = exit.fill
+                returnNode?.alpha = exit.contents * RetractionVisuals.contentAlpha(fraction)
+                returnPose?.alpha = exit.alpha * RetractionVisuals.panelAlpha(fraction)
+            }
+            resume != null -> {
+                val fraction = ((progress - resume.progress) / (1f - resume.progress).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
+                poseFill = ColorUtils.blendARGB(resume.fill, background, fraction)
+                returnNode?.alpha = resume.contents + (1f - resume.contents) * fraction
+                returnPose?.alpha = resume.alpha + (1f - resume.alpha) * fraction
+            }
+            else -> {
+                poseFill = ColorUtils.blendARGB(color, background, motionFraction(0.05f, 0.9f, progress))
+                returnNode?.alpha = motionFraction(0.12f, 0.72f, progress)
+                returnPose?.alpha = motionFraction(0f, 0.12f, progress)
+            }
+        }
         returnPose?.invalidate()
     }
 
@@ -174,6 +197,8 @@ internal class PageOriginMotion(
         if (closed || returning || activity.isFinishing) return
         if (entering) {
             if (entryGeometry == null) { close(); finish(); return }
+            entryExit = entryAppearance()
+            entryResume = null
             returning = true
             entering = false
             previewing = false
@@ -250,6 +275,8 @@ internal class PageOriginMotion(
         returnPose?.let { stage.removeView(it) }
         returnPose = null
         entryGeometry = null
+        entryExit = null
+        entryResume = null
         returnNode?.discardDisplayList()
         returnNode = null
         if (!returning && !activity.isFinishing && !closed && translucent) {
@@ -305,6 +332,8 @@ internal class PageOriginMotion(
     fun startBack(event: BackEventCompat) {
         if (closed || returning || activity.isFinishing || !animated()) return
         if (entering && entryGeometry != null) {
+            entryExit = entryAppearance()
+            entryResume = null
             previewing = true
             entryAnimator?.cancel()
             entryBackStart = entryProgress
@@ -349,6 +378,8 @@ internal class PageOriginMotion(
         if (!previewing || returning) return
         previewing = false
         if (entryBackStart != null) {
+            entryResume = entryAppearance()
+            entryExit = null
             entryBackStart = null
             work.endPreview()
             animateEntry(1f)
