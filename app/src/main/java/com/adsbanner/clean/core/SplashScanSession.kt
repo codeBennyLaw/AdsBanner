@@ -48,6 +48,10 @@ internal class SplashScanSession {
     // 通知栏可能盖住广告直到它自行消失，恢复时不能把正常页面的「关闭」当作开屏按钮。
     fun allowWeak(now: Long): Boolean = packageName != null && !resumed && !covered && now - startedAt <= 3_000L
 
+    /** Keep 2.2.0's launch-only plain skip coverage, without extending the original deadline. */
+    fun allowPlainSkip(now: Long, windowMs: Long, score: Int): Boolean =
+        pending(now, windowMs) && !resumed && score >= 80 && (score >= 85 || age(now) <= 6_000L)
+
     fun observeTarget() {
         targetSeen = true
     }
