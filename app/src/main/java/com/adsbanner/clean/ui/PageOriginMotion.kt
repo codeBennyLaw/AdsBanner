@@ -53,6 +53,7 @@ internal class PageOriginMotion(
     private var translucent = false
     private var homeReady = false
     private var returningFromGesture = false
+    private var returnHeightVelocity = 0f
     private var latestBackEvent: BackEventCompat? = null
     private var revealedHome: WeakReference<Activity>? = null
     private var homeWindowAnimations = 0
@@ -196,6 +197,7 @@ internal class PageOriginMotion(
         }
         returning = true
         returningFromGesture = previewing
+        returnHeightVelocity = backMotion.heightVelocity
         previewing = false
         backMotion.freeze()
         if (!animated() || page.width == 0 || page.height == 0 || !placeAnchor() || !revealHome()) {
@@ -220,11 +222,13 @@ internal class PageOriginMotion(
         val location = IntArray(2).also(anchor::getLocationOnScreen)
         val destination = Rect(location[0], location[1], location[0] + anchor.width, location[1] + anchor.height)
         val geometry = OriginReturnTransform(pose, destination, activity.resources.getDimension(R.dimen.corner_card))
+        val heightDistance = destination.height() - pose.height.toFloat()
+        val speed = if (returningFromGesture && heightDistance != 0f) (returnHeightVelocity / heightDistance).coerceIn(0f, 4f) else 0f
         anchor.visibility = View.INVISIBLE
         pose.visibility = View.VISIBLE
         returnAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = if (returningFromGesture) 280L else 340L
-            interpolator = if (returningFromGesture) PathInterpolator(0.2f, 0.6f, 0.2f, 1f)
+            interpolator = if (returningFromGesture) PathInterpolator(0.2f, (0.2f * speed * duration / 1000f).coerceIn(0f, 0.8f), 0.2f, 1f)
                 else PathInterpolator(0.2f, 0f, 0.1f, 1f)
             addUpdateListener {
                 val progress = it.animatedValue as Float
