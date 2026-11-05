@@ -109,12 +109,12 @@ internal object ReleaseNotesDialog {
         retry.setOnClickListener { loadNext() }
         dialog.onClosing = {
             closed = true
-            local.close()
-            refreshLoading?.close()
             worker.close()
             (details as? OriginDialog)?.dismissImmediately()
         }
         dialog.setOnDismissListener {
+            local.close()
+            refreshLoading?.close()
             list.adapter = null
         }
         dialog.show()

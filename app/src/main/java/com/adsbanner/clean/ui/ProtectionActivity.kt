@@ -428,7 +428,7 @@ class ProtectionActivity : AppCompatActivity() {
         track(dialog) { closed = true; local.close(); pickerWorker.close() }.show()
         local = LocalPageLoading(this, list, placeholder, getString(R.string.local_loading_apps),
             schedule = dialog::whenReady, navigationHost = dialog.loadingHost())
-        dialog.onClosing = { closed = true; local.close(); pickerWorker.close() }
+        dialog.onClosing = { closed = true; pickerWorker.close() }
         load()
     }
 
