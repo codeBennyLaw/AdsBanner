@@ -1,16 +1,18 @@
 package com.adsbanner.clean.ui
 
 import android.animation.ValueAnimator
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.content.res.Configuration
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -19,25 +21,21 @@ import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.BackEventCompat
+import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.descendants
+import androidx.core.view.doOnPreDraw
+import androidx.core.view.OneShotPreDrawListener
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.recyclerview.widget.RecyclerView
-import androidx.transition.Transition
-import androidx.transition.TransitionListenerAdapter
-import androidx.transition.TransitionManager
 import com.adsbanner.clean.R
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.shape.MaterialShapeDrawable
-import com.google.android.material.shape.ShapeAppearanceModel
-import com.google.android.material.transition.MaterialContainerTransform
+import com.google.android.material.shape.Shapeable
 import java.lang.ref.WeakReference
 
 /** Native alert content in a transparent stage, so its container can reach an external anchor. */
@@ -49,8 +47,6 @@ internal class OriginDialog private constructor(
     private val origin = WeakReference(source)
     private val originDescription = source?.contentDescription?.toString()
     private val originBounds = Rect().also { source?.getGlobalVisibleRect(it) }
-    private var originOffsetX = 0
-    private var originOffsetY = 0
     private lateinit var stage: FrameLayout
     private lateinit var panel: ViewGroup
     private lateinit var anchor: View
@@ -61,15 +57,20 @@ internal class OriginDialog private constructor(
     private var closing = false
     private var finished = false
     private var actionTaken = false
+    private var backPreview = false
     private var dropdown = false
+    private var enterAnimator: ValueAnimator? = null
+    private var panelEnterGeometry: OriginReturnTransform? = null
+    private var panelEnterProgress = 0f
+    private var panelBackStart: Float? = null
+    private var originLayoutWait: OneShotPreDrawListener? = null
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
     var onClosing: (() -> Unit)? = null
-    private val frozen = mutableListOf<RecyclerView>()
     private val activityObserver = object : DefaultLifecycleObserver {
         override fun onStop(owner: LifecycleOwner) {
-            if (::stage.isInitialized) TransitionManager.endTransitions(stage)
             if (closing) finishDismiss()
+            else if (backPreview || returnMotion != null) restoreBackPreview()
         }
         override fun onDestroy(owner: LifecycleOwner) = finishDismiss()
     }
@@ -80,7 +81,35 @@ internal class OriginDialog private constructor(
         panel = checkNotNull(findViewById(androidx.appcompat.R.id.parentPanel))
         val parent = panel.parent as ViewGroup
         parent.removeView(panel)
-        stage = FrameLayout(context).apply {
+        stage = object : FrameLayout(context) {
+            override fun onInterceptTouchEvent(event: MotionEvent) = closing || super.onInterceptTouchEvent(event)
+            override fun onTouchEvent(event: MotionEvent) = closing || super.onTouchEvent(event)
+
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                if (!dropdown && ::panel.isInitialized) {
+                    val margins = panel.layoutParams as FrameLayout.LayoutParams
+                    val available = (measuredHeight - margins.topMargin - margins.bottomMargin).coerceAtLeast(0)
+                    // AlertDialog's custom panel can exceed AT_MOST when its form is tall.
+                    // Give the native title/buttons a fixed safe height; its scroll content takes the remainder.
+                    if (panel.measuredHeight > available) {
+                        panel.measure(View.MeasureSpec.makeMeasureSpec(panel.measuredWidth, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(available, View.MeasureSpec.EXACTLY))
+                    }
+                }
+            }
+            override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+                super.onLayout(changed, left, top, right, bottom)
+                if (!dropdown && ::panel.isInitialized) {
+                    val margins = panel.layoutParams as FrameLayout.LayoutParams
+                    // FrameLayout's CENTER shifts by the full difference between margins.
+                    // Center inside the safe rectangle instead, especially when IME makes them unequal.
+                    val y = margins.topMargin +
+                        (height - margins.topMargin - margins.bottomMargin - panel.measuredHeight).coerceAtLeast(0) / 2
+                    panel.layout(panel.left, y, panel.right, y + panel.measuredHeight)
+                }
+            }
+        }.apply {
             id = R.id.motion_dialog_stage
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
@@ -94,16 +123,11 @@ internal class OriginDialog private constructor(
         panel.clipToOutline = true
         panel.isClickable = true
         stage.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
-        anchor = object : View(context) {
-            override fun onDraw(canvas: Canvas) {
-                // Only opening samples the entry. Closing retracts the existing popup instead.
-                if (closing) return
-                canvas.save()
-                canvas.translate(-originOffsetX.toFloat(), -originOffsetY.toFloat())
-                validOrigin()?.draw(canvas)
-                canvas.restore()
-            }
-        }.apply { visibility = View.INVISIBLE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        // Geometry marker only: entry buttons are never copied into the dialog window.
+        anchor = View(context).apply {
+            visibility = View.INVISIBLE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         stage.addView(anchor, FrameLayout.LayoutParams(1, 1))
         parent.addView(stage, ViewGroup.LayoutParams(-1, -1))
         stage.setOnClickListener { cancel() }
@@ -111,23 +135,25 @@ internal class OriginDialog private constructor(
         window.setWindowAnimations(0)
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         ViewCompat.setOnApplyWindowInsetsListener(stage) { _, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val bottom = maxOf(bars.bottom, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
             if (dropdown) {
                 val gap = dp(12)
-                dropdownInsets.set(bars.left + gap, bars.top + gap, bars.right + gap, bars.bottom + gap)
+                dropdownInsets.set(bars.left + gap, bars.top + gap, bars.right + gap, bottom + gap)
                 positionDropdown()
                 return@setOnApplyWindowInsetsListener insets
             }
             val params = panel.layoutParams as FrameLayout.LayoutParams
             val gap = dp(24)
             if (params.leftMargin != bars.left + gap || params.topMargin != bars.top + gap ||
-                params.rightMargin != bars.right + gap || params.bottomMargin != bars.bottom + gap) {
+                params.rightMargin != bars.right + gap || params.bottomMargin != bottom + gap) {
                 panel.layoutParams = params.apply {
                     leftMargin = bars.left + gap
                     topMargin = bars.top + gap
                     rightMargin = bars.right + gap
-                    bottomMargin = bars.bottom + gap
+                    bottomMargin = bottom + gap
                 }
             }
             insets
@@ -149,21 +175,54 @@ internal class OriginDialog private constructor(
             }
         }
         work = PageTransitionWork(panel, entering = true)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackStarted(backEvent: BackEventCompat) {
+                if (entering && panelEnterGeometry != null && !closing && animationsEnabled()) {
+                    backPreview = true
+                    panelBackStart = panelEnterProgress
+                    enterAnimator?.cancel()
+                    work?.beginPreview()
+                    return
+                }
+                if (entering || closing || finished || !animationsEnabled() || panel.width == 0 ||
+                    panel.height == 0 || !placeAnchor()) return
+                backPreview = true
+                work?.beginPreview()
+                returnMotion = (returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss,
+                    originCornerRadius())).also { it.preview() }
+            }
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
+                panelBackStart?.let { applyPanelEnter(it * (1f - backEvent.progress.coerceIn(0f, 1f))); return }
+                if (backPreview && !closing) returnMotion?.seek(backEvent.progress)
+            }
+            override fun handleOnBackCancelled() {
+                if (!backPreview || closing) return
+                backPreview = false
+                if (panelBackStart != null) {
+                    panelBackStart = null
+                    work?.endPreview()
+                    if (animationsEnabled()) animatePanelEnter(1f) else finishPanelEnter()
+                    return
+                }
+                if (!animationsEnabled()) restoreBackPreview()
+                else returnMotion?.settleBack {
+                    if (!closing && !backPreview) restoreBackPreview()
+                }
+            }
+            override fun handleOnBackPressed() { cancel() }
+        })
         activity.lifecycle.addObserver(activityObserver)
         stage.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
                 stage.viewTreeObserver.removeOnPreDrawListener(this)
                 if (finished) return true
                 if (closing) { finishDismiss(); return false }
-                if (!animationsEnabled() || !placeAnchor()) {
+                if (!animationsEnabled()) {
                     entering = false
                     scrim.alpha = 1f
                     work?.completeImmediately()
-                    return true
-                }
-                startEnterTransform()
-                // Capture the final state on the next pre-draw, before displaying any dialog frame.
-                return false
+                } else startPanelEnter()
+                return true
             }
         })
     }
@@ -177,6 +236,8 @@ internal class OriginDialog private constructor(
     fun whenReady(key: Any, task: () -> Unit) {
         if (!closing && !finished) work?.submit(key, task) ?: task()
     }
+
+    fun loadingHost(): View = panel
 
     private fun validOrigin(): View? = origin.get()?.takeIf {
         it.isAttachedToWindow && it.isShown && it.contentDescription?.toString() == originDescription
@@ -231,8 +292,6 @@ internal class OriginDialog private constructor(
                     location[0] + source.width, location[1] + source.height - source.insetBottom)) {
                 originBounds.setEmpty()
             }
-            originOffsetX = originBounds.left - location[0]
-            originOffsetY = originBounds.top - location[1]
         }
         if (originBounds.isEmpty) return false
         val destination = originBounds
@@ -251,76 +310,71 @@ internal class OriginDialog private constructor(
         return true
     }
 
-    private fun startEnterTransform() {
-        val rounded = (validOrigin() as? MaterialButton)?.takeIf { dropdown }?.shapeAppearanceModel
-            ?: ShapeAppearanceModel.builder().setAllCornerSizes(dp(20).toFloat()).build()
-        val dialogShape = ShapeAppearanceModel.builder().setAllCornerSizes(dp(if (dropdown) 20 else 28).toFloat()).build()
-        val sourceColor = originContainerColor()
-        val dialogColor = context.getColor(R.color.surface)
-        val transition = MaterialContainerTransform().apply {
-            drawingViewId = stage.id
-            startView = anchor
-            endView = panel
-            addTarget(panel)
-            startShapeAppearanceModel = rounded
-            endShapeAppearanceModel = dialogShape
-            duration = 280L
-            transitionDirection = MaterialContainerTransform.TRANSITION_DIRECTION_ENTER
-            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
-            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
-            fadeProgressThresholds = MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-            scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
-            containerColor = sourceColor
-            startContainerColor = sourceColor
-            endContainerColor = dialogColor
-            scrimColor = this@OriginDialog.scrimColor
-            addListener(object : TransitionListenerAdapter() {
-                override fun onTransitionEnd(transition: Transition) {
-                    restoreOrigin()
-                    if (closing) finishDismiss() else {
-                        entering = false
-                        scrim.alpha = 1f
-                        work?.endEnter()
+    private fun startPanelEnter() {
+        work?.beginEnter()
+        // Only borrow the entry's bounds. Animate the popup itself; never draw its button.
+        val hasOrigin = placeAnchor()
+        val bounds = if (hasOrigin) Rect(originBounds) else {
+            val location = IntArray(2).also(panel::getLocationOnScreen)
+            val width = (panel.width * 0.9f).toInt().coerceAtLeast(1)
+            val height = minOf(dp(96), (panel.height * 0.25f).toInt()).coerceAtLeast(1)
+            val left = location[0] + (panel.width - width) / 2
+            val top = location[1] + (panel.height - height) / 2
+            Rect(left, top, left + width, top + height)
+        }
+        panelEnterGeometry = OriginReturnTransform(panel, bounds, if (hasOrigin) originCornerRadius()
+            else context.resources.getDimension(R.dimen.corner_dialog))
+        applyPanelEnter(0f)
+        animatePanelEnter(1f)
+    }
+
+    private fun applyPanelEnter(progress: Float) {
+        panelEnterProgress = progress
+        panelEnterGeometry?.apply(1f - progress)
+        panel.alpha = motionFraction(0f, 0.18f, progress)
+        scrim.alpha = progress
+    }
+
+    private fun animatePanelEnter(destination: Float) {
+        enterAnimator = ValueAnimator.ofFloat(panelEnterProgress, destination).apply {
+            duration = (300L * kotlin.math.abs(destination - panelEnterProgress)).toLong().coerceAtLeast(70L)
+            interpolator = if (destination == 1f) PathInterpolator(0.2f, 0f, 0f, 1f)
+                else PathInterpolator(0.3f, 0f, 0.6f, 1f)
+            addUpdateListener {
+                applyPanelEnter(it.animatedValue as Float)
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    enterAnimator = null
+                    if (finished || backPreview) return
+                    if (closing) {
+                        if (destination == 0f) finishDismiss()
+                    } else {
+                        finishPanelEnter()
                     }
                 }
             })
+            start()
         }
-        work?.beginEnter()
-        anchor.visibility = View.VISIBLE
-        panel.visibility = View.INVISIBLE
-        TransitionManager.beginDelayedTransition(stage, transition)
-        scrim.alpha = 0f
-        anchor.visibility = View.INVISIBLE
-        panel.visibility = View.VISIBLE
     }
 
-    private fun originContainerColor(): Int {
-        var view = validOrigin()
-        while (view != null) {
-            val background = view.background
-            val color = when {
-                view is MaterialCardView -> view.cardBackgroundColor.getColorForState(view.drawableState,
-                    view.cardBackgroundColor.defaultColor)
-                view is MaterialButton -> view.backgroundTintList?.getColorForState(view.drawableState,
-                    view.backgroundTintList?.defaultColor ?: Color.TRANSPARENT)
-                background is ColorDrawable -> background.color
-                background is MaterialShapeDrawable -> background.fillColor?.getColorForState(view.drawableState,
-                    background.fillColor?.defaultColor ?: Color.TRANSPARENT)
-                background is GradientDrawable -> background.color?.getColorForState(view.drawableState,
-                    background.color?.defaultColor ?: Color.TRANSPARENT)
-                else -> null
-            }
-            // Ripple masks are not a button's fill. Continue to the actual opaque surface.
-            if (color != null && Color.alpha(color) == 255) return color
-            view = view.parent as? View
-        }
-        return context.getColor(R.color.surface)
+    private fun finishPanelEnter() {
+        panelEnterGeometry?.apply(0f)
+        panelEnterGeometry?.restore()
+        panelEnterGeometry = null
+        panelBackStart = null
+        panel.alpha = 1f
+        scrim.alpha = 1f
+        entering = false
+        restoreOrigin()
+        work?.endEnter()
     }
 
     override fun dismiss() {
         if (closing || finished) return
         closing = true
+        backPreview = false
+        panelBackStart = null
         onClosing?.invoke()
         work?.beginReturn()
         if (!::stage.isInitialized || !isShowing || activity.isFinishing || activity.isDestroyed ||
@@ -328,25 +382,57 @@ internal class OriginDialog private constructor(
             finishDismiss()
             return
         }
-        panel.descendants.filterIsInstance<RecyclerView>().forEach {
-            it.stopScroll()
-            it.suppressLayout(true)
-            frozen.add(it)
+        if (entering && panelEnterGeometry != null) {
+            enterAnimator?.cancel()
+            animatePanelEnter(0f)
+            return
         }
         if (entering) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
         } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
-            val motion = PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss)
-            returnMotion = motion
-            motion.start()
+            // A quick back continues from the visible opening pose rather than snapping shut.
+            entering = false
+            enterAnimator?.cancel()
+            enterAnimator = null
+            val source = validOrigin()
+            val layoutPending = source != null && generateSequence(source) { it.parent as? View }.any { it.isLayoutRequested }
+            if (returnMotion == null && source != null && layoutPending) {
+                originLayoutWait = source.doOnPreDraw {
+                    originLayoutWait = null
+                    if (!finished && closing) startRetraction()
+                }
+            } else startRetraction()
         } else finishDismiss()
+    }
+
+    private fun startRetraction() {
+        if (!placeAnchor()) { finishDismiss(); return }
+        val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss,
+            originCornerRadius())
+        returnMotion = motion
+        motion.start()
     }
 
     private fun restoreOrigin() {
         validOrigin()?.let {
             clearOriginFeedback(it)
         }
+    }
+
+    private fun originCornerRadius(): Float {
+        val source = validOrigin()
+        return (source as? Shapeable)?.shapeAppearanceModel?.topLeftCornerSize?.getCornerSize(
+            RectF(0f, 0f, source.width.toFloat(), source.height.toFloat()))
+            ?: context.resources.getDimension(R.dimen.corner_card)
+    }
+
+    private fun restoreBackPreview() {
+        backPreview = false
+        if (panelBackStart != null) finishPanelEnter()
+        returnMotion?.restore()
+        returnMotion = null
+        work?.endPreview()
     }
 
     private fun clearOriginFeedback(view: View) {
@@ -360,14 +446,16 @@ internal class OriginDialog private constructor(
     private fun finishDismiss() {
         if (finished) return
         finished = true
+        originLayoutWait?.removeListener()
+        originLayoutWait = null
+        enterAnimator?.cancel()
+        enterAnimator = null
+        panelEnterGeometry = null
         returnMotion?.cancel()
         returnMotion = null
         if (!closing) { closing = true; onClosing?.invoke() }
         work?.close()
-        if (::stage.isInitialized) TransitionManager.endTransitions(stage)
         restoreOrigin()
-        frozen.forEach { it.suppressLayout(false) }
-        frozen.clear()
         activity.lifecycle.removeObserver(activityObserver)
         super.dismiss()
     }

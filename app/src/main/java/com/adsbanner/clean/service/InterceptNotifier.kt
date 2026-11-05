@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -56,6 +57,12 @@ object InterceptNotifier {
     /** 正在展示的提示，key 为通知 ID；LinkedHashMap 保序，超限时淘汰最早的一条 */
     private val active = LinkedHashMap<Int, Session>()
     private var nextId = ID_BASE
+    private var application: Context? = null
+    private var tickAt = Long.MAX_VALUE
+    private val tick = Runnable {
+        tickAt = Long.MAX_VALUE
+        application?.let(::refreshSessions)
+    }
 
     private class Session(
         val id: Int,
@@ -63,13 +70,15 @@ object InterceptNotifier {
         val text: String,
         val startedAt: Long
     ) {
-        var ticker: Runnable? = null
+        var contentIntent: PendingIntent? = null
     }
 
     fun notify(context: Context, appLabel: String, kind: StatsStore.Kind) {
         if (!Prefs.interceptNotify) return
 
         val app = context.applicationContext
+        val manager = app.getSystemService(NotificationManager::class.java) ?: return
+        if (!hasPostPermission(app) || !manager.areNotificationsEnabled() || !ensureChannel(app)) return
         val title = when (kind) {
             StatsStore.Kind.SPLASH -> "已跳过开屏广告"
             StatsStore.Kind.JUMP -> "已拦截误触跳转"
@@ -77,11 +86,11 @@ object InterceptNotifier {
         }
         val session = Session(allocateId(), title, appLabel, SystemClock.elapsedRealtime())
 
-        ensureChannel(app)
+        session.contentIntent = contentIntent(app)
         synchronized(active) { active[session.id] = session }
         push(app, session, 0, DURATION_MS)
-        schedule(app, session)
         trim(app)
+        schedule(app)
     }
 
     private fun allocateId(): Int {
@@ -90,25 +99,45 @@ object InterceptNotifier {
         return id
     }
 
-    private fun schedule(context: Context, session: Session) {
-        val task = object : Runnable {
-            override fun run() {
-                val elapsed = SystemClock.elapsedRealtime() - session.startedAt
-                if (elapsed >= DURATION_MS) {
-                    cancelOne(context, session.id)
-                    return
-                }
-                push(
-                    context,
-                    session,
-                    (elapsed * 100 / DURATION_MS).toInt().coerceIn(0, 100),
-                    (DURATION_MS - elapsed).coerceAtLeast(1_000L)
-                )
-                handler.postDelayed(this, TICK_MS)
+    private fun schedule(context: Context) {
+        application = context.applicationContext
+        val now = SystemClock.elapsedRealtime()
+        val remaining = synchronized(active) { active.values.minOfOrNull { DURATION_MS - (now - it.startedAt) } } ?: return
+        if (!context.getSystemService(PowerManager::class.java).isInteractive) {
+            handler.removeCallbacks(tick); tickAt = Long.MAX_VALUE
+            return
+        }
+        val delay = minOf(TICK_MS, remaining.coerceAtLeast(0L))
+        if (now + delay >= tickAt) return
+        handler.removeCallbacks(tick)
+        tickAt = now + delay
+        handler.postDelayed(tick, delay)
+    }
+
+    private fun refreshSessions(context: Context) {
+        if (synchronized(active) { active.isEmpty() }) return
+        if (!Prefs.interceptNotify || !hasPostPermission(context) ||
+            context.getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() != true) {
+            cancel(context)
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        val sessions = synchronized(active) { active.values.toList() }
+        sessions.forEach { session ->
+            val elapsed = now - session.startedAt
+            if (elapsed >= DURATION_MS) cancelOne(context, session.id)
+            else if (context.getSystemService(PowerManager::class.java).isInteractive) {
+                push(context, session, (elapsed * 100 / DURATION_MS).toInt().coerceIn(0, 100), DURATION_MS - elapsed)
             }
         }
-        session.ticker = task
-        handler.postDelayed(task, TICK_MS)
+        schedule(context)
+    }
+
+    /** Keep native expiry while the screen is off; reconcile elapsed time on the next visible frame. */
+    internal fun onScreenChanged(context: Context, interactive: Boolean) {
+        handler.removeCallbacks(tick)
+        tickAt = Long.MAX_VALUE
+        if (interactive) refreshSessions(context.applicationContext)
     }
 
     /** 超出上限时收走最早展示的那条 */
@@ -123,14 +152,15 @@ object InterceptNotifier {
     }
 
     private fun cancelOne(context: Context, id: Int) {
-        val session = synchronized(active) { active.remove(id) } ?: return
-        session.ticker?.let { handler.removeCallbacks(it) }
+        synchronized(active) { active.remove(id) } ?: return
         runCatching {
             context.getSystemService(NotificationManager::class.java)?.cancel(id)
         }
     }
 
     fun cancel(context: Context) {
+        handler.removeCallbacks(tick)
+        tickAt = Long.MAX_VALUE
         val sessions = synchronized(active) {
             val copy = active.values.toList()
             active.clear()
@@ -138,7 +168,6 @@ object InterceptNotifier {
         }
         val manager = context.getSystemService(NotificationManager::class.java)
         sessions.forEach { session ->
-            session.ticker?.let { handler.removeCallbacks(it) }
             runCatching { manager?.cancel(session.id) }
         }
     }
@@ -235,7 +264,7 @@ object InterceptNotifier {
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_EVENT)
-            .setContentIntent(contentIntent(context))
+            .setContentIntent(session.contentIntent)
             // 即便进程被杀，超时后系统也会自己收走
             .setTimeoutAfter(remainingMs)
 
@@ -260,9 +289,9 @@ object InterceptNotifier {
         )
     }
 
-    private fun ensureChannel(context: Context) {
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+    private fun ensureChannel(context: Context): Boolean {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+        manager.getNotificationChannel(CHANNEL_ID)?.let { return it.importance != NotificationManager.IMPORTANCE_NONE }
         // 厂商的实时表面通常只认 IMPORTANCE_DEFAULT 及以上的通道
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -275,6 +304,7 @@ object InterceptNotifier {
             setSound(null, null)
         }
         manager.createNotificationChannel(channel)
+        return true
     }
 
     private fun hasPostPermission(context: Context): Boolean {

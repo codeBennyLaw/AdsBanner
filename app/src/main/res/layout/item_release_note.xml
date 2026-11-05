@@ -21,7 +21,7 @@
             style="@style/Text.RowTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textStyle="bold"
+            android:fontFamily="sans-serif-medium"
             android:importantForAccessibility="no" />
         <TextView
             android:id="@+id/tvReleaseTime"

@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AppInfoHelper
 import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.ProtectionStore
 import java.util.Locale
 
 /** Searching never rebuilds the header or reloads every application icon. */
@@ -24,15 +25,18 @@ class TargetListActivity : AppCompatActivity() {
     private lateinit var list: RecyclerView
     private lateinit var adapter: TargetAppAdapter
     private lateinit var icons: AppIconLoader
-    private lateinit var empty: TextView
+    private lateinit var emptyAdapter: EmptyStateAdapter
     private lateinit var search: EditText
     private lateinit var selectionSummary: TextView
     private lateinit var listMeta: TextView
+    private lateinit var loading: LocalPageLoading
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var allApps: List<TargetAppRow> = emptyList()
     private val selected = LinkedHashSet<String>()
     private var installedSelectedCount = 0
+    private var appsLoaded = false
     private var query = ""
+    private val exclusionsMode get() = intent.getBooleanExtra(EXTRA_EXCLUSIONS, false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,28 +47,33 @@ class TargetListActivity : AppCompatActivity() {
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-        Motion.preparePage(this, getString(R.string.transition_targets), R.color.surface, savedInstanceState != null)
+        if (exclusionsMode) findViewById<TextView>(R.id.tvPageTitle).text = "例外应用"
+        Motion.preparePage(this, getString(if (exclusionsMode) R.string.transition_exclusions else R.string.transition_targets), R.color.surface, savedInstanceState != null)
         list = findViewById(R.id.appList)
         list.layoutManager = LinearLayoutManager(this)
         val header = layoutInflater.inflate(R.layout.header_targets, list, false)
-        empty = layoutInflater.inflate(R.layout.item_empty_targets, list, false) as TextView
         search = header.findViewById(R.id.etSearch)
         selectionSummary = header.findViewById(R.id.tvSelectionSummary)
         listMeta = header.findViewById(R.id.tvAppListMeta)
-        selected.addAll(Prefs.jumpTargets)
+        if (exclusionsMode) header.findViewById<TextView>(R.id.tvSelectionDescription).text =
+            "这些应用不执行自动点击或跳转返回，已有统计保留。勾选后自动保存。"
+        selected.addAll(if (exclusionsMode) ProtectionStore.exclusions else Prefs.jumpTargets)
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = TargetAppAdapter(icons, selected) { pkg ->
             if (selected.remove(pkg)) installedSelectedCount-- else {
                 selected.add(pkg)
                 installedSelectedCount++
             }
-            Prefs.jumpTargets = selected
+            if (exclusionsMode) ProtectionStore.setExclusions(selected) else Prefs.jumpTargets = selected
             updateSelectionSummary()
         }
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
-        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
+        emptyAdapter = EmptyStateAdapter(R.layout.item_empty_targets)
+        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, emptyAdapter)
+        selectionSummary.text = if (exclusionsMode) "例外应用" else "拦截目标"
         // Navigation owns the motion; list updates should settle in one layout.
         list.itemAnimator = null
+        loading = listDataLoading(this, list, header, getString(R.string.local_loading_apps))
         val listBottom = list.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { view, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() or
@@ -86,29 +95,40 @@ class TargetListActivity : AppCompatActivity() {
                 render()
             }
         })
+        loadApplications()
+    }
+
+    private fun loadApplications() {
         worker.submit({
             AppInfoHelper.launchableApps(applicationContext).map { (pkg, name) -> TargetAppRow(pkg, name) }
         }) { result ->
             result.onSuccess {
+                appsLoaded = true
                 allApps = it
                 installedSelectedCount = allApps.count { row -> row.pkg in selected }
                 updateSelectionSummary()
                 render()
-            }.onFailure { listMeta.text = "加载失败，请返回后重试" }
+            }.onFailure {
+                loading.failed("应用名单读取失败，请重试", ::loadApplications)
+            }
         }
     }
 
     private fun render() {
+        if (!appsLoaded) return
         val key = query.trim().lowercase(Locale.ROOT)
         val rows = if (key.isEmpty()) allApps else allApps.filter { key in it.searchKey }
-        listMeta.text = if (key.isEmpty()) "全部应用 · ${rows.size}" else "搜索结果 · ${rows.size}"
-        adapter.submitList(rows) {
-            empty.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
+        loading.bind {
+            listMeta.text = if (key.isEmpty()) "全部应用 · ${rows.size}" else "搜索结果 · ${rows.size}"
+            adapter.submitList(rows) {
+                emptyAdapter.submit(getString(R.string.empty_app_search).takeIf { rows.isEmpty() })
+                loading.ready()
+            }
         }
     }
 
     private fun updateSelectionSummary() {
-        selectionSummary.text = "已选择 $installedSelectedCount 个已安装应用"
+        selectionSummary.text = if (exclusionsMode) "已放行 $installedSelectedCount 个已安装应用" else "已选择 $installedSelectedCount 个已安装应用"
     }
 
     override fun onEnterAnimationComplete() {
@@ -127,4 +147,6 @@ class TargetListActivity : AppCompatActivity() {
         list.adapter = null
         super.onDestroy()
     }
+
+    companion object { const val EXTRA_EXCLUSIONS = "exclusions" }
 }

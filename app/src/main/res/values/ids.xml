@@ -3,4 +3,6 @@
     <item name="motion_page_work" type="id" />
     <item name="motion_dialog_stage" type="id" />
     <item name="motion_origin_anchor" type="id" />
+    <item name="motion_view_switch" type="id" />
+    <item name="motion_local_loading" type="id" />
 </resources>

@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import com.adsbanner.clean.R
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.ui.MainActivity
 import java.time.LocalDate
 import java.time.ZoneId
@@ -38,6 +39,8 @@ class KeepAliveService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var foregroundReady = false
     private var displayedCount: Int? = null
+    private var displayedPaused: Boolean? = null
+    private val policyListener: () -> Unit = { scheduleRefresh() }
     private var refreshScheduled = false
     private var receiverRegistered = false
     private val refresh = Runnable {
@@ -64,6 +67,8 @@ class KeepAliveService : Service() {
         super.onCreate()
         Prefs.init(this)
         StatsStore.init(this)
+        ProtectionStore.init(this)
+        ProtectionStore.addPolicyListener(policyListener)
         StatsStore.addChangeListener(statsListener)
         ensureForeground()
         ContextCompat.registerReceiver(this, dateReceiver, IntentFilter().apply {
@@ -78,6 +83,10 @@ class KeepAliveService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_PAUSE -> ProtectionStore.pause()
+            ACTION_RESUME -> ProtectionStore.resume()
+        }
         ensureForeground()
         scheduleNextDay()
         return START_STICKY
@@ -103,7 +112,8 @@ class KeepAliveService : Service() {
             }
 
             val count = StatsStore.todayTotal()
-            val notification = buildNotification(count)
+            val paused = ProtectionStore.paused
+            val notification = buildNotification(count, paused)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 startForeground(
@@ -115,6 +125,7 @@ class KeepAliveService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
             displayedCount = count
+            displayedPaused = paused
             foregroundReady = true
         } catch (t: Throwable) {
             // Android 12+ 后台启动前台服务可能被系统拒绝，这里静默降级
@@ -122,9 +133,9 @@ class KeepAliveService : Service() {
         }
     }
 
-    private fun buildNotification(count: Int): Notification {
-        val title = getString(R.string.guard_notification_title)
-        val ready = getString(R.string.guard_notification_ready)
+    private fun buildNotification(count: Int, paused: Boolean = ProtectionStore.paused): Notification {
+        val title = getString(if (paused) R.string.guard_notification_paused_title else R.string.guard_notification_title)
+        val ready = getString(if (paused) R.string.guard_notification_paused else R.string.guard_notification_ready)
         val today = getString(R.string.guard_notification_today, count)
         fun content(layout: Int) = RemoteViews(packageName, layout).apply {
             setTextViewText(R.id.notificationTitle, title)
@@ -137,6 +148,9 @@ class KeepAliveService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val control = PendingIntent.getService(this, if (paused) 2 else 1,
+            Intent(this, KeepAliveService::class.java).setAction(if (paused) ACTION_RESUME else ACTION_PAUSE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notify)
@@ -150,6 +164,7 @@ class KeepAliveService : Service() {
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setContentIntent(pending)
+            .addAction(0, if (paused) "恢复保护" else "暂停 10 分钟", control)
             .build()
     }
 
@@ -164,10 +179,12 @@ class KeepAliveService : Service() {
     private fun refreshNotification() {
         if (!foregroundReady || !Prefs.keepAlive) return
         val count = StatsStore.todayTotal()
-        if (displayedCount == count) return
+        val paused = ProtectionStore.paused
+        if (displayedCount == count && displayedPaused == paused) return
         runCatching {
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(count))
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(count, paused))
             displayedCount = count
+            displayedPaused = paused
         }.onFailure { Log.w(TAG, "更新常驻通知失败: ${it.message}") }
     }
 
@@ -181,6 +198,7 @@ class KeepAliveService : Service() {
     override fun onDestroy() {
         foregroundReady = false
         StatsStore.removeChangeListener(statsListener)
+        ProtectionStore.removePolicyListener(policyListener)
         if (receiverRegistered) unregisterReceiver(dateReceiver)
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
@@ -190,6 +208,8 @@ class KeepAliveService : Service() {
         private const val TAG = "AdsBanner"
         private const val CHANNEL_ID = "adsbanner_status"
         private const val NOTIFICATION_ID = 1001
+        private const val ACTION_PAUSE = "com.adsbanner.clean.PAUSE"
+        private const val ACTION_RESUME = "com.adsbanner.clean.RESUME"
 
         fun start(context: Context) {
             Prefs.init(context)

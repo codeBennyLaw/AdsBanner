@@ -3,6 +3,7 @@ package com.adsbanner.clean.ui
 import android.animation.ValueAnimator
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.text.Layout
 import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.TextView
@@ -12,6 +13,8 @@ import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
+import androidx.core.view.isGone
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -41,7 +44,6 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var summary: TextView
     private lateinit var count: TextView
     private lateinit var caption: TextView
-    private lateinit var empty: TextView
     private lateinit var typeButton: MaterialButton
     private lateinit var sortButton: MaterialButton
     private lateinit var sortDirectionButton: MaterialButton
@@ -53,6 +55,18 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatMeta: TextView
     private lateinit var heatLegend: HeatmapLegendView
     private lateinit var heatDetail: TextView
+    private lateinit var header: View
+    private lateinit var emptyAdapter: EmptyStateAdapter
+    private lateinit var listRegion: View
+    private val listLoading = lazy {
+        listDataLoading(this, list, header, getString(R.string.local_loading_stats))
+    }
+    private val loading by listLoading
+    private val graphLoading = lazy {
+        LocalPageLoading(this, findViewById(R.id.heatData), findViewById(R.id.heatLoading),
+            "正在读取每日拦截…")
+    }
+    private val heatLoading by graphLoading
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var renderedKey: RenderKey? = null
     private var pendingKey: RenderKey? = null
@@ -64,6 +78,7 @@ class StatsActivity : AppCompatActivity() {
     private var type = Type.ALL
     private var sort = StatsSort()
     private var heatmapVisible = false
+    private var viewSwitchPending = false
     private var typeMenu: OriginDialog? = null
     private var sortMenu: OriginDialog? = null
 
@@ -73,7 +88,7 @@ class StatsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_stats)
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
-        Motion.preparePage(this, getString(R.string.transition_stats), R.color.brand_light, savedInstanceState != null)
+        Motion.preparePage(this, getString(R.string.transition_stats), R.color.surface, savedInstanceState != null)
         if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
@@ -86,8 +101,8 @@ class StatsActivity : AppCompatActivity() {
         heatmapVisible = savedInstanceState?.getBoolean("heatmap") ?: false
         list = findViewById(R.id.listScroll)
         list.layoutManager = LinearLayoutManager(this)
-        val header = layoutInflater.inflate(R.layout.header_stats, list, false)
-        empty = layoutInflater.inflate(R.layout.item_empty_stats, list, false) as TextView
+        header = layoutInflater.inflate(R.layout.header_stats, list, false)
+        listRegion = findViewById(R.id.statsListRegion)
         summary = header.findViewById(R.id.tvSummary)
         count = header.findViewById(R.id.tvStatCount)
         caption = header.findViewById(R.id.tvStatCaption)
@@ -101,7 +116,8 @@ class StatsActivity : AppCompatActivity() {
         icons = AppIconLoader(this) { key, task -> Motion.whenPageReady(this, key, task) }
         adapter = StatAppAdapter(icons)
         adapter.stateRestorationPolicy = RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY
-        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, SingleViewAdapter(empty))
+        emptyAdapter = EmptyStateAdapter(R.layout.item_empty_stats)
+        list.adapter = ConcatAdapter(SingleViewAdapter(header), adapter, emptyAdapter)
         list.itemAnimator = rowMotion
         heatmapScroll = findViewById(R.id.heatmapScroll)
         heatScroll = findViewById(R.id.heatScroll)
@@ -113,6 +129,7 @@ class StatsActivity : AppCompatActivity() {
         heatLegend = findViewById(R.id.tvHeatLegend)
         heatDetail = findViewById(R.id.tvHeatDetail)
         heatmapButton = findViewById(R.id.btnHeatmap)
+        reserveViewButtonWidth()
         heatmap.onCellClick = { date, total ->
             heatDetail.visibility = View.VISIBLE
             heatDetail.text = "${date.year} 年 ${date.monthValue} 月 ${date.dayOfMonth} 日 · 拦截 $total 次"
@@ -145,9 +162,9 @@ class StatsActivity : AppCompatActivity() {
                 if (!heatmapVisible) render(animate = true)
             }
         }
-        list.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
+        listRegion.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
         heatmapScroll.visibility = if (heatmapVisible) View.VISIBLE else View.GONE
-        heatmapButton.text = if (heatmapVisible) "列表" else "热力图"
+        updateViewButton()
     }
 
     override fun onResume() {
@@ -160,10 +177,35 @@ class StatsActivity : AppCompatActivity() {
     private fun toggleView() {
         rowMotion.enabled = false
         heatmapVisible = !heatmapVisible
-        heatmapButton.text = if (heatmapVisible) "列表" else "热力图"
-        Motion.switchViews(if (heatmapVisible) heatmapScroll else list,
-            if (heatmapVisible) list else heatmapScroll, forward = heatmapVisible)
+        if (listLoading.isInitialized()) loading.setActive(!heatmapVisible)
+        if (graphLoading.isInitialized()) heatLoading.setActive(heatmapVisible)
+        updateViewButton()
+        viewSwitchPending = true
         if (heatmapVisible) renderHeatmap() else render()
+    }
+
+    private fun finishViewSwitch(readyHeatmap: Boolean) {
+        if (!viewSwitchPending || readyHeatmap != heatmapVisible) return
+        viewSwitchPending = false
+        val show = if (heatmapVisible) heatmapScroll else listRegion
+        val hide = if (heatmapVisible) listRegion else heatmapScroll
+        if (show.isVisible && hide.isGone) return
+        Motion.switchViews(show, hide, forward = heatmapVisible)
+    }
+
+    private fun updateViewButton() {
+        heatmapButton.setText(if (heatmapVisible) R.string.stats_view_list else R.string.stats_view_heatmap)
+        ViewCompat.setStateDescription(heatmapButton, getString(if (heatmapVisible)
+            R.string.stats_viewing_heatmap else R.string.stats_viewing_list))
+    }
+
+    private fun reserveViewButtonWidth() {
+        val textWidth = listOf(R.string.stats_view_heatmap, R.string.stats_view_list).maxOf {
+            kotlin.math.ceil(Layout.getDesiredWidth(getString(it), heatmapButton.paint).toDouble()).toInt()
+        }
+        val width = maxOf(heatmapButton.minimumWidth, textWidth +
+            heatmapButton.compoundPaddingLeft + heatmapButton.compoundPaddingRight)
+        heatmapButton.layoutParams = heatmapButton.layoutParams.apply { this.width = width }
     }
 
     private fun showTypeMenu() {
@@ -256,6 +298,8 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun render(animate: Boolean = false) {
+        loading // Start only when this data region is requested.
+        if (!loading.isComplete) finishViewSwitch(false)
         if (animate) rowMotion.enabled = renderedKey != null && ValueAnimator.areAnimatorsEnabled() &&
             android.provider.Settings.Global.getFloat(contentResolver,
                 android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
@@ -288,7 +332,10 @@ class StatsActivity : AppCompatActivity() {
                 cachedSnapshot = models.first().key.snapshot
                 models.forEach { cachedRows[it.key.range to it.key.type] = it }
                 if (!heatmapVisible) render()
-            }.onFailure { summary.text = "加载失败，请返回后重试" }
+            }.onFailure {
+                if (loading.isComplete) { summary.text = "加载失败，请返回后重试"; finishViewSwitch(false) }
+                else loading.failed("拦截记录读取失败，请重试") { render() }
+            }
         }
     }
 
@@ -332,18 +379,23 @@ class StatsActivity : AppCompatActivity() {
 
     private fun showRows(data: Rows) {
         val key = RenderKey(data.key, sort)
-        if ((pendingKey ?: renderedKey) == key) return
+        if (pendingKey == key) return
+        if (pendingKey == null && renderedKey == key) { finishViewSwitch(false); return }
         pendingKey = key
         // Even a return to the currently displayed range must supersede an in-flight diff.
         // Sorting reuses loaded labels and icons; it never rereads statistics or rebuilds rows.
-        adapter.submitList(sort.apply(data.rows)) {
-            Motion.whenPageReady(this, summary) {
-                if (pendingKey != key) return@whenPageReady
-                pendingKey = null
-                renderedKey = key
-                sortCaption.text = getString(R.string.stats_sort_caption, sortLabel(key.sort.field),
-                    getString(if (key.sort.descending) R.string.stats_sort_descending else R.string.stats_sort_ascending))
-                showOverview(data.key.snapshot, data.key.range, data.key.type, data.total, data.rows.size)
+        loading.bind {
+            adapter.submitList(sort.apply(data.rows)) {
+                Motion.whenPageReady(this, summary) {
+                    if (pendingKey != key) return@whenPageReady
+                    pendingKey = null
+                    renderedKey = key
+                    sortCaption.text = getString(R.string.stats_sort_caption, sortLabel(key.sort.field),
+                        getString(if (key.sort.descending) R.string.stats_sort_descending else R.string.stats_sort_ascending))
+                    showOverview(data.key.snapshot, data.key.range, data.key.type, data.total, data.rows.size)
+                    loading.ready()
+                    finishViewSwitch(false)
+                }
             }
         }
     }
@@ -364,12 +416,12 @@ class StatsActivity : AppCompatActivity() {
         count.contentDescription = "${caption.text} $total 次"
         val sources = if (snapshot.apps.any { it.isHistoricalSource }) "个来源" else "个应用"
         summary.text = "${typeLabel(selectedType)} · $apps $sources"
-        empty.text = when {
+        val emptyMessage = when {
             snapshot.total == 0 -> "还没有拦截记录\n开启无障碍服务后，拦截记录会显示在这里"
             selectedRange == Range.TODAY -> "今天暂无这类拦截记录\n可以切换“全部时间”查看历史记录"
             else -> "当前类型暂无拦截记录\n试试切换其他广告类型"
         }
-        rowMotion.showEmpty(empty, apps == 0)
+        emptyAdapter.submit(emptyMessage.takeIf { renderedKey != null && apps == 0 })
     }
 
     private fun typeLabel(value: Type) = when (value) {
@@ -380,15 +432,24 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun renderHeatmap() {
+        heatLoading // The first graph read has its own local placeholder.
+        if (!heatLoading.isComplete) finishViewSwitch(true)
         loadingType = null
         worker.submit({ Triple(StatsStore.dailyCounts(), StatsStore.installedOn(), LocalDate.now()) }) { result ->
             result.onSuccess { (counts, installed, today) ->
-                val changed = heatmap.submit(counts, installed, today)
-                if (changed) showHeatmapLegend()
-                val span = ChronoUnit.DAYS.between(installed, today) + 1
-                heatMeta.text = "自 $installed 起 · $span 天 · ${counts.count { it.value > 0 }} 天有拦截 · 共 ${counts.values.sum()} 次"
-                if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
-            }.onFailure { heatMeta.text = "加载失败，请返回后重试" }
+                heatLoading.bind {
+                    val changed = heatmap.submit(counts, installed, today)
+                    if (changed) showHeatmapLegend()
+                    val span = ChronoUnit.DAYS.between(installed, today) + 1
+                    heatMeta.text = "自 $installed 起 · $span 天 · ${counts.count { it.value > 0 }} 天有拦截 · 共 ${counts.values.sum()} 次"
+                    if (changed) heatScroll.post { heatScroll.fullScroll(View.FOCUS_RIGHT) }
+                    heatLoading.ready()
+                    finishViewSwitch(true)
+                }
+            }.onFailure {
+                if (heatLoading.isComplete) { heatMeta.text = "加载失败，请返回后重试"; finishViewSwitch(true) }
+                else heatLoading.failed("热力图读取失败，请重试") { renderHeatmap() }
+            }
         }
     }
 

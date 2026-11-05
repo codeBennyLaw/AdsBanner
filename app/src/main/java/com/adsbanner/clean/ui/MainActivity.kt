@@ -26,6 +26,7 @@ import com.adsbanner.clean.R
 import com.adsbanner.clean.core.AccessibilityHelper
 import com.adsbanner.clean.core.AppForeground
 import com.adsbanner.clean.core.Prefs
+import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.core.StatsStore
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var binding = false
     private var openingPage = false
     private var releaseNotesDialog: Dialog? = null
+    private val protectionChanged: () -> Unit = { if (!isFinishing && !isDestroyed) refresh() }
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -90,10 +92,12 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         openingPage = false
         AppForeground.visible = true
+        ProtectionStore.addPolicyListener(protectionChanged)
         refresh()
     }
 
     override fun onPause() {
+        ProtectionStore.removePolicyListener(protectionChanged)
         AppForeground.visible = false
         super.onPause()
     }
@@ -140,11 +144,12 @@ class MainActivity : AppCompatActivity() {
     private fun configureFooter() {
         val footer = findViewById<LinearLayout>(R.id.versionLinks)
         val labels = (0 until footer.childCount).map { footer.getChildAt(it) as TextView }
+        val labelSpacing = (16 * resources.displayMetrics.density).toInt()
         footer.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
             if (right - left == oldRight - oldLeft) return@addOnLayoutChangeListener
             val needed = labels.maxOf {
                 kotlin.math.ceil(Layout.getDesiredWidth(it.text, it.paint).toDouble()).toInt() +
-                    it.paddingLeft + it.paddingRight
+                    it.paddingLeft + it.paddingRight + labelSpacing
             } * labels.size
             val stacked = needed > right - left - footer.paddingLeft - footer.paddingRight
             val orientation = if (stacked) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
@@ -276,15 +281,18 @@ class MainActivity : AppCompatActivity() {
      */
     private fun applyInsets() {
         val root = findViewById<View>(R.id.root)
+        val sidePadding = resources.getDimensionPixelSize(R.dimen.page_gutter)
+        val topPadding = content.paddingTop
+        val bottomPadding = content.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsetsIgnoringVisibility(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
             content.setPadding(
-                dp(18) + bars.left,
-                dp(18) + bars.top,
-                dp(18) + bars.right,
-                dp(32) + bars.bottom
+                sidePadding + bars.left,
+                topPadding + bars.top,
+                sidePadding + bars.right,
+                bottomPadding + bars.bottom
             )
             insets
         }
@@ -294,7 +302,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupClicks() {
         findViewById<View>(R.id.btnService).setOnClickListener {
-            AccessibilityHelper.openAccessibilitySettings(this)
+            if (ProtectionStore.paused && AccessibilityHelper.isServiceEnabled(this)) ProtectionStore.resume()
+            else AccessibilityHelper.openAccessibilitySettings(this)
         }
         findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener { card ->
             if (openingPage) return@setOnClickListener
@@ -305,6 +314,11 @@ class MainActivity : AppCompatActivity() {
             if (openingPage) return@setOnClickListener
             openingPage = true
             Motion.openPage(this, card, TargetListActivity::class.java)
+        }
+        findViewById<View>(R.id.cardProtection).setOnClickListener { card ->
+            if (openingPage) return@setOnClickListener
+            openingPage = true
+            Motion.openPage(this, card, ProtectionActivity::class.java)
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<View>(R.id.rowRom).setOnClickListener { showRomGuide() }
@@ -393,13 +407,21 @@ class MainActivity : AppCompatActivity() {
 
     private fun refresh() {
         val enabled = AccessibilityHelper.isServiceEnabled(this)
-        statusDot.setBackgroundResource(if (enabled) R.drawable.dot_on else R.drawable.dot_off)
-        tvServiceState.text = if (enabled) "无障碍服务运行中" else "无障碍服务未开启"
+        val paused = ProtectionStore.paused
+        findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardService).setCardBackgroundColor(
+            getColor(if (enabled && !paused) R.color.service_surface else R.color.attention_surface))
+        statusDot.setBackgroundResource(if (enabled && !paused) R.drawable.dot_on else R.drawable.dot_off)
+        tvServiceState.text = if (!enabled) "服务未开启" else if (paused) "保护已暂停" else "服务已开启"
         tvServiceState.setTextColor(
             ContextCompat.getColor(this, if (enabled) R.color.text_primary else R.color.danger)
         )
         tvServiceHint.text =
-            if (enabled) "AdsBanner 已可以拦截广告" else "未开启时无法拦截，点击右侧去开启"
+            if (!enabled) "请开启无障碍服务" else if (paused) "到期自动恢复，也可提前恢复" else "按照下方开关执行拦截"
+        findViewById<TextView>(R.id.btnService).text = if (!enabled) "开启" else if (paused) "恢复" else "设置"
+        val rules = ProtectionStore.rules.count { it.enabled }
+        findViewById<TextView>(R.id.tvProtectionSummary).text = if (paused) "临时暂停中 · 点击管理" else if (rules == 0)
+            "无需手动配置，例外 ${ProtectionStore.exclusions.size} 个应用" else
+            "例外 ${ProtectionStore.exclusions.size} 个应用，补充规则 $rules 条"
 
         val snapshot = StatsStore.snapshot()
         tvTodayCount.text = snapshot.todayTotal.toString()
@@ -431,19 +453,19 @@ class MainActivity : AppCompatActivity() {
             }
             Build.VERSION.SDK_INT < 36 -> {
                 tvNotifyHint.text =
-                    "Android ${Build.VERSION.SDK_INT} 不支持实时通知，走普通通知"
+                    "当前系统使用普通拦截通知"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             }
             !InterceptNotifier.supportsLiveUpdates() -> {
-                tvNotifyHint.text = "系统缺少实时通知接口，走普通通知"
+                tvNotifyHint.text = "当前系统使用普通拦截通知"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             }
             InterceptNotifier.canPostPromoted(this) -> {
-                tvNotifyHint.text = "已接入实时通知，拦截时上岛（是否提升由系统决定）"
+                tvNotifyHint.text = "拦截时显示实时通知，展示方式由系统决定"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.success))
             }
             else -> {
-                tvNotifyHint.text = "系统支持但未授权，点此前往开启"
+                tvNotifyHint.text = "允许实时通知以显示拦截进度"
                 tvNotifyHint.setTextColor(ContextCompat.getColor(this, R.color.warning))
             }
         }
