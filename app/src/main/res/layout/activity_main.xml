@@ -602,8 +602,10 @@
         </LinearLayout>
         <LinearLayout
             android:id="@+id/linkRepo"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="48dp"
+            android:layout_gravity="center_horizontal"
+            android:paddingHorizontal="12dp"
             android:background="@drawable/bg_round_feedback"
             android:clickable="true"
             android:focusable="true"
