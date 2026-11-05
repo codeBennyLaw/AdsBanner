@@ -422,10 +422,14 @@ internal class OriginDialog private constructor(
             return
         }
         freezeLists()
-        if (entering) {
+        if (entering && !expandInPlace) {
             // An immediate back cancels the unfinished opening without flashing its final frame.
             finishDismiss()
         } else if (panel.width > 0 && panel.height > 0 && placeAnchor()) {
+            // A quick back continues from the visible opening pose rather than snapping shut.
+            entering = false
+            enterAnimator?.cancel()
+            enterAnimator = null
             val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss, originCornerRadius())
             returnMotion = motion
             motion.start()
