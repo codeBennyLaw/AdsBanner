@@ -313,7 +313,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         // Initial splash -> main activity transitions keep the original short weak-match budget.
         // Wake/share returns get a new finite, strong-only window even if the package is unchanged.
-        val earlyLaunch = entry == SplashResumeTracker.Entry.ACTIVITY && splashSession.packageName == pkg &&
+        val earlyLaunch = (entry == SplashResumeTracker.Entry.ACTIVITY || entry == SplashResumeTracker.Entry.RETURN) &&
+            splashSession.packageName == pkg &&
             !splashSession.resumed && splashSession.pending(now, Prefs.splashWindowMs) && splashSession.age(now) <= 3_000L
         if (pkg != prev || (entry != SplashResumeTracker.Entry.NONE && !earlyLaunch)) {
             stopSplashScan()
