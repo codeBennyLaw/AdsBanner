@@ -51,3 +51,7 @@
 - [Android 无障碍节点查询 API](https://developer.android.com/reference/android/view/accessibility/AccessibilityNodeInfo)：完整节点 ID 和文字查询、节点刷新。
 - [Android 后台优化](https://developer.android.com/topic/performance/background-optimization)：减少不必要的后台工作。
 - [Notification.Builder.setTimeoutAfter](https://developer.android.com/reference/android/app/Notification.Builder#setTimeoutAfter(long))：提示超时由系统处理。
+
+## 2.2.0 兼容回归修复
+
+上文的新增区域广告证据限制已按新启动与恢复检测拆开：新启动恢复旧版纯跳过兼容，恢复检测保持证据要求。扫描频率与整树预算不增加，具体对照和限制见[开屏兼容对照](splash-parity.md)。
