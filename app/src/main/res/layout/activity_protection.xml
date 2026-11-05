@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/bg" android:orientation="vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:padding="8dp" android:orientation="horizontal">
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnBack"
+            style="@style/Button.AdsBanner.Back" android:layout_width="48dp" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/tvPageTitle" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:layout_marginStart="8dp" android:text="拦截管理"
+            android:textSize="20sp" android:fontFamily="sans-serif-medium" android:textColor="@color/text_primary" />
+    </LinearLayout>
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+        <ScrollView android:id="@+id/protectionScroll" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipToPadding="false" android:scrollbars="none">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:paddingHorizontal="@dimen/page_gutter" android:paddingTop="8dp" android:paddingBottom="28dp">
+                <com.google.android.material.card.MaterialCardView style="@style/Card.AdsBanner"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    app:cardBackgroundColor="@color/management_surface" app:strokeWidth="0dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:padding="20dp">
+                        <TextView android:id="@+id/tvProtectionState" style="@style/Text.RowTitle" android:textSize="20sp"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="保护状态" android:textColor="@color/management_ink" />
+                        <TextView android:id="@+id/tvProtectionHint" style="@style/Text.RowSub"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp" android:textColor="@color/text_secondary" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/btnPauseProtection"
+                            style="@style/Button.AdsBanner.Tonal"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+                            android:minHeight="48dp" android:text="暂停 10 分钟" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+                <com.google.android.material.card.MaterialCardView android:id="@+id/cardExceptions"
+                    android:transitionName="@string/transition_exclusions" style="@style/Card.AdsBanner"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+                    android:clickable="true" android:focusable="true">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical" android:padding="20dp">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                            android:orientation="vertical">
+                            <TextView style="@style/Text.RowTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="例外应用" />
+                            <TextView android:id="@+id/tvExceptionsHint" style="@style/Text.RowSub" android:layout_width="match_parent"
+                                android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="这些应用保持原样，不执行自动点击或返回" />
+                        </LinearLayout>
+                        <ImageView android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_chevron_right"
+                            android:contentDescription="@null" android:importantForAccessibility="no" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+                <TextView style="@style/Text.Section" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp" android:layout_marginBottom="8dp" android:text="补充规则" />
+                <TextView android:id="@+id/tvRulesHint" style="@style/Text.RowSub" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:text="按应用、页面和完整节点 ID 匹配，一次启动最多执行一次。" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnAddRule"
+                    style="@style/Button.AdsBanner.Tonal" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp" android:minHeight="48dp" android:text="新增规则" />
+                <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+                <androidx.recyclerview.widget.RecyclerView android:id="@+id/rulesList" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
+                    <include android:id="@+id/rulesLoading" layout="@layout/view_local_loading"
+                        android:layout_width="match_parent" android:layout_height="match_parent" />
+                </FrameLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnAllRules"
+                    style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="48dp" android:text="查看全部规则" android:visibility="gone" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                    <com.google.android.material.button.MaterialButton android:id="@+id/btnImportRules"
+                        style="@style/Button.AdsBanner.Outlined" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:layout_marginEnd="8dp" android:minHeight="48dp" android:text="导入规则" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/btnExportRules"
+                        style="@style/Button.AdsBanner.Outlined" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minHeight="48dp" android:text="导出规则" />
+                </LinearLayout>
+                <TextView style="@style/Text.RowSub" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:text="使用 AdsBanner JSON 格式，仅导出规则；例外应用、统计和操作记录不包含在文件中。" />
+                <TextView style="@style/Text.Section" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp" android:layout_marginBottom="8dp" android:text="最近操作" />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/switchActionHistory"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="56dp"
+                    android:text="记录最近开屏与跳转操作" android:textColor="@color/text_primary" android:textSize="14sp" />
+                <TextView android:id="@+id/tvHistoryHint" style="@style/Text.RowSub" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:text="仅保留最近 100 条的应用、时间、动作和规则名称，不保存页面文字或截图。点击记录可将应用加入例外。" />
+                <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+                <androidx.recyclerview.widget.RecyclerView android:id="@+id/actionsList" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
+                    <include android:id="@+id/actionsLoading" layout="@layout/view_local_loading"
+                        android:layout_width="match_parent" android:layout_height="match_parent" />
+                </FrameLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnAllHistory"
+                    style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="48dp" android:text="查看全部操作" android:visibility="gone" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnClearHistory"
+                    style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="48dp" android:text="清除操作记录" />
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+</LinearLayout>

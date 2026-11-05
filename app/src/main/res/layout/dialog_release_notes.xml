@@ -7,27 +7,34 @@
     android:paddingTop="8dp"
     android:paddingBottom="8dp">
 
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
     <TextView
         android:id="@+id/tvReleaseStatus"
         style="@style/Text.RowSub"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
+        android:layout_weight="1"
         android:layout_height="wrap_content"
         android:accessibilityLiveRegion="polite"
         android:textColor="@color/text_secondary" />
+        <FrameLayout android:layout_width="64dp" android:layout_height="24dp">
+            <include android:id="@+id/releaseRefreshLoading" layout="@layout/view_local_loading"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/listReleases"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="12dp"
-        android:clipToPadding="false"
-        android:paddingBottom="8dp"
-        android:scrollbars="vertical" />
+    <FrameLayout android:id="@+id/releaseDataRegion"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp">
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/listReleases" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipToPadding="false" android:paddingBottom="8dp" android:scrollbars="vertical" />
+        <include android:id="@+id/releaseLoading" layout="@layout/view_local_loading"
+                        android:layout_width="match_parent" android:layout_height="match_parent" />
+    </FrameLayout>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnRetryReleases"
-        style="@style/Widget.Material3.Button.TonalButton"
+        style="@style/Button.AdsBanner.Tonal"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:minHeight="48dp"

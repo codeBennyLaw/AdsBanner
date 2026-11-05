@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SplashScanSessionTest {
+    @Test fun launchPlainSkipRetainsTheOriginalCoverageAndDeadline() {
+        val session = SplashScanSession()
+        session.start("app", 1_000)
+        assertTrue(session.allowPlainSkip(6_999, 10_000, 80))
+        assertFalse(session.allowPlainSkip(7_001, 10_000, 80))
+        assertTrue(session.allowPlainSkip(10_999, 10_000, 100))
+        assertFalse(session.allowPlainSkip(11_001, 10_000, 100))
+        assertFalse(session.allowPlainSkip(1_100, 10_000, 60))
+        assertFalse(session.allowWeak(5_000))
+    }
+    @Test fun wakeAndShareReturnCannotAuthorizeUnmarkedPlainSkip() {
+        val session = SplashScanSession()
+        session.start("app", 1_000, resumed = true)
+        for (score in listOf(80, 85, 90, 100)) assertFalse(session.allowPlainSkip(1_100, 10_000, score))
+        session.clear()
+        assertFalse(session.allowPlainSkip(1_100, 10_000, 100))
+    }
+
     @Test fun notificationShadeDoesNotConsumeTheSplashWindow() {
         val session = SplashScanSession()
         session.start("app", 1_000)
@@ -85,5 +103,17 @@ class SplashScanSessionTest {
         assertTrue(session.awaitingTarget(7_100))
         session.observeTarget()
         assertFalse(session.awaitingTarget(7_200))
+    }
+
+    @Test fun resumedDetectionIsFiniteAndNeverEnablesGenericClose() {
+        val session = SplashScanSession()
+        session.start("app", 1_000, resumed = true)
+        assertTrue(session.resumed)
+        assertTrue(session.pending(1_500, 10_000))
+        assertFalse(session.allowWeak(1_500))
+        assertFalse(session.pending(11_001, 10_000))
+        session.start("other", 12_000)
+        assertFalse(session.resumed)
+        assertTrue(session.allowWeak(12_100))
     }
 }

@@ -12,8 +12,8 @@ class BiliPauseAdRuleTest {
         val nodes = mutableListOf<Node>()
         fun add(key: String, parent: Int = -1, id: String = "", text: String = "", desc: String = "",
                 visible: Boolean = true, clickable: Boolean = false,
-                bounds: Bounds = Bounds(0, 0, 1080, 2400)): Int {
-            nodes.add(Node(parent, key, id, text, desc, visible, true, clickable, bounds))
+                bounds: Bounds = Bounds(0, 0, 1080, 2400), className: String = ""): Int {
+            nodes.add(Node(parent, key, id, text, desc, visible, true, clickable, bounds, className))
             return nodes.lastIndex
         }
         val root = add("root")
@@ -113,5 +113,96 @@ class BiliPauseAdRuleTest {
         page.nodes[page.player] = page.nodes[page.player].copy(bounds = screen)
         assertNull(BiliPauseAdRule.match(page.nodes, screen))
         assertNull(BiliPauseAdRule.match(page.nodes, Bounds(0, 0, 2400, 1080)))
+    }
+
+    @Test fun fullWidthComposeHintAndDirectPlayerSiblingsStillCancel() {
+        for (direct in listOf(false, true)) {
+            val page = Page()
+            val scope = if (direct) page.player else page.add("compose", page.player, visible = false,
+                bounds = Bounds(0, 100, 1080, 780))
+            page.add("hint", scope, text = "3秒后将展示广告", bounds = Bounds(30, 670, 350, 720))
+            val cancel = page.add("cancel", scope, text = "取消", clickable = true,
+                bounds = Bounds(360, 670, 470, 720))
+            assertEquals(cancel, BiliPauseAdRule.match(page.nodes, screen)!!.cancel!!.icon)
+        }
+    }
+
+    @Test fun genericCloseWithLocalAdEvidenceDoesNotRequirePagerId() {
+        val page = Page()
+        val (icon, button) = page.adPanel()
+        page.nodes[page.pager] = page.nodes[page.pager].copy(id = "new_details_layout")
+        val match = BiliPauseAdRule.match(page.nodes, screen)!!
+        assertEquals(icon, match.close!!.icon)
+        assertEquals(button, match.close.action)
+    }
+
+    @Test fun specificPauseCloseWithoutBadgeRequiresRelatedButton() {
+        val page = Page()
+        val (icon, _) = page.adPanel()
+        page.nodes[page.pager] = page.nodes[page.pager].copy(id = "new_details_layout")
+        page.nodes[icon] = page.nodes[icon].copy(desc = "关闭暂停页")
+        val mark = page.nodes.indexOfFirst { it.key == "adMark" }
+        page.nodes[mark] = page.nodes[mark].copy(visible = false)
+        assertNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
+        val panel = page.nodes.indexOfFirst { it.key == "panel" }
+        page.nodes[icon] = page.nodes[icon].copy(parent = panel)
+        page.add("action", panel, text = "继续浏览", clickable = true, className = "android.widget.Button",
+            bounds = Bounds(200, 1800, 850, 1920))
+        val match = BiliPauseAdRule.match(page.nodes, screen)!!
+        assertEquals(icon, match.close!!.icon)
+        assertNull(match.close.action)
+        // The CTA still being present must prevent false success when only the close icon vanishes.
+        page.nodes[icon] = page.nodes[icon].copy(visible = false)
+        assertEquals(match.panelKey, BiliPauseAdRule.match(page.nodes, screen, match.panelKey)!!.panelKey)
+        val button = page.nodes.indexOfFirst { it.key == "action" }
+        page.nodes[button] = page.nodes[button].copy(visible = false)
+        val image = page.add("adImage", panel, className = "android.widget.ImageView", bounds = Bounds(0, 950, 1080, 1700))
+        assertEquals(match.panelKey, BiliPauseAdRule.match(page.nodes, screen, match.panelKey)!!.panelKey)
+        page.nodes[image] = page.nodes[image].copy(visible = false)
+        assertNull(BiliPauseAdRule.match(page.nodes, screen, match.panelKey)!!.panelKey)
+    }
+
+    @Test fun ordinaryCloseAndButtonWithoutAdEvidenceAreNotEnough() {
+        val page = Page()
+        val (icon, _) = page.adPanel()
+        page.nodes[page.pager] = page.nodes[page.pager].copy(id = "new_details_layout")
+        page.nodes[page.nodes.indexOfFirst { it.key == "adMark" }] = page.nodes.first { it.key == "adMark" }.copy(visible = false)
+        val panel = page.nodes.indexOfFirst { it.key == "panel" }
+        page.nodes[icon] = page.nodes[icon].copy(parent = panel)
+        page.add("button", panel, text = "确定", clickable = true, className = "android.widget.Button",
+            bounds = Bounds(200, 1800, 850, 1920))
+        assertNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
+    }
+
+    @Test fun renamedDetailsContainerCannotBorrowEvidenceFromIndependentRecommendation() {
+        val page = Page()
+        val (icon, _) = page.adPanel()
+        page.nodes[page.pager] = page.nodes[page.pager].copy(id = "new_details_layout")
+        val panel = page.nodes.indexOfFirst { it.key == "panel" }
+        page.nodes[icon] = page.nodes[icon].copy(parent = page.pager)
+        page.nodes[panel] = page.nodes[panel].copy(bounds = Bounds(0, 1800, 1080, 2400))
+        page.nodes[page.nodes.indexOfFirst { it.key == "adMark" }] = page.nodes.first { it.key == "adMark" }.copy(bounds = Bounds(30, 1900, 90, 1940))
+        assertNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
+    }
+
+    @Test fun nearestNonAdPanelPreventsClimbingToAnotherAdInThePage() {
+        val page = Page()
+        page.adPanel()
+        page.nodes[page.pager] = page.nodes[page.pager].copy(id = "new_details_layout")
+        val mark = page.nodes.indexOfFirst { it.key == "adMark" }
+        val recommendation = page.add("recommendation", page.pager, bounds = Bounds(0, 1800, 1080, 2400))
+        page.nodes[mark] = page.nodes[mark].copy(parent = recommendation, bounds = Bounds(30, 1900, 90, 1940))
+        assertNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
+    }
+
+    @Test fun ordinaryDetailsActionCannotAuthorizeGenericCloseInANewContainer() {
+        val page = Page()
+        val (icon, _) = page.adPanel()
+        page.nodes[page.pager] = page.nodes[page.pager].copy(id = "new_details_layout")
+        val mark = page.nodes.indexOfFirst { it.key == "adMark" }
+        page.nodes[mark] = page.nodes[mark].copy(text = "查看详情")
+        assertNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
+        page.nodes[icon] = page.nodes[icon].copy(desc = "关闭暂停页")
+        assertNotNull(BiliPauseAdRule.match(page.nodes, screen)!!.close)
     }
 }

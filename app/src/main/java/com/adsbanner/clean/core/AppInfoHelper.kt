@@ -2,12 +2,14 @@ package com.adsbanner.clean.core
 
 import android.content.Context
 import android.content.Intent
+import android.content.ComponentName
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.SystemClock
 import android.provider.AlarmClock
+import android.util.LruCache
 
 /**
  * 应用名 / 图标 / 是否桌面，带内存缓存。
@@ -17,6 +19,19 @@ object AppInfoHelper {
 
     private val labelCache = HashMap<String, String>()
     private val iconCache = HashMap<String, Drawable>()
+    private val activityCache = LruCache<ComponentName, Boolean>(128)
+
+    /** A custom View/Dialog class in an event is not proof of an activity transition. */
+    fun isDeclaredActivity(context: Context, pkg: String, className: String): Boolean {
+        if (!className.contains('.') || className.startsWith("android.") || className.startsWith("androidx.")) return false
+        val component = ComponentName(pkg, className)
+        activityCache[component]?.let { return it }
+        return runCatching {
+            @Suppress("DEPRECATION")
+            context.packageManager.getActivityInfo(component, 0)
+            true
+        }.getOrDefault(false).also { activityCache.put(component, it) }
+    }
 
     @Volatile
     private var homePackages: Set<String>? = null

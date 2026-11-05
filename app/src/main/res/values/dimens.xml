@@ -1,6 +1,8 @@
 <resources>
-    <dimen name="corner_small">12dp</dimen>
-    <dimen name="corner_card">20dp</dimen>
-    <dimen name="corner_dialog">28dp</dimen>
-    <dimen name="corner_icon">10dp</dimen>
+    <dimen name="page_gutter">20dp</dimen>
+    <dimen name="corner_small">16dp</dimen>
+    <dimen name="corner_control">24dp</dimen>
+    <dimen name="corner_card">28dp</dimen>
+    <dimen name="corner_dialog">32dp</dimen>
+    <dimen name="corner_icon">16dp</dimen>
 </resources>

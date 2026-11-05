@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AdsBanner</string>
+    <string name="transition_protection" translatable="false">adsbanner_protection_container</string>
+    <string name="transition_exclusions" translatable="false">adsbanner_exclusions_container</string>
+    <string name="guard_notification_paused_title">AdsBanner 已暂停</string>
+    <string name="guard_notification_paused">临时暂停中，到期自动恢复</string>
     <string name="shortcut_stats_label">统计</string>
     <string name="stats_sort_count">次数</string>
     <string name="stats_sort_time">时间</string>
@@ -15,8 +19,17 @@
     <string name="stats_sort_caption_default">应用明细 · 次数递减</string>
     <string name="transition_stats" translatable="false">adsbanner_stats_container</string>
     <string name="transition_targets" translatable="false">adsbanner_targets_container</string>
-    <string name="app_slogan">开屏广告自动跳过 · 误触跳转即时拦截</string>
+    <string name="app_slogan">广告跳过与跳转保护</string>
+    <string name="local_loading_retry">重试</string>
+    <string name="local_loading_stats">正在读取拦截记录…</string>
+    <string name="local_loading_apps">正在读取应用名单…</string>
+    <string name="local_loading_protection">正在读取拦截管理信息…</string>
+    <string name="stats_view_heatmap">热力图</string>
+    <string name="stats_view_list">列表</string>
+    <string name="stats_viewing_heatmap">当前显示热力图</string>
+    <string name="stats_viewing_list">当前显示应用列表</string>
 
     <string name="accessibility_label">AdsBanner · 广告拦截服务</string>
     <string name="accessibility_description">AdsBanner 需要无障碍权限来完成两件事：\n1. 识别并点击其他应用开屏广告上的「跳过」按钮；\n2. 检测开屏广告期间的可疑自动拉起，优先放行主动点击、滚动和系统导航，减少打断正常购物。\n\nAdsBanner 不会上传、不会记录你的密码或聊天内容，所有拦截数据只保存在本机。</string>
+    <string name="empty_app_search">没有找到匹配的应用\n试试其他名称或包名</string>
 </resources>

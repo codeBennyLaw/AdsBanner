@@ -22,9 +22,12 @@ internal object BiliPauseAdRule {
         val visible: Boolean,
         val enabled: Boolean,
         val clickable: Boolean,
-        val bounds: Bounds
+        val bounds: Bounds,
+        val className: String = ""
     ) {
         val shortId get() = id.substringAfterLast('/')
+        val isButton get() = className.substringAfterLast('.') == "Button"
+        val isImage get() = className.substringAfterLast('.') == "ImageView"
         fun hasLabel(test: (String) -> Boolean) = test(text) || test(desc)
     }
 
@@ -86,13 +89,14 @@ internal object BiliPauseAdRule {
         var cancel: Target? = null
         for (hint in hints) {
             val hb = nodes[hint].bounds
-            val scopes = ancestors(hint).takeWhile { it != player }.take(5)
+            val scopes = ancestors(hint).take(8).takeWhile { it == player || inside(it, player) }
             for (scope in scopes) {
                 val sb = nodes[scope].bounds
-                if (sb.width > playerBounds.width * 0.85 || sb.height > playerBounds.height * 0.5) break
                 val target = nodes.indices.firstOrNull { i ->
                     val b = nodes[i].bounds
                     small(i) && inside(i, scope) && playerBounds.contains(b) &&
+                        (nodes[i].parent == nodes[hint].parent ||
+                            (scope != player && sb.height <= playerBounds.height * 0.5)) &&
                         nodes[i].hasLabel { it in CANCEL_LABELS } &&
                         b.left >= hb.right - screen.width / 100 &&
                         b.top < hb.bottom && b.bottom > hb.top &&
@@ -108,29 +112,46 @@ internal object BiliPauseAdRule {
         var panelKey: String? = nodes.indices.firstOrNull { p ->
             nodes[p].key == knownPanelKey && nodes.indices.any { ad ->
                 shown(ad) && inside(ad, p) && nodes[p].bounds.contains(nodes[ad].bounds) &&
-                    nodes[ad].hasLabel { it in AD_LABELS || it in AD_ACTIONS }
+                    (nodes[ad].hasLabel { it in AD_LABELS || it in AD_ACTIONS } || nodes[ad].isButton ||
+                        (nodes[ad].isImage && nodes[ad].bounds.width >= screen.width * 0.35 && nodes[ad].bounds.height >= screen.height * 0.08))
             }
         }?.let { nodes[it].key }
         var close: Target? = null
         for (icon in nodes.indices) {
             if (!small(icon) || isMenu(nodes[icon]) || !nodes[icon].hasLabel { it.lowercase() in CLOSE_LABELS }) continue
             val chain = ancestors(icon).toList()
-            val pager = chain.firstOrNull { nodes[it].shortId == "fl_tab_pager_container" } ?: continue
-            // 普通弹窗/分集/评论页也可能有 close，必须有同一面板内的广告证据。
-            val panel = chain.takeWhile { it != pager }.firstOrNull { p ->
+            val pauseSpecific = nodes[icon].hasLabel { it in PAUSE_CLOSE_LABELS }
+            val legacyPager = chain.any { nodes[it].shortId == "fl_tab_pager_container" }
+            // Pick the nearest section before testing its evidence. A distant recommendation
+            // must not authorize a close by causing us to climb into the whole details page.
+            val panel = chain.takeWhile { nodes[it].shortId != "fl_tab_pager_container" }.firstOrNull { p ->
                 val b = nodes[p].bounds
                 val cb = nodes[icon].bounds
                 b.width >= screen.width * 0.55 && b.height >= screen.height * 0.12 &&
+                    b.contains(cb) &&
                     b.top >= playerBounds.bottom - screen.height * 0.03 &&
                     b.top <= playerBounds.bottom + screen.height * 0.15 &&
                     cb.centerX > b.left + b.width * 0.82 &&
-                    cb.top >= b.top && cb.bottom <= b.top + screen.height * 0.12 &&
-                    nodes.indices.any { ad ->
-                        shown(ad) && inside(ad, p) && b.contains(nodes[ad].bounds) &&
-                            nodes[ad].bounds.top >= cb.top &&
-                            nodes[ad].hasLabel { it in AD_LABELS || it in AD_ACTIONS }
-                    }
+                    cb.top >= b.top && cb.bottom <= b.top + screen.height * 0.12
             } ?: continue
+            val cb = nodes[icon].bounds
+            val adEvidence = nodes.indices.any { ad ->
+                shown(ad) && inside(ad, panel) && nodes[panel].bounds.contains(nodes[ad].bounds) &&
+                    nodes[ad].bounds.top >= cb.top &&
+                    nodes[ad].hasLabel { it in AD_LABELS || ((legacyPager || pauseSpecific) && it in AD_ACTIONS) } &&
+                    ancestors(ad).takeWhile { it != panel }.none { section ->
+                        val b = nodes[section].bounds
+                        !inside(icon, section) && b.width >= screen.width * 0.55 && b.height >= screen.height * 0.12 &&
+                            b.top > cb.bottom + screen.height * 0.12
+                    }
+            }
+            // Some versions expose no ad badge, but do expose the specific pause-page close
+            // beside a native Button. Keep generic close dependent on scoped ad evidence.
+            val pauseControl = pauseSpecific && nodes.indices.any { i ->
+                i != icon && nodes[i].parent == nodes[icon].parent && nodes[i].isButton && shown(i) && nodes[i].enabled &&
+                    nodes[panel].bounds.contains(nodes[i].bounds) && nodes[i].bounds.height <= screen.height * 0.12
+            }
+            if (!adEvidence && !pauseControl) continue
             panelKey = nodes[panel].key
             close = Target(Kind.CLOSE, panelKey, icon, actionFor(icon, panel))
             break
@@ -145,7 +166,8 @@ internal object BiliPauseAdRule {
     private val MENU_LABELS = setOf("更多", "反馈", "不感兴趣", "more", "menu", "⋮", "…", "...")
     private val HINT = Regex("后将展示广告|即将展示广告|后将播放广告|即将播放广告")
     private val CANCEL_LABELS = setOf("取消", "取消广告")
-    private val CLOSE_LABELS = setOf("关闭", "关闭广告", "×", "✕", "✖", "╳", "x", "close", "dismiss")
+    private val PAUSE_CLOSE_LABELS = setOf("关闭暂停页", "关闭暂停广告")
+    private val CLOSE_LABELS = setOf("关闭", "关闭广告", "×", "✕", "✖", "╳", "x", "close", "dismiss") + PAUSE_CLOSE_LABELS
     private val AD_LABELS = setOf("广告", "廣告", "赞助", "推广")
     private val AD_ACTIONS = setOf("前往观看", "立即了解", "立即下载", "查看详情")
 }

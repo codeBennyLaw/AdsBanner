@@ -24,21 +24,25 @@ import androidx.transition.TransitionManager
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.adsbanner.clean.R
-import com.google.android.material.transition.MaterialSharedAxis
 import com.google.android.material.transition.platform.MaterialContainerTransform
 import com.google.android.material.transition.platform.MaterialContainerTransformSharedElementCallback
 
 /** Shared motion tokens. Android's animator scale is the reduced-motion contract. */
 object Motion {
     private const val ENTER_MS = 240L
-    private const val SWITCH_MS = 180L
     private const val PAGE_ENTER_MS = 320L
-    private const val PAGE_RETURN_MS = 260L
+    private const val PAGE_RETURN_MS = RetractionVisuals.DURATION_MS
     private const val EXTRA_CARD_TRANSITION = "com.adsbanner.clean.CARD_TRANSITION"
+    private const val EXTRA_ORIGIN_COLOR = "com.adsbanner.clean.ORIGIN_COLOR"
 
     fun prepareHome(activity: Activity) {
         bindPressFeedback(activity.findViewById(R.id.cardStats))
         bindPressFeedback(activity.findViewById(R.id.cardTargets))
+        bindPressFeedback(activity.findViewById(R.id.cardProtection))
+        prepareChildSources(activity)
+    }
+
+    internal fun prepareChildSources(activity: Activity) {
         activity.setExitSharedElementCallback(if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
             LegacyPageOrigin.callback(activity) else MaterialContainerTransformSharedElementCallback())
         activity.window.apply {
@@ -49,8 +53,16 @@ object Motion {
     }
 
     fun openPage(activity: Activity, source: View, destination: Class<out Activity>) {
+        openPage(activity, source, Intent(activity, destination))
+    }
+
+    internal fun openPage(activity: Activity, source: View, intent: Intent) {
         resetPressFeedback(source)
-        val intent = Intent(activity, destination).putExtra(EXTRA_CARD_TRANSITION, true)
+        intent.putExtra(EXTRA_CARD_TRANSITION, true)
+        (source as? com.google.android.material.card.MaterialCardView)?.let {
+            intent.putExtra(EXTRA_ORIGIN_COLOR, it.cardBackgroundColor.getColorForState(it.drawableState,
+                it.cardBackgroundColor.defaultColor))
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             PageOriginMotion.open(activity, source, intent)
             return
@@ -66,7 +78,7 @@ object Motion {
         val content = activity.findViewById<View>(android.R.id.content)
         content.transitionName = name
         val background = ContextCompat.getColor(activity, R.color.bg)
-        val origin = ContextCompat.getColor(activity, sourceColor)
+        val origin = activity.intent.getIntExtra(EXTRA_ORIGIN_COLOR, ContextCompat.getColor(activity, sourceColor))
         val enabled = pageAnimationsEnabled(activity)
         val work = PageTransitionWork(content,
             enabled && !restored && activity.intent.getBooleanExtra(EXTRA_CARD_TRANSITION, false))
@@ -77,10 +89,10 @@ object Motion {
         fun transform(entering: Boolean) = MaterialContainerTransform().apply {
             addTarget(android.R.id.content)
             duration = if (!enabled) 0L else if (entering) PAGE_ENTER_MS else PAGE_RETURN_MS
-            fadeMode = MaterialContainerTransform.FADE_MODE_CROSS
+            fadeMode = if (entering) MaterialContainerTransform.FADE_MODE_CROSS else MaterialContainerTransform.FADE_MODE_OUT
             interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
             fadeProgressThresholds = if (entering) MaterialContainerTransform.ProgressThresholds(0.05f, 0.4f)
-                else MaterialContainerTransform.ProgressThresholds(0.35f, 0.9f)
+                else MaterialContainerTransform.ProgressThresholds(RetractionVisuals.CONTENT_FADE_START, RetractionVisuals.CONTENT_FADE_END)
             scaleMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             shapeMaskProgressThresholds = MaterialContainerTransform.ProgressThresholds(0f, 1f)
             containerColor = if (entering) background else Color.TRANSPARENT
@@ -125,7 +137,7 @@ object Motion {
             returning = true
             val animated = pageAnimationsEnabled(activity)
             work.beginReturn()
-            if (content is ViewGroup) {
+            if (content is ViewGroup && Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) TransitionManager.endTransitions(content)
                 content.descendants.filterIsInstance<RecyclerView>().forEach {
                     (it.parent as? ViewGroup)?.let(TransitionManager::endTransitions)
@@ -192,26 +204,10 @@ object Motion {
 
     fun switchViews(show: View, hide: View, forward: Boolean) {
         val parent = show.parent as ViewGroup
-        // Finish the previous switch before capturing another one. Visibility always reflects
-        // the current selection, even when the user toggles twice in the same frame.
-        TransitionManager.endTransitions(parent)
-        if (!ValueAnimator.areAnimatorsEnabled()) {
-            hide.visibility = View.GONE
-            hide.alpha = 1f
-            show.visibility = View.VISIBLE
-            show.alpha = 1f
-            return
-        }
-        TransitionManager.beginDelayedTransition(
-            parent,
-            MaterialSharedAxis(MaterialSharedAxis.X, forward).apply {
-                duration = SWITCH_MS
-                addTarget(show)
-                addTarget(hide)
-            }
-        )
-        hide.visibility = View.GONE
-        show.visibility = View.VISIBLE
+        val motion = parent.getTag(R.id.motion_view_switch) as? ViewSwitchMotion
+            ?: ViewSwitchMotion(parent).also { parent.setTag(R.id.motion_view_switch, it) }
+        motion.switch(show, hide, forward, ValueAnimator.areAnimatorsEnabled() &&
+            Settings.Global.getFloat(parent.context.contentResolver,
+                Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f)
     }
-
 }
