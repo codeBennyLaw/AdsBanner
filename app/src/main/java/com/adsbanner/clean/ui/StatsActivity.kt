@@ -147,7 +147,7 @@ class StatsActivity : AppCompatActivity() {
         }
         list.visibility = if (heatmapVisible) View.GONE else View.VISIBLE
         heatmapScroll.visibility = if (heatmapVisible) View.VISIBLE else View.GONE
-        heatmapButton.text = if (heatmapVisible) "列表" else "热力图"
+        updateViewButton()
     }
 
     override fun onResume() {
@@ -160,10 +160,16 @@ class StatsActivity : AppCompatActivity() {
     private fun toggleView() {
         rowMotion.enabled = false
         heatmapVisible = !heatmapVisible
-        heatmapButton.text = if (heatmapVisible) "列表" else "热力图"
+        updateViewButton()
         Motion.switchViews(if (heatmapVisible) heatmapScroll else list,
             if (heatmapVisible) list else heatmapScroll, forward = heatmapVisible)
         if (heatmapVisible) renderHeatmap() else render()
+    }
+
+    private fun updateViewButton() {
+        heatmapButton.setText(if (heatmapVisible) R.string.stats_view_list else R.string.stats_view_heatmap)
+        ViewCompat.setStateDescription(heatmapButton, getString(if (heatmapVisible)
+            R.string.stats_viewing_heatmap else R.string.stats_viewing_list))
     }
 
     private fun showTypeMenu() {
