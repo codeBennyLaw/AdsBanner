@@ -51,6 +51,7 @@
             </LinearLayout>
         </LinearLayout>
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardService"
             style="@style/Card.AdsBanner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
@@ -103,6 +104,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:id="@+id/cardStats"
+            app:cardBackgroundColor="@color/stats_surface"
             android:transitionName="@string/transition_stats"
             android:layout_marginTop="12dp"
             android:clickable="true"
@@ -304,6 +306,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:id="@+id/cardProtection"
+            app:cardBackgroundColor="@color/management_surface"
             android:transitionName="@string/transition_protection"
             android:clickable="true"
             android:focusable="true"

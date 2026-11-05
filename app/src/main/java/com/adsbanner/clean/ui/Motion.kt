@@ -35,6 +35,7 @@ object Motion {
     private const val PAGE_ENTER_MS = 320L
     private const val PAGE_RETURN_MS = 260L
     private const val EXTRA_CARD_TRANSITION = "com.adsbanner.clean.CARD_TRANSITION"
+    private const val EXTRA_ORIGIN_COLOR = "com.adsbanner.clean.ORIGIN_COLOR"
 
     fun prepareHome(activity: Activity) {
         bindPressFeedback(activity.findViewById(R.id.cardStats))
@@ -60,6 +61,10 @@ object Motion {
     internal fun openPage(activity: Activity, source: View, intent: Intent) {
         resetPressFeedback(source)
         intent.putExtra(EXTRA_CARD_TRANSITION, true)
+        (source as? com.google.android.material.card.MaterialCardView)?.let {
+            intent.putExtra(EXTRA_ORIGIN_COLOR, it.cardBackgroundColor.getColorForState(it.drawableState,
+                it.cardBackgroundColor.defaultColor))
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             PageOriginMotion.open(activity, source, intent)
             return
@@ -75,7 +80,7 @@ object Motion {
         val content = activity.findViewById<View>(android.R.id.content)
         content.transitionName = name
         val background = ContextCompat.getColor(activity, R.color.bg)
-        val origin = ContextCompat.getColor(activity, sourceColor)
+        val origin = activity.intent.getIntExtra(EXTRA_ORIGIN_COLOR, ContextCompat.getColor(activity, sourceColor))
         val enabled = pageAnimationsEnabled(activity)
         val work = PageTransitionWork(content,
             enabled && !restored && activity.intent.getBooleanExtra(EXTRA_CARD_TRANSITION, false))

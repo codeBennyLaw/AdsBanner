@@ -408,6 +408,8 @@ class MainActivity : AppCompatActivity() {
     private fun refresh() {
         val enabled = AccessibilityHelper.isServiceEnabled(this)
         val paused = ProtectionStore.paused
+        findViewById<com.google.android.material.card.MaterialCardView>(R.id.cardService).setCardBackgroundColor(
+            getColor(if (enabled && !paused) R.color.service_surface else R.color.attention_surface))
         statusDot.setBackgroundResource(if (enabled && !paused) R.drawable.dot_on else R.drawable.dot_off)
         tvServiceState.text = if (!enabled) "服务未开启" else if (paused) "保护已暂停" else "服务已开启"
         tvServiceState.setTextColor(
