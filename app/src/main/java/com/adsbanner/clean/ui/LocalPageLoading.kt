@@ -14,12 +14,16 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.adsbanner.clean.R
 
-/** Keep first-read placeholders stable, then reveal laid-out content through a single overlay. */
+/** A short, inline placeholder for one data region; surrounding controls stay usable. */
 internal class LocalPageLoading(
     private val activity: AppCompatActivity,
-    private val content: View,
+    private val content: View?,
     private val overlay: View,
     private val message: String,
+    private val layoutHost: View = content ?: overlay,
+    private val revealTargets: () -> List<View> = { listOfNotNull(content) },
+    private val schedule: (Any, () -> Unit) -> Unit = { key, task -> Motion.whenPageReady(activity, key, task) },
+    navigationHost: View? = null,
     private val onContentReady: () -> Unit = {}
 ) : DefaultLifecycleObserver, AutoCloseable {
     private val dots = overlay.findViewById<LocalLoadingDots>(R.id.loadingDots)
@@ -39,17 +43,18 @@ internal class LocalPageLoading(
     private var failedState = false
     private var notified = false
     private var navigationPaused = false
-    private val motionHost = activity.findViewById<View>(android.R.id.content)
+    private val motionHosts = listOfNotNull(activity.findViewById<View>(android.R.id.content), navigationHost).distinct()
+    private var fadingViews = emptyList<View>()
     var isComplete = false
         private set
 
     init {
-        content.visibility = View.INVISIBLE
+        content?.visibility = View.INVISIBLE
         overlay.visibility = View.VISIBLE
         label.text = message
-        motionHost.setTag(R.id.motion_local_loading, this)
+        motionHosts.forEach { host -> regions(host).add(this) }
         activity.lifecycle.addObserver(this)
-        Motion.whenPageReady(activity, this) { beginCycle() }
+        schedule(this) { beginCycle() }
     }
 
     private fun animationsEnabled() = ValueAnimator.areAnimatorsEnabled() && Settings.Global.getFloat(
@@ -94,7 +99,7 @@ internal class LocalPageLoading(
     fun bind(action: () -> Unit) {
         if (closed || failedState) return
         if (isComplete) {
-            Motion.whenPageReady(activity, this) { if (!closed) action() }
+            schedule(this) { if (!closed) action() }
             return
         }
         if (revealing || binding) { action(); return }
@@ -103,9 +108,9 @@ internal class LocalPageLoading(
     }
 
     private fun applyPendingBind() {
-        Motion.whenPageReady(activity, this) {
-            if (closed || stopped) return@whenPageReady
-            val action = pendingBind ?: return@whenPageReady
+        schedule(this) {
+            if (closed || stopped) return@schedule
+            val action = pendingBind ?: return@schedule
             pendingBind = null
             binding = true
             action()
@@ -114,19 +119,23 @@ internal class LocalPageLoading(
 
     private fun requestReveal() {
         if (closed || stopped || isComplete || revealing || !cycleDone || !dataReady) return
-        Motion.whenPageReady(activity, this) {
-            if (closed || stopped || revealing || isComplete) return@whenPageReady
+        schedule(this) {
+            if (closed || stopped || revealing || isComplete) return@schedule
             revealing = true
             animator?.cancel()
             animator = null
-            overlay.setBackgroundColor(activity.getColor(R.color.bg))
-            content.visibility = View.VISIBLE
-            // The real content is measured behind an opaque overlay before its first visible frame.
-            layoutWait = content.doOnPreDraw {
+            content?.visibility = View.VISIBLE
+            overlay.visibility = View.GONE
+            // Remove only this placeholder, then fade the newly laid-out data, never the page.
+            layoutWait = layoutHost.doOnPreDraw {
                 layoutWait = null
-                if (!closed) reveal()
+                if (!closed) {
+                    fadingViews = revealTargets()
+                    fadingViews.forEach { it.alpha = 0f }
+                    reveal()
+                }
             }
-            content.invalidate()
+            layoutHost.invalidate()
         }
     }
 
@@ -134,10 +143,10 @@ internal class LocalPageLoading(
         if (navigationPaused || stopped || closed) return
         if (!animationsEnabled()) { finish(); return }
         val ticket = generation
-        animator = ValueAnimator.ofFloat(1f, 0f).apply {
+        animator = ValueAnimator.ofFloat(fadingViews.firstOrNull()?.alpha ?: 0f, 1f).apply {
             duration = 180L
             interpolator = PathInterpolator(0.2f, 0f, 0.1f, 1f)
-            addUpdateListener { overlay.alpha = it.animatedValue as Float }
+            addUpdateListener { value -> fadingViews.forEach { it.alpha = value.animatedValue as Float } }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) { if (!closed && generation == ticket) finish() }
             })
@@ -149,8 +158,8 @@ internal class LocalPageLoading(
         animator = null
         isComplete = true
         overlay.visibility = View.GONE
-        overlay.background = null
-        overlay.alpha = 1f
+        fadingViews.forEach { it.alpha = 1f }
+        fadingViews = emptyList()
         notifyContentReady()
     }
 
@@ -163,8 +172,8 @@ internal class LocalPageLoading(
 
     fun failed(text: String, retryWork: () -> Unit) {
         if (closed || isComplete) return
-        Motion.whenPageReady(activity, this) {
-            if (closed || isComplete) return@whenPageReady
+        schedule(this) {
+            if (closed || isComplete) return@schedule
             generation++
             failedState = true
             animator?.cancel()
@@ -175,8 +184,10 @@ internal class LocalPageLoading(
             dataReady = false
             binding = false
             pendingBind = null
-            content.visibility = View.INVISIBLE
-            overlay.background = null
+            fadingViews.forEach { it.alpha = 1f }
+            fadingViews = emptyList()
+            content?.visibility = View.INVISIBLE
+            overlay.visibility = View.VISIBLE
             overlay.alpha = 1f
             dots.visibility = View.GONE
             label.text = text
@@ -192,7 +203,7 @@ internal class LocalPageLoading(
                 begun = false
                 cycleDone = false
                 dataReady = false
-                Motion.whenPageReady(activity, this) { beginCycle(); retryWork() }
+                schedule(this) { beginCycle(); retryWork() }
             }
         }
     }
@@ -201,6 +212,7 @@ internal class LocalPageLoading(
 
     override fun onStop(owner: LifecycleOwner) {
         stopped = true
+        if (revealing) animator?.pause()
         if (!revealing && !isComplete) {
             generation++
             animator?.cancel()
@@ -213,7 +225,7 @@ internal class LocalPageLoading(
         stopped = false
         resumeAfterNavigation()
         if (isComplete) { notifyContentReady(); return }
-        Motion.whenPageReady(activity, this) {
+        schedule(this) {
             when {
                 cycleDone && pendingBind != null -> applyPendingBind()
                 cycleDone && dataReady -> requestReveal()
@@ -231,7 +243,9 @@ internal class LocalPageLoading(
         layoutWait?.removeListener()
         layoutWait = null
         pendingBind = null
-        if (motionHost.getTag(R.id.motion_local_loading) === this) motionHost.setTag(R.id.motion_local_loading, null)
+        fadingViews.forEach { it.alpha = 1f }
+        fadingViews = emptyList()
+        motionHosts.forEach { host -> regions(host).remove(this) }
         activity.lifecycle.removeObserver(this)
     }
 
@@ -245,5 +259,15 @@ internal class LocalPageLoading(
         navigationPaused = false
         if (closed || stopped || isComplete) return
         if (revealing && animator == null && layoutWait == null) reveal() else animator?.resume()
+    }
+
+    companion object {
+        @Suppress("UNCHECKED_CAST")
+        private fun regions(host: View): MutableSet<LocalPageLoading> =
+            (host.getTag(R.id.motion_local_loading) as? MutableSet<LocalPageLoading>)
+                ?: mutableSetOf<LocalPageLoading>().also { host.setTag(R.id.motion_local_loading, it) }
+
+        fun pause(host: View) { regions(host).toList().forEach { it.pauseForNavigation() } }
+        fun resume(host: View) { regions(host).toList().forEach { it.resumeAfterNavigation() } }
     }
 }

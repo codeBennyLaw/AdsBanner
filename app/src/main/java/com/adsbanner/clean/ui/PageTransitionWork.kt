@@ -53,7 +53,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
         transitionRunning = false
         entering = false
         previewing = false
-        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.resumeAfterNavigation()
+        LocalPageLoading.resume(view)
         val tasks = pending.values.toList()
         pending.clear()
         tasks.forEach { if (!closed && !returning) it() }
@@ -61,7 +61,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
 
     fun beginReturn() {
         returning = true
-        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.pauseForNavigation()
+        LocalPageLoading.pause(view)
         view.removeCallbacks(release)
         view.removeCallbacks(drain)
         draining = false
@@ -71,7 +71,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     fun beginPreview() {
         if (closed || returning) return
         previewing = true
-        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.pauseForNavigation()
+        LocalPageLoading.pause(view)
         view.removeCallbacks(release)
         view.removeCallbacks(drain)
     }
@@ -79,7 +79,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     fun endPreview() {
         if (closed || returning) return
         previewing = false
-        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.resumeAfterNavigation()
+        LocalPageLoading.resume(view)
         if (entering) completeEnter() else {
             draining = true
             view.postOnAnimation(drain)
