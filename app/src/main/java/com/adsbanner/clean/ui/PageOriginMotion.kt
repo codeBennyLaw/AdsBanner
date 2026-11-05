@@ -202,6 +202,7 @@ internal class PageOriginMotion(
             return
         }
         fun startReturn() {
+            if (!placeAnchor()) { finish(); return }
             capturePagePose()
             // The pose is already placed. Prepare the overlay before the next draw.
             startReturnMorph()

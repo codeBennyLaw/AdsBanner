@@ -30,6 +30,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.descendants
+import androidx.core.view.doOnPreDraw
+import androidx.core.view.OneShotPreDrawListener
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -76,6 +78,7 @@ internal class OriginDialog private constructor(
     private var enterSurface: PopupRenderSurface? = null
     private var enterGeometry: OriginReturnTransform? = null
     private var enterProgress = 0f
+    private var originLayoutWait: OneShotPreDrawListener? = null
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
     var onClosing: (() -> Unit)? = null
@@ -491,10 +494,21 @@ internal class OriginDialog private constructor(
             entering = false
             enterAnimator?.cancel()
             enterAnimator = null
-            val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss, originCornerRadius())
-            returnMotion = motion
-            motion.start()
+            val source = validOrigin()
+            if (returnMotion == null && source?.isLayoutRequested == true) {
+                originLayoutWait = source.doOnPreDraw {
+                    originLayoutWait = null
+                    if (!finished && closing) startRetraction()
+                }
+            } else startRetraction()
         } else finishDismiss()
+    }
+
+    private fun startRetraction() {
+        if (!placeAnchor()) { finishDismiss(); return }
+        val motion = returnMotion ?: PopupReturnMotion(panel, scrim, originBounds, ::finishDismiss, originCornerRadius())
+        returnMotion = motion
+        motion.start()
     }
 
     private fun restoreOrigin() {
@@ -539,6 +553,8 @@ internal class OriginDialog private constructor(
     private fun finishDismiss() {
         if (finished) return
         finished = true
+        originLayoutWait?.removeListener()
+        originLayoutWait = null
         enterAnimator?.cancel()
         enterAnimator = null
         if (Build.VERSION.SDK_INT >= 29) enterSurface?.release(restore = false)
