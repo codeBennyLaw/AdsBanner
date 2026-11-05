@@ -1,6 +1,8 @@
 package com.adsbanner.clean.ui
 
 import android.app.Dialog
+import android.animation.ValueAnimator
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +25,7 @@ internal object ReleaseNotesDialog {
         cachedPage: (Int) -> NotesPage? = { ReleaseUpdates.cachedReleaseNotes(it) }): Dialog {
         val content = activity.layoutInflater.inflate(R.layout.dialog_release_notes, null)
         val status = content.findViewById<TextView>(R.id.tvReleaseStatus)
+        status.text = "正在读取更新日志…"
         val retry = content.findViewById<View>(R.id.btnRetryReleases)
         val list = content.findViewById<RecyclerView>(R.id.listReleases)
         list.layoutParams = list.layoutParams.apply {
@@ -46,6 +49,13 @@ internal object ReleaseNotesDialog {
         var loading = false
         var closed = false
 
+        fun revealFirstItems(wasEmpty: Boolean) {
+            if (!wasEmpty || adapter.itemCount == 0 || !ValueAnimator.areAnimatorsEnabled() ||
+                Settings.Global.getFloat(activity.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) == 0f) return
+            list.alpha = 0f
+            list.animate().alpha(1f).setDuration(160L).start()
+        }
+
         fun loadNext() {
             val page = nextPage ?: return
             if (loading || closed) return
@@ -59,7 +69,9 @@ internal object ReleaseNotesDialog {
                 loading = false
                 if (closed || activity.isFinishing || activity.isDestroyed) return@submit
                 result.onSuccess { data ->
+                    val wasEmpty = adapter.itemCount == 0
                     if (page == 1) adapter.replace(data.notes) else adapter.append(data.notes)
+                    revealFirstItems(wasEmpty)
                     nextPage = data.nextPage
                     status.text = when {
                         nextPage != null -> "正在加载全部版本…（已加载 ${adapter.itemCount} 个）"
@@ -79,6 +91,7 @@ internal object ReleaseNotesDialog {
         retry.setOnClickListener { loadNext() }
         dialog.onClosing = {
             closed = true
+            list.animate().cancel()
             worker.close()
             (details as? OriginDialog)?.dismissImmediately()
         }
@@ -99,7 +112,11 @@ internal object ReleaseNotesDialog {
             }
         }) { result ->
             if (closed || activity.isFinishing || activity.isDestroyed) return@submit
-            result.getOrNull()?.let(adapter::replace)
+            result.getOrNull()?.let {
+                val wasEmpty = adapter.itemCount == 0
+                adapter.replace(it)
+                revealFirstItems(wasEmpty)
+            }
             loadNext()
         }
         return dialog
