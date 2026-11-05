@@ -3,6 +3,7 @@ package com.adsbanner.clean.ui
 import android.app.Dialog
 import android.animation.ValueAnimator
 import android.provider.Settings
+import android.text.StaticLayout
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +27,14 @@ internal object ReleaseNotesDialog {
         val content = activity.layoutInflater.inflate(R.layout.dialog_release_notes, null)
         val status = content.findViewById<TextView>(R.id.tvReleaseStatus)
         status.text = "正在读取更新日志…"
+        val density = activity.resources.displayMetrics.density
+        val statusWidth = (minOf(activity.resources.displayMetrics.widthPixels - (48 * density).toInt(),
+            (560 * density).toInt()) - (48 * density).toInt()).coerceAtLeast(1)
+        // Reserve common status wrapping before measuring the expanding popup.
+        status.minLines = listOf("正在加载全部版本…（已加载 9999 个）", "共 9999 个版本 · 点选查看更新说明",
+            "已显示缓存，正在刷新更新日志…", "暂时无法刷新，已保存的更新日志仍可查看").maxOf {
+            StaticLayout.Builder.obtain(it, 0, it.length, status.paint, statusWidth).build().lineCount
+        }
         val retry = content.findViewById<View>(R.id.btnRetryReleases)
         val list = content.findViewById<RecyclerView>(R.id.listReleases)
         list.layoutParams = list.layoutParams.apply {
