@@ -2,6 +2,7 @@ package com.adsbanner.clean.ui
 
 import android.view.View
 import android.os.SystemClock
+import com.adsbanner.clean.R
 
 /** Keep asynchronous UI deliveries out of the shared element's drawing frames. Main thread only. */
 internal class PageTransitionWork(private val view: View, private var entering: Boolean) {
@@ -52,6 +53,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
         transitionRunning = false
         entering = false
         previewing = false
+        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.resumeAfterNavigation()
         val tasks = pending.values.toList()
         pending.clear()
         tasks.forEach { if (!closed && !returning) it() }
@@ -59,6 +61,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
 
     fun beginReturn() {
         returning = true
+        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.pauseForNavigation()
         view.removeCallbacks(release)
         view.removeCallbacks(drain)
         draining = false
@@ -68,6 +71,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     fun beginPreview() {
         if (closed || returning) return
         previewing = true
+        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.pauseForNavigation()
         view.removeCallbacks(release)
         view.removeCallbacks(drain)
     }
@@ -75,6 +79,7 @@ internal class PageTransitionWork(private val view: View, private var entering: 
     fun endPreview() {
         if (closed || returning) return
         previewing = false
+        (view.getTag(R.id.motion_local_loading) as? LocalPageLoading)?.resumeAfterNavigation()
         if (entering) completeEnter() else {
             draining = true
             view.postOnAnimation(drain)

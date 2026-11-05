@@ -38,6 +38,8 @@ internal class LocalPageLoading(
     private var pendingBind: (() -> Unit)? = null
     private var failedState = false
     private var notified = false
+    private var navigationPaused = false
+    private val motionHost = activity.findViewById<View>(android.R.id.content)
     var isComplete = false
         private set
 
@@ -45,6 +47,7 @@ internal class LocalPageLoading(
         content.visibility = View.INVISIBLE
         overlay.visibility = View.VISIBLE
         label.text = message
+        motionHost.setTag(R.id.motion_local_loading, this)
         activity.lifecycle.addObserver(this)
         Motion.whenPageReady(activity, this) { beginCycle() }
     }
@@ -53,7 +56,7 @@ internal class LocalPageLoading(
         activity.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
 
     private fun beginCycle() {
-        if (closed || stopped || failedState || binding || begun || revealing || isComplete) return
+        if (closed || stopped || navigationPaused || failedState || binding || begun || revealing || isComplete) return
         begun = true
         if (!animationsEnabled()) {
             cycleDone = true
@@ -124,6 +127,7 @@ internal class LocalPageLoading(
     }
 
     private fun reveal() {
+        if (navigationPaused || stopped || closed) return
         if (!animationsEnabled()) { finish(); return }
         val ticket = generation
         animator = ValueAnimator.ofFloat(1f, 0f).apply {
@@ -203,6 +207,7 @@ internal class LocalPageLoading(
 
     override fun onStart(owner: LifecycleOwner) {
         stopped = false
+        resumeAfterNavigation()
         if (isComplete) { notifyContentReady(); return }
         Motion.whenPageReady(activity, this) {
             when {
@@ -222,6 +227,19 @@ internal class LocalPageLoading(
         layoutWait?.removeListener()
         layoutWait = null
         pendingBind = null
+        if (motionHost.getTag(R.id.motion_local_loading) === this) motionHost.setTag(R.id.motion_local_loading, null)
         activity.lifecycle.removeObserver(this)
+    }
+
+    fun pauseForNavigation() {
+        if (closed || isComplete) return
+        navigationPaused = true
+        animator?.pause()
+    }
+
+    fun resumeAfterNavigation() {
+        navigationPaused = false
+        if (closed || stopped || isComplete) return
+        if (revealing && animator == null && layoutWait == null) reveal() else animator?.resume()
     }
 }
