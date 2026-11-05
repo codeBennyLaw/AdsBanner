@@ -42,96 +42,102 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/listScroll"
+        <FrameLayout
+            android:id="@+id/statsContent"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:paddingHorizontal="@dimen/page_gutter"
-            android:paddingTop="8dp"
-            android:paddingBottom="28dp"
-            android:clipToPadding="false"
-            android:scrollbars="none" />
-        <ScrollView
-            android:id="@+id/heatmapScroll"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:fillViewport="true"
-            android:scrollbars="none"
-            android:visibility="gone">
-            <LinearLayout
+            android:layout_height="match_parent">
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/listScroll"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
+                android:layout_height="match_parent"
                 android:paddingHorizontal="@dimen/page_gutter"
                 android:paddingTop="8dp"
-                android:paddingBottom="28dp">
-                <TextView
-                    style="@style/Text.PageTitle"
+                android:paddingBottom="28dp"
+                android:clipToPadding="false"
+                android:scrollbars="none" />
+            <ScrollView
+                android:id="@+id/heatmapScroll"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:fillViewport="true"
+                android:scrollbars="none"
+                android:visibility="gone">
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="拦截热力图" />
-                <com.google.android.material.card.MaterialCardView
-                    style="@style/Card.AdsBanner"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-                    <LinearLayout
+                    android:orientation="vertical"
+                    android:paddingHorizontal="@dimen/page_gutter"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="28dp">
+                    <TextView
+                        style="@style/Text.PageTitle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="20dp">
-                        <TextView
-                            style="@style/Text.RowTitle"
+                        android:layout_marginBottom="16dp"
+                        android:text="拦截热力图" />
+                    <com.google.android.material.card.MaterialCardView
+                        style="@style/Card.AdsBanner"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+                        <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="每日拦截"
-                            android:fontFamily="sans-serif-medium" />
-                        <TextView
-                            android:id="@+id/tvHeatMeta"
-                            style="@style/Text.RowSub"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp" />
-                        <HorizontalScrollView
-                            android:id="@+id/heatScroll"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="24dp"
-                            android:scrollbars="none">
-                            <com.adsbanner.clean.ui.HeatmapView
-                                android:id="@+id/heatmap"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content" />
-                        </HorizontalScrollView>
-                        <TextView
-                            style="@style/Text.RowSub"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="16dp"
-                            android:text="次数" />
-                        <com.adsbanner.clean.ui.HeatmapLegendView
-                            android:id="@+id/tvHeatLegend"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp" />
-                        <TextView
-                            android:id="@+id/tvHeatDetail"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="16dp"
-                            android:textColor="@color/brand"
-                            android:textSize="14sp"
-                            android:visibility="gone" />
-                        <TextView
-                            style="@style/Text.RowSub"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="16dp"
-                            android:text="点击日期查看次数，左右滑动查看历史记录" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
-            </LinearLayout>
-        </ScrollView>
+                            android:orientation="vertical"
+                            android:padding="20dp">
+                            <TextView
+                                style="@style/Text.RowTitle"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="每日拦截"
+                                android:fontFamily="sans-serif-medium" />
+                            <TextView
+                                android:id="@+id/tvHeatMeta"
+                                style="@style/Text.RowSub"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp" />
+                            <HorizontalScrollView
+                                android:id="@+id/heatScroll"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="24dp"
+                                android:scrollbars="none">
+                                <com.adsbanner.clean.ui.HeatmapView
+                                    android:id="@+id/heatmap"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content" />
+                            </HorizontalScrollView>
+                            <TextView
+                                style="@style/Text.RowSub"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="16dp"
+                                android:text="次数" />
+                            <com.adsbanner.clean.ui.HeatmapLegendView
+                                android:id="@+id/tvHeatLegend"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp" />
+                            <TextView
+                                android:id="@+id/tvHeatDetail"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="16dp"
+                                android:textColor="@color/brand"
+                                android:textSize="14sp"
+                                android:visibility="gone" />
+                            <TextView
+                                style="@style/Text.RowSub"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="16dp"
+                                android:text="点击日期查看次数，左右滑动查看历史记录" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
+            </ScrollView>
+        </FrameLayout>
+        <include layout="@layout/view_local_loading" />
     </FrameLayout>
 </LinearLayout>
