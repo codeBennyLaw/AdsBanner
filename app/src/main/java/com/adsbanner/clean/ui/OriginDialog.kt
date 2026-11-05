@@ -78,6 +78,8 @@ internal class OriginDialog private constructor(
     private var enterSurface: PopupRenderSurface? = null
     private var enterGeometry: OriginReturnTransform? = null
     private var enterProgress = 0f
+    private var entrySourceColor = 0
+    private var entryPanelColor = 0
     private var originLayoutWait: OneShotPreDrawListener? = null
     private val dropdownInsets = Rect()
     private val scrimColor get() = if (dropdown) Color.TRANSPARENT else 0x52000000
@@ -372,6 +374,8 @@ internal class OriginDialog private constructor(
     private fun startRecordedEnter(): Boolean {
         val surface = PopupRenderSurface.capture(panel) ?: return false
         enterSurface = surface
+        entrySourceColor = originContainerColor()
+        entryPanelColor = context.getColor(R.color.surface)
         enterGeometry = OriginReturnTransform(surface.view, originBounds, originCornerRadius())
         work?.beginEnter()
         applyRecordedEnter(0f)
@@ -384,7 +388,7 @@ internal class OriginDialog private constructor(
         enterProgress = progress
         enterGeometry?.apply(1f - progress)
         enterSurface?.apply {
-            view.setBackgroundColor(ColorUtils.blendARGB(originContainerColor(), context.getColor(R.color.surface),
+            view.setBackgroundColor(ColorUtils.blendARGB(entrySourceColor, entryPanelColor,
                 motionFraction(0.05f, 0.9f, progress)))
             setContentAlpha(motionFraction(0.1f, 0.72f, progress))
         }
