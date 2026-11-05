@@ -43,6 +43,7 @@ internal class LocalPageLoading(
     private var failedState = false
     private var notified = false
     private var navigationPaused = false
+    private var regionActive = true
     private val motionHosts = listOfNotNull(activity.findViewById<View>(android.R.id.content), navigationHost).distinct()
     private var fadingViews = emptyList<View>()
     var isComplete = false
@@ -61,7 +62,7 @@ internal class LocalPageLoading(
         activity.contentResolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f) > 0f
 
     private fun beginCycle() {
-        if (closed || stopped || navigationPaused || failedState || binding || begun || revealing || isComplete) return
+        if (closed || stopped || navigationPaused || !regionActive || failedState || binding || begun || revealing || isComplete) return
         begun = true
         if (!animationsEnabled()) {
             cycleDone = true
@@ -97,7 +98,8 @@ internal class LocalPageLoading(
     }
 
     fun bind(action: () -> Unit) {
-        if (closed || failedState) return
+        if (closed) return
+        if (failedState) resetFailure()
         if (isComplete) {
             schedule(this) { if (!closed) action() }
             return
@@ -109,7 +111,7 @@ internal class LocalPageLoading(
 
     private fun applyPendingBind() {
         schedule(this) {
-            if (closed || stopped) return@schedule
+            if (closed || stopped || navigationPaused || !regionActive) return@schedule
             val action = pendingBind ?: return@schedule
             pendingBind = null
             binding = true
@@ -118,9 +120,9 @@ internal class LocalPageLoading(
     }
 
     private fun requestReveal() {
-        if (closed || stopped || isComplete || revealing || !cycleDone || !dataReady) return
+        if (closed || stopped || navigationPaused || !regionActive || isComplete || revealing || !cycleDone || !dataReady) return
         schedule(this) {
-            if (closed || stopped || revealing || isComplete) return@schedule
+            if (closed || stopped || navigationPaused || !regionActive || revealing || isComplete) return@schedule
             revealing = true
             animator?.cancel()
             animator = null
@@ -140,7 +142,7 @@ internal class LocalPageLoading(
     }
 
     private fun reveal() {
-        if (navigationPaused || stopped || closed) return
+        if (navigationPaused || !regionActive || stopped || closed) return
         if (!animationsEnabled()) { finish(); return }
         val ticket = generation
         animator = ValueAnimator.ofFloat(fadingViews.firstOrNull()?.alpha ?: 0f, 1f).apply {
@@ -194,18 +196,23 @@ internal class LocalPageLoading(
             label.setTextColor(activity.getColor(R.color.danger))
             retry.visibility = View.VISIBLE
             retry.setOnClickListener {
-                retry.visibility = View.GONE
-                failedState = false
-                dots.visibility = View.VISIBLE
-                dots.phase = 0f
-                label.text = message
-                label.setTextColor(activity.getColor(R.color.text_secondary))
-                begun = false
-                cycleDone = false
-                dataReady = false
+                resetFailure()
                 schedule(this) { beginCycle(); retryWork() }
             }
         }
+    }
+
+    private fun resetFailure() {
+        retry.visibility = View.GONE
+        failedState = false
+        dots.visibility = View.VISIBLE
+        dots.phase = 0f
+        label.text = message
+        label.setTextColor(activity.getColor(R.color.text_secondary))
+        begun = false
+        cycleDone = false
+        dataReady = false
+        schedule(this) { beginCycle() }
     }
 
     override fun onDestroy(owner: LifecycleOwner) = close()
@@ -257,8 +264,24 @@ internal class LocalPageLoading(
 
     fun resumeAfterNavigation() {
         navigationPaused = false
-        if (closed || stopped || isComplete) return
+        resumeRegion()
+    }
+
+    fun setActive(active: Boolean) {
+        regionActive = active
+        if (active) resumeRegion() else animator?.pause()
+    }
+
+    private fun resumeRegion() {
+        if (closed || stopped || navigationPaused || !regionActive || isComplete) return
         if (revealing && animator == null && layoutWait == null) reveal() else animator?.resume()
+        if (animator == null && !revealing) schedule(this) {
+            when {
+                cycleDone && pendingBind != null -> applyPendingBind()
+                cycleDone && dataReady -> requestReveal()
+                else -> beginCycle()
+            }
+        }
     }
 
     companion object {

@@ -58,16 +58,18 @@ class StatsActivity : AppCompatActivity() {
     private lateinit var heatLegend: HeatmapLegendView
     private lateinit var heatDetail: TextView
     private lateinit var listLoadingView: View
-    private val loading by lazy {
+    private val listLoading = lazy {
         LocalPageLoading(this, null, listLoadingView, getString(R.string.local_loading_stats),
             layoutHost = list, revealTargets = {
                 list.children.filter { it.id != R.id.statsHeader && it !== listLoadingView }.toList()
             })
     }
-    private val heatLoading by lazy {
+    private val loading by listLoading
+    private val graphLoading = lazy {
         LocalPageLoading(this, findViewById(R.id.heatData), findViewById(R.id.heatLoading),
             "正在读取每日拦截…")
     }
+    private val heatLoading by graphLoading
     private val worker = UiWorker { key, task -> Motion.whenPageReady(this, key, task) }
     private var renderedKey: RenderKey? = null
     private var pendingKey: RenderKey? = null
@@ -178,6 +180,8 @@ class StatsActivity : AppCompatActivity() {
     private fun toggleView() {
         rowMotion.enabled = false
         heatmapVisible = !heatmapVisible
+        if (listLoading.isInitialized()) loading.setActive(!heatmapVisible)
+        if (graphLoading.isInitialized()) heatLoading.setActive(heatmapVisible)
         updateViewButton()
         viewSwitchPending = true
         if (heatmapVisible) renderHeatmap() else render()
