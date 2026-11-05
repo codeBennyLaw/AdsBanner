@@ -62,7 +62,8 @@
                 <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                 <androidx.recyclerview.widget.RecyclerView android:id="@+id/rulesList" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
-                    <include android:id="@+id/rulesLoading" layout="@layout/view_local_loading" />
+                    <include android:id="@+id/rulesLoading" layout="@layout/view_local_loading"
+                        android:layout_width="match_parent" android:layout_height="match_parent" />
                 </FrameLayout>
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnAllRules"
                     style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -87,7 +88,8 @@
                 <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                 <androidx.recyclerview.widget.RecyclerView android:id="@+id/actionsList" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:nestedScrollingEnabled="false" android:overScrollMode="never" />
-                    <include android:id="@+id/actionsLoading" layout="@layout/view_local_loading" />
+                    <include android:id="@+id/actionsLoading" layout="@layout/view_local_loading"
+                        android:layout_width="match_parent" android:layout_height="match_parent" />
                 </FrameLayout>
                 <com.google.android.material.button.MaterialButton android:id="@+id/btnAllHistory"
                     style="@style/Button.AdsBanner.Text" android:layout_width="match_parent" android:layout_height="wrap_content"

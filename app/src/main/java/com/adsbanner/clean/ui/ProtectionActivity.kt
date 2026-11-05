@@ -393,7 +393,7 @@ class ProtectionActivity : AppCompatActivity() {
         }
         region.addView(list, FrameLayout.LayoutParams(-1, -1))
         val placeholder = layoutInflater.inflate(R.layout.view_local_loading, region, false)
-        region.addView(placeholder)
+        region.addView(placeholder, FrameLayout.LayoutParams(-1, -1))
         form.addView(region, LinearLayout.LayoutParams(-1, 0, 1f))
         val dialog = OriginDialog.Builder(this, source).setTitle("选择应用").setView(form)
             .setNegativeButton("取消", null).create()
