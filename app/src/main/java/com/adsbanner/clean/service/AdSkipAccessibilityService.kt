@@ -1056,7 +1056,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                         return true
                     }
                     // A large ancestor cannot be clicked. It need not veto the small control's own touch target.
-                    if (!precise && candidate.weak) candidate.gestureAllowed = false
+                    // A cross has already passed independent nearby-ad proof and compact-target checks.
+                    // Its own touch point can be used; the large ancestor itself still receives no action.
+                    if (!precise && candidate.weak && !SkipRule.isCloseIcon(candidate.label)) candidate.gestureAllowed = false
                 }
                 val parent = node.parent
                 recycleNode(node)
