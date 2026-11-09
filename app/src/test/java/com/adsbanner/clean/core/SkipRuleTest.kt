@@ -6,6 +6,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun spacedAndInvisibleSkipLabelsRetainExplicitCountdownEvidence() {
+        for (label in listOf("跳 过 5秒", "跳\n过 3s", "跳\u200B过 5秒", "跳过\u2066 5s\u2069")) {
+            assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+            assertTrue(label, JumpAdRule.isAdSkip(label))
+        }
+        assertEquals(SkipRule.STRONG, SkipRule.match("跳 过"))
+        assertFalse(JumpAdRule.isAdSkip("跳 过"))
+    }
+
+    @Test fun standaloneAdPrefixAndEnglishTimerRemainAnchoredActions() {
+        for (label in listOf("广告 | 跳过 5秒", "广告丨跳过", "Ad | Skip 5s", "Advertisement Skip", "Skip ad 5s", "SKIP AD 5")) {
+            assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+            assertTrue(label, JumpAdRule.isAdSkip(label))
+        }
+        for (label in listOf("广告设置 | 跳过", "广告 | 跳过登录", "广告 | 5秒后可跳过", "Skip ad in 5s", "广告 | 关闭", "跳 过 教程"))
+            assertEquals(label, SkipRule.NONE, SkipRule.match(label))
+    }
+
     @Test fun clickToSkipCountdownKeepsLegacyLabelCoverage() {
         for (label in listOf("点击跳过 5s", "轻点跳过广告 3秒", "点击跳过5")) {
             assertEquals(label, SkipRule.STRONG, SkipRule.match(label))

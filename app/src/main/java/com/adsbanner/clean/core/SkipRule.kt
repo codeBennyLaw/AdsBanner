@@ -9,6 +9,9 @@ package com.adsbanner.clean.core
  */
 object SkipRule {
     private val whitespace = Regex("\\s+")
+    private val invisible = Regex("[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]")
+    private val splitSkip = Regex("跳\\s+过")
+    private val adPrefix = Regex("^(广告|ad(?:vertisement)?)\\s*[|｜丨/·•]?\\s*", RegexOption.IGNORE_CASE)
     private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
 
@@ -34,13 +37,13 @@ object SkipRule {
         // skip / skip ad / 5s skip
         Regex("^skip(\\s*ad)?$", RegexOption.IGNORE_CASE),
         Regex("^[0-9]{1,2}\\s*s\\s*skip(\\s*ad)?$", RegexOption.IGNORE_CASE),
-        Regex("^skip\\s*[0-9]{1,2}\\s*s$", RegexOption.IGNORE_CASE)
+        Regex("^skip\\s*[0-9]{1,2}\\s*s$", RegexOption.IGNORE_CASE),
+        Regex("^skip\\s*ad\\s*[0-9]{1,2}\\s*s?$", RegexOption.IGNORE_CASE)
     )
 
     /** 弱匹配：只在右上角区域点击，避免误伤普通弹窗 */
     private val weakPatterns = listOf(
         Regex("^关闭$"),
-        Regex("^跳\\s*过$"),
         Regex("^[xX×✕✖╳]$")
     )
 
@@ -48,17 +51,23 @@ object SkipRule {
     private val denyWords = listOf("片头", "片尾", "跳过此", "跳过下", "剧情", "会员", "付费", "订阅",
         "闹钟", "响铃", "来电", "通话", "alarm", "snooze")
 
-    fun match(raw: String): Int {
-        val text = raw.replace('\u00A0', ' ')
+    internal fun normalizedLabel(raw: String): String = raw.replace(invisible, "")
+            .replace('\u00A0', ' ')
             .replace('\u3000', ' ')
             .replace('\n', ' ')
             .replace(whitespace, " ")
+            .replace(splitSkip, "跳过")
             .trim()
-        if (text.isEmpty() || text.length > 16) return NONE
+
+    fun match(raw: String): Int {
+        val text = normalizedLabel(raw)
+        if (text.isEmpty() || text.length > 32) return NONE
         if (denyWords.any { text.contains(it, ignoreCase = true) }) return NONE
 
+        val action = adPrefix.find(text)?.let { text.substring(it.range.last + 1) } ?: text
+        if (action.length > 16) return NONE
         for (p in strongPatterns) {
-            if (p.matches(text)) return STRONG
+            if (p.matches(action)) return STRONG
         }
 
         for (p in weakPatterns) {
@@ -69,7 +78,7 @@ object SkipRule {
 
     /** Join only an exact countdown belonging to this same small skip control. */
     fun withCountdown(label: String, countdown: String): String? {
-        val part = countdown.trim()
+        val part = normalizedLabel(countdown)
         if (!countdownPart.matches(part) || match(label) != STRONG) return null
         return listOf("$label $part", "$part $label").firstOrNull {
             match(it) == STRONG && JumpAdRule.isAdSkip(it)

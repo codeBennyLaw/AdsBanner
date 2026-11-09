@@ -723,7 +723,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
         fun query(root: AccessibilityNodeInfo): Candidate? {
             // 查询在目标应用内执行，避免为了一个按钮逐个跨进程读取数百个无关节点。
-            for (text in arrayOf("跳过", "skip")) {
+            for (text in arrayOf("跳过", "skip", "关闭广告", "跳")) {
                 val nodes = runCatching { root.findAccessibilityNodeInfosByText(text) }.getOrDefault(emptyList())
                 try {
                     for (node in nodes.take(8)) click(node)?.let { return it }
