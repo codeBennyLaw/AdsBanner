@@ -46,7 +46,7 @@ object SkipRule {
         Regex("^skip\\s*ad\\s*[0-9]{1,2}\\s*s?$", RegexOption.IGNORE_CASE)
     )
 
-    /** 弱匹配：只在右上角区域点击，避免误伤普通弹窗 */
+    /** 普通关闭限右上角，叉号由独立的广告与角落策略校验。 */
     private val weakPatterns = listOf(
         Regex("^关闭$"),
         closeGlyph

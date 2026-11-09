@@ -563,7 +563,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
         if (gestureInFlight) return
 
-        // 「关闭 / ×」只在刚启动那一瞬间才可能是开屏按钮，过了这段时间基本都是页面自己的按钮
+        // 普通关闭只在启动初期参与；叉号另按原启动预算和独立广告证据校验。
         val allowWeak = splashSession.allowWeak(now)
         if (!splashCadence.takeTreePass(now)) return
         val candidates = findCandidates(pkg, allowWeak, covered, active, screenWindows)
@@ -860,8 +860,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
     /**
      * 遍历节点树挑出候选。
      *
-     * 弱匹配（关闭 / ×）会被额外限制：必须同时满足"页面结构像开屏页"和"页面上有广告特征"，
-     * 否则支付宝、微信这类容器应用里的关闭按钮、小程序的关闭图标都会被当成广告按钮点掉。
+     * 普通关闭限制启动时段、页面规模和广告证据；叉号另查角落位置及相邻独立广告标记。
+     * 容器内页与宿主应用的弱匹配限制，避免将导航控件当成广告关闭按钮。
      */
     private fun findInTree(
         root: AccessibilityNodeInfo,
