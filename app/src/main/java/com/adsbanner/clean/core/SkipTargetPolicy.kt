@@ -9,7 +9,7 @@ internal object SkipTargetPolicy {
         fun contains(other: Bounds) = left <= other.left && top <= other.top && right >= other.right && bottom >= other.bottom
     }
 
-    fun score(strength: Int, target: Bounds, width: Int, height: Int): Int {
+    fun score(strength: Int, target: Bounds, width: Int, height: Int, closeIcon: Boolean = false): Int {
         if (!insideScreen(target, width, height)) return 0
         val x = (target.left.toLong() + target.right) / 2f
         val y = (target.top.toLong() + target.bottom) / 2f
@@ -29,6 +29,8 @@ internal object SkipTargetPolicy {
             strength == SkipRule.STRONG && y < height * 0.25f -> 85
             strength == SkipRule.STRONG && compact -> 80
             strength == SkipRule.WEAK && topRight -> 60
+            strength == SkipRule.WEAK && closeIcon && x < width * 0.45f && y < height * 0.30f &&
+                target.width <= width * 0.24f && target.height <= height * 0.08f -> 55
             else -> 0
         }
     }

@@ -4,14 +4,15 @@ package com.adsbanner.clean.core
  * "跳过按钮"文案识别。
  *
  * 只做文案判断，位置判断交给 AccessibilityService（需要结合屏幕尺寸）。
- * 分级的目的：强匹配覆盖全屏小型控件，启动兼容与恢复检测分别校验；弱匹配（关闭 / ×）仅限右上角，
- * 否则极易误关正常页面的弹窗。
+ * 强匹配覆盖全屏小型控件，启动兼容与恢复检测分别校验。普通关闭仅限启动初期右上角，
+ * 叉号另需独立广告标记与角落位置校验，不能只凭图形关闭普通弹窗。
  */
 object SkipRule {
     private val whitespace = Regex("\\s+")
     private val invisible = Regex("[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]")
     private val splitSkip = Regex("跳\\s+过")
     private val adPrefix = Regex("^(广告|ad(?:vertisement)?)\\s*[|｜丨/·•]?\\s*", RegexOption.IGNORE_CASE)
+    private val closeGlyph = Regex("^[xX×✕✖╳✗❌Ｘｘ]$")
     private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
 
@@ -44,7 +45,7 @@ object SkipRule {
     /** 弱匹配：只在右上角区域点击，避免误伤普通弹窗 */
     private val weakPatterns = listOf(
         Regex("^关闭$"),
-        Regex("^[xX×✕✖╳]$")
+        closeGlyph
     )
 
     /** 明显不是开屏按钮的短语，包含这些词直接否决 */
@@ -75,6 +76,8 @@ object SkipRule {
         }
         return NONE
     }
+
+    fun isCloseIcon(raw: String): Boolean = closeGlyph.matches(normalizedLabel(raw))
 
     /** Join only an exact countdown belonging to this same small skip control. */
     fun withCountdown(label: String, countdown: String): String? {

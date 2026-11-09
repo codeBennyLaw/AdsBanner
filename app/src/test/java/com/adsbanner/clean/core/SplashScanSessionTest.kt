@@ -4,6 +4,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SplashScanSessionTest {
+    @Test fun userNavigationEndsOnlyTheAdCrossAllowanceUntilANewLaunch() {
+        val session = SplashScanSession()
+        session.start("app", 1_000)
+        assertTrue(session.allowAdClose(1_100, 10_000))
+        session.onUserInteraction()
+        assertFalse(session.allowAdClose(1_200, 10_000))
+        assertTrue(session.allowPlainSkip(1_200, 10_000, 100))
+        session.start("other", 2_000)
+        assertTrue(session.allowAdClose(2_100, 10_000))
+    }
+
+    @Test fun independentlyConfirmedCrossCanArriveLateButCannotRearmNormalPages() {
+        val session = SplashScanSession()
+        session.start("app", 1_000)
+        assertFalse(session.allowWeak(5_000))
+        assertTrue(session.allowAdClose(5_000, 10_000))
+        assertFalse(session.allowAdClose(11_001, 10_000))
+        session.updateCoverage(5_000, true)
+        assertFalse(session.allowAdClose(5_100, 10_000))
+        session.start("app", 12_000, resumed = true)
+        assertFalse(session.allowAdClose(12_100, 10_000))
+        session.clear()
+        assertFalse(session.allowAdClose(12_100, 10_000))
+    }
+
     @Test fun launchPlainSkipRetainsTheOriginalCoverageAndDeadline() {
         val session = SplashScanSession()
         session.start("app", 1_000)

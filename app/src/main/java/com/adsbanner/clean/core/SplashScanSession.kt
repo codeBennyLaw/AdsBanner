@@ -10,6 +10,7 @@ internal class SplashScanSession {
     private var coveredAt: Long? = null
     private var coveredMs = 0L
     private var targetSeen = false
+    private var interacted = false
 
     val covered: Boolean get() = coveredAt != null
 
@@ -27,6 +28,7 @@ internal class SplashScanSession {
         coveredAt = null
         coveredMs = 0L
         targetSeen = false
+        interacted = false
     }
 
     fun updateCoverage(now: Long, isCovered: Boolean) {
@@ -47,6 +49,11 @@ internal class SplashScanSession {
 
     // 通知栏可能盖住广告直到它自行消失，恢复时不能把正常页面的「关闭」当作开屏按钮。
     fun allowWeak(now: Long): Boolean = packageName != null && !resumed && !covered && now - startedAt <= 3_000L
+
+    /** An independently confirmed ad cross can appear later; it still belongs to the original cold launch. */
+    fun allowAdClose(now: Long, windowMs: Long): Boolean = pending(now, windowMs) && !resumed && !covered && !interacted
+
+    fun onUserInteraction() { if (packageName != null) interacted = true }
 
     /** Keep 2.2.0's launch-only plain skip coverage, without extending the original deadline. */
     fun allowPlainSkip(now: Long, windowMs: Long, score: Int): Boolean =

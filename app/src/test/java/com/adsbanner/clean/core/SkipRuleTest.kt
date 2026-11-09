@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun crossGlyphsRemainWeakInsteadOfBecomingUnconditionalSkipActions() {
+        for (label in listOf("×", "✕", "✖", "╳", "✗", "❌", "Ｘ", "ｘ")) {
+            assertTrue(label, SkipRule.isCloseIcon(label))
+            assertEquals(label, SkipRule.WEAK, SkipRule.match(label))
+            assertFalse(label, JumpAdRule.isAdSkip(label))
+        }
+        for (label in listOf("X设置", "关闭", "不感兴趣", "×2", "下一步"))
+            assertFalse(label, SkipRule.isCloseIcon(label))
+    }
+
     @Test fun spacedAndInvisibleSkipLabelsRetainExplicitCountdownEvidence() {
         for (label in listOf("跳 过 5秒", "跳\n过 3s", "跳\u200B过 5秒", "跳过\u2066 5s\u2069")) {
             assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
