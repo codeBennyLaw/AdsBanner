@@ -92,6 +92,7 @@ object SkipRule {
         if (primary.isEmpty()) return alternate
         withCountdown(primary, alternate)?.let { return it }
         withCountdown(alternate, primary)?.let { return it }
+        if (isStandaloneAdMarker(primary) && match(alternate) == STRONG) return alternate
         if (match(primary) != NONE && match(alternate) == STRONG && JumpAdRule.isAdSkip(alternate)) return alternate
         return primary
     }

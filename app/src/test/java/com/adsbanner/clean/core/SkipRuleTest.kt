@@ -24,6 +24,13 @@ class SkipRuleTest {
             assertEquals(label, SkipRule.NONE, SkipRule.match(label))
     }
 
+    @Test fun adMarkerInTextDoesNotHideTheActualSkipDescription() {
+        assertEquals("跳过 5秒", SkipRule.buttonLabel("广告", "跳过 5秒"))
+        assertEquals("Skip ad 5s", SkipRule.buttonLabel("AD", "Skip ad 5s"))
+        assertEquals("跳过登录", SkipRule.buttonLabel("跳过登录", "跳过广告"))
+        assertEquals("普通页面", SkipRule.buttonLabel("普通页面", "跳过广告"))
+    }
+
     @Test fun clickToSkipCountdownKeepsLegacyLabelCoverage() {
         for (label in listOf("点击跳过 5s", "轻点跳过广告 3秒", "点击跳过5")) {
             assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
