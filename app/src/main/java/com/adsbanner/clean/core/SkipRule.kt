@@ -13,6 +13,10 @@ object SkipRule {
     private val splitSkip = Regex("跳\\s+过")
     private val adPrefix = Regex("^(广告|ad(?:vertisement)?)\\s*[|｜丨/·•]?\\s*", RegexOption.IGNORE_CASE)
     private val closeGlyph = Regex("^[xX×✕✖╳✗❌Ｘｘ]$")
+    private val camelBoundary = Regex("([a-z0-9])([A-Z])")
+    private val idSeparator = Regex("[^a-z0-9]+")
+    private val adIdWords = setOf("ad", "ads", "advert", "advertisement", "splash")
+    private val closeIdWords = setOf("close", "dismiss", "cross")
     private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
 
@@ -78,6 +82,16 @@ object SkipRule {
     }
 
     fun isCloseIcon(raw: String): Boolean = closeGlyph.matches(normalizedLabel(raw))
+
+    /** ID-only icons require both an ad/splash token and a close action; generic toolbar IDs do not qualify. */
+    fun isAdCloseResourceId(viewId: String?): Boolean {
+        if (viewId == null || !viewId.contains(":id/")) return false
+        val entry = viewId.substringAfter(":id/")
+        if (entry.length !in 1..128) return false
+        val words = entry.replace(camelBoundary, "$1_$2").lowercase(java.util.Locale.ROOT).split(idSeparator).toSet()
+        return words.any { it in adIdWords } &&
+            words.any { it in closeIdWords || (it == "skip" && "splash" in words) }
+    }
 
     /** Join only an exact countdown belonging to this same small skip control. */
     fun withCountdown(label: String, countdown: String): String? {

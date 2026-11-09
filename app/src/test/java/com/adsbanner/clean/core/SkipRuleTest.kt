@@ -16,6 +16,15 @@ class SkipRuleTest {
             assertFalse(label, SkipRule.isCloseIcon(label))
     }
 
+    @Test fun unlabeledIconsNeedAnExplicitAdCloseResourceName() {
+        for (entry in listOf("splash_close_btn", "ad_close", "adCloseButton", "tt_splash_skip_btn", "gdt_ad_dismiss"))
+            assertTrue(entry, SkipRule.isAdCloseResourceId("example.app:id/$entry"))
+        for (entry in listOf("close", "toolbar_close", "dialog_close", "ad_settings", "download", "disclose", "splash_image", "ad_skip"))
+            assertFalse(entry, SkipRule.isAdCloseResourceId("example.app:id/$entry"))
+        assertFalse(SkipRule.isAdCloseResourceId(null))
+        assertFalse(SkipRule.isAdCloseResourceId("splash_close_btn"))
+    }
+
     @Test fun spacedAndInvisibleSkipLabelsRetainExplicitCountdownEvidence() {
         for (label in listOf("跳 过 5秒", "跳\n过 3s", "跳\u200B过 5秒", "跳过\u2066 5s\u2069")) {
             assertEquals(label, SkipRule.STRONG, SkipRule.match(label))

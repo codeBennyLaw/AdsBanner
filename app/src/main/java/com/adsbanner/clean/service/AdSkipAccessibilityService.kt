@@ -705,7 +705,10 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private fun findReplacementSkip(root: AccessibilityNodeInfo, pending: PendingSkip): AccessibilityNodeInfo? {
         val rule = pending.candidate.rule
-        val nodes = if (rule != null) root.findAccessibilityNodeInfosByViewId(rule.viewId).orEmpty()
+        val iconId = pending.candidate.node.viewIdResourceName?.takeIf {
+            pending.candidate.weak && SkipRule.isCloseIcon(pending.candidate.label) && SkipRule.isAdCloseResourceId(it)
+        }
+        val nodes = if (rule != null || iconId != null) root.findAccessibilityNodeInfosByViewId(rule?.viewId ?: iconId!!).orEmpty()
             else root.findAccessibilityNodeInfosByText(if (pending.candidate.weak) pending.candidate.label
                 else if (pending.candidate.label.contains("广告") && !pending.candidate.label.contains("跳过")) "广告"
                 else if (pending.candidate.label.contains("skip", ignoreCase = true)) "skip" else "跳过").orEmpty()
@@ -1125,6 +1128,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     /** Read a split countdown only inside the same precise, clickable skip control. */
     private fun skipNodeLabel(node: AccessibilityNodeInfo): String {
         val label = SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty())
+        if (label.isEmpty() && SkipRule.isAdCloseResourceId(node.viewIdResourceName)) return "×"
         if (SkipRule.match(label) != SkipRule.STRONG || JumpAdRule.isAdSkip(label)) return label
         val parent = node.parent ?: return label
         try {
