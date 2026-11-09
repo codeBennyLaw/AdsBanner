@@ -33,6 +33,7 @@ import com.adsbanner.clean.core.SkipTargetPolicy
 import com.adsbanner.clean.core.SplashScanSession
 import com.adsbanner.clean.core.SplashScanCadence
 import com.adsbanner.clean.core.SplashResumeTracker
+import com.adsbanner.clean.core.SplashForegroundCheck
 import com.adsbanner.clean.core.ScreenStateGate
 import com.adsbanner.clean.core.StatsStore
 
@@ -76,6 +77,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val screenState = ScreenStateGate()
     private val splashResume = SplashResumeTracker()
+    private val foregroundCheck = SplashForegroundCheck()
+    private val reconcileForeground = Runnable { reconcileSplashForeground() }
     private var receiverRegistered = false
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -231,6 +234,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (!Prefs.skipSplash && !Prefs.jumpGuard) return
         // 窗口集合变化可能没有包名。通知栏收起时即使应用内容不变，也需要补查。
         if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            requestSplashForeground(null)
             refreshSplashCache()
             scheduleSplashScan(0L)
             return
@@ -333,14 +337,41 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun onContentChanged(pkg: String) {
-        // 服务晚于应用启动时，只为当前活动应用补建一次检测窗口，后台内容事件不启动扫描。
-        if (Prefs.skipSplash && foregroundPkg == null) {
-            val root = rootInActiveWindow ?: return
-            try {
-                if (root.packageName?.toString() == pkg) onWindowChanged(pkg, windowId = root.windowId, fromActiveWindow = true)
-            } finally { recycleNode(root) }
-        } else if (splashSession.packageName == pkg) {
+        // Some apps expose their launch only through content/window-list changes.
+        if (Prefs.skipSplash && foregroundPkg != pkg) requestSplashForeground(pkg)
+        if (splashSession.packageName == pkg) {
             scheduleSplashScan(0L)
+        }
+    }
+
+    private fun requestSplashForeground(pkg: String?) {
+        if (!Prefs.skipSplash) return
+        foregroundCheck.request(pkg, SystemClock.elapsedRealtime())
+        handler.removeCallbacks(reconcileForeground)
+        handler.post(reconcileForeground)
+    }
+
+    private fun reconcileSplashForeground() {
+        val now = SystemClock.elapsedRealtime()
+        if (!Prefs.skipSplash || ProtectionStore.paused || !isScreenInteractive()) {
+            foregroundCheck.clear()
+            return
+        }
+        if (foregroundCheck.take(now)) {
+            val root = rootInActiveWindow
+            try {
+                val pkg = root?.packageName?.toString()
+                if (pkg != null && pkg != packageName && pkg !in IGNORED_PACKAGES && pkg !in imePackages &&
+                    pkg != embeddedPagePackage && foregroundCheck.accepts(pkg) &&
+                    !(splashSession.packageName != pkg && splashSession.awaitingTarget(now))) {
+                    foregroundCheck.complete()
+                    onWindowChanged(pkg, windowId = root.windowId, fromActiveWindow = true)
+                }
+            } finally { root?.let(::recycleNode) }
+        }
+        foregroundCheck.retryDelay(SystemClock.elapsedRealtime())?.let {
+            handler.removeCallbacks(reconcileForeground)
+            handler.postDelayed(reconcileForeground, it)
         }
     }
 
@@ -363,6 +394,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
 
     private fun stopSplashScan() {
+        handler.removeCallbacks(reconcileForeground)
+        foregroundCheck.clear()
         clearPendingSkip()
         failedSkips.forEach { recycleNode(it.node) }
         failedSkips.clear()
