@@ -30,6 +30,7 @@ import com.adsbanner.clean.core.LocalAdRule
 import com.adsbanner.clean.core.JumpAdRule
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.SkipTargetPolicy
+import com.adsbanner.clean.core.SkipRetryPolicy
 import com.adsbanner.clean.core.SplashScanSession
 import com.adsbanner.clean.core.SplashScanCadence
 import com.adsbanner.clean.core.SplashResumeTracker
@@ -69,7 +70,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private data class PendingSkip(val candidate: Candidate, val pkg: String, val bounds: Rect,
         val gesture: Boolean, val startedAt: Long, val absentAt: Long? = null)
-    private data class FailedSkip(val node: AccessibilityNodeInfo, val label: String)
+    private data class FailedSkip(val node: AccessibilityNodeInfo, val label: String, val failures: Int, val failedAt: Long)
     private var pendingSkip: PendingSkip? = null
     private val failedSkips = ArrayList<FailedSkip>(4)
     private val verifySkip = Runnable { verifyPendingSkip() }
@@ -631,11 +632,14 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 if (!current.gesture && current.candidate.gestureAllowed) submitGesture(current.candidate, current.pkg)
                 if (pendingSkip == null) {
                     if (current.gesture || !current.candidate.gestureAllowed) {
+                        val label = skipNodeLabel(current.candidate.node)
+                        val previous = failedSkips.firstOrNull { it.node == current.candidate.node && it.label == label }
+                        val failures = (previous?.failures ?: 0) + 1
                         failedSkips.removeAll { failed ->
                             (failed.node == current.candidate.node).also { if (it) recycleNode(failed.node) }
                         }
                         if (failedSkips.size >= 8) recycleNode(failedSkips.removeAt(0).node)
-                        failedSkips.add(FailedSkip(copyNode(current.candidate.node), skipNodeLabel(current.candidate.node)))
+                        failedSkips.add(FailedSkip(copyNode(current.candidate.node), label, failures, SystemClock.elapsedRealtime()))
                     }
                     scheduleSplashScan(120L)
                 }
@@ -900,7 +904,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         if (!candidate.node.refresh() || candidate.node.packageName?.toString() != pkg ||
             !candidate.node.isEnabled || candidate.node.isEditable || (!covered && !candidate.node.isVisibleToUser)) return null
         val self = Rect().also(candidate.node::getBoundsInScreen)
-        if (failedSkips.any { it.node == candidate.node && it.label == skipNodeLabel(candidate.node) }) return null
+        val failed = failedSkips.firstOrNull { it.node == candidate.node && it.label == skipNodeLabel(candidate.node) }
+        if (failed != null && !SkipRetryPolicy.allows(failed.failures, failed.failedAt, SystemClock.elapsedRealtime())) return null
         candidate.rule?.let { rule ->
             val screen = screenSize()
             return self.takeIf { rule in ProtectionStore.rules && rule.matches(pkg, foregroundActivity,
