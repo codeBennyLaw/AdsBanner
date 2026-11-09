@@ -40,6 +40,8 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 
 3.0.0 的产品与规则设计参考了 [GKD](https://gkd.li/guide/subscription)、[AdAway](https://github.com/AdAway/AdAway) 和 [Blokada 5](https://github.com/blokadaorg/five-android)，详见[设计依据](docs/3.0.0-design.md)。实现使用 AdsBanner 自有 JSON 格式，不兼容 GKD 订阅或网络过滤列表，也不增加 VPN、截图识别或小程序广告跳过。
 
+3.0.1 补充了缺少窗口切换事件时的前台核对，并为首次未生效的点击增加有限重试；兼容分隔的跳过文字、广告前缀、英文倒计时和按钮描述。复现范围与对照结果见[开屏漏跳补充修复](docs/splash-301.md)。
+
 ## 权限与限制
 
 需要在系统设置中手动开启无障碍服务，应用无法自行授权：
@@ -83,8 +85,8 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 产物位于 `app/build/outputs/apk/`，文件名形如：
 
 ```
-AdsBanner-debug-v-3-0-0.apk
-AdsBanner-release-v-3-0-0.apk
+AdsBanner-debug-v-3-0-1.apk
+AdsBanner-release-v-3-0-1.apk
 ```
 
 Release 使用本机 debug keystore 签名，可直接安装；覆盖安装时新旧包签名需一致。
