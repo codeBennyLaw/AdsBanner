@@ -6,6 +6,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun leadingCountdownWithoutAUnitIsACompleteSkipAction() {
+        for (label in listOf("2跳过", "2 跳过", "2\n跳过", "0 跳过", "10跳过", "99 跳过广告"))
+            assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+    }
+
+    @Test fun leadingNumbersCannotTurnInstructionsOrOtherActionsIntoSkipButtons() {
+        for (label in listOf("2", "123跳过", "2秒后跳过", "2秒后可跳过", "第2步 跳过", "2 跳过登录", "2跳过教程", "2 跳过本次闹钟"))
+            assertEquals(label, SkipRule.NONE, SkipRule.match(label))
+        assertEquals("跳过 2", SkipRule.buttonLabel("2", "跳过"))
+        assertEquals("跳过 2", SkipRule.withCountdown("跳过", "2"))
+        assertEquals("2 跳过登录", SkipRule.buttonLabel("2 跳过登录", "2跳过"))
+    }
+
     @Test fun crossGlyphsRemainWeakInsteadOfBecomingUnconditionalSkipActions() {
         for (label in listOf("×", "✕", "✖", "╳", "✗", "❌", "Ｘ", "ｘ")) {
             assertTrue(label, SkipRule.isCloseIcon(label))
