@@ -42,6 +42,8 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 
 3.0.1 补充了缺少窗口切换事件时的前台核对，并为首次未生效的点击增加有限重试；兼容分隔的跳过文字、广告前缀、英文倒计时和按钮描述，并完善状态栏区域及叉号关闭控件的处理。复现范围与对照结果见[开屏漏跳补充修复](docs/splash-301.md)和[状态栏与叉号按钮](docs/splash-cross-bar.md)。
 
+3.0.2 补齐“2 跳过”这类不带单位的前置倒计时识别，覆盖启动与恢复检测，见[前置数字跳过按钮](docs/splash-302.md)。
+
 ## 权限与限制
 
 需要在系统设置中手动开启无障碍服务，应用无法自行授权：
@@ -85,8 +87,8 @@ Android 端的开屏广告跳过与误触跳转拦截工具。
 产物位于 `app/build/outputs/apk/`，文件名形如：
 
 ```
-AdsBanner-debug-v-3-0-1.apk
-AdsBanner-release-v-3-0-1.apk
+AdsBanner-debug-v-3-0-2.apk
+AdsBanner-release-v-3-0-2.apk
 ```
 
 Release 使用本机 debug keystore 签名，可直接安装；覆盖安装时新旧包签名需一致。
