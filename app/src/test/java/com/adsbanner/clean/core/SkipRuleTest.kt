@@ -6,6 +6,50 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun crossGlyphsRemainWeakInsteadOfBecomingUnconditionalSkipActions() {
+        for (label in listOf("×", "✕", "✖", "╳", "✗", "❌", "Ｘ", "ｘ")) {
+            assertTrue(label, SkipRule.isCloseIcon(label))
+            assertEquals(label, SkipRule.WEAK, SkipRule.match(label))
+            assertFalse(label, JumpAdRule.isAdSkip(label))
+        }
+        for (label in listOf("X设置", "关闭", "不感兴趣", "×2", "下一步"))
+            assertFalse(label, SkipRule.isCloseIcon(label))
+    }
+
+    @Test fun unlabeledIconsNeedAnExplicitAdCloseResourceName() {
+        for (entry in listOf("splash_close_btn", "ad_close", "adCloseButton", "tt_splash_skip_btn", "gdt_ad_dismiss"))
+            assertTrue(entry, SkipRule.isAdCloseResourceId("example.app:id/$entry"))
+        for (entry in listOf("close", "toolbar_close", "dialog_close", "ad_settings", "download", "disclose", "splash_image", "ad_skip"))
+            assertFalse(entry, SkipRule.isAdCloseResourceId("example.app:id/$entry"))
+        assertFalse(SkipRule.isAdCloseResourceId(null))
+        assertFalse(SkipRule.isAdCloseResourceId("splash_close_btn"))
+    }
+
+    @Test fun spacedAndInvisibleSkipLabelsRetainExplicitCountdownEvidence() {
+        for (label in listOf("跳 过 5秒", "跳\n过 3s", "跳\u200B过 5秒", "跳过\u2066 5s\u2069")) {
+            assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+            assertTrue(label, JumpAdRule.isAdSkip(label))
+        }
+        assertEquals(SkipRule.STRONG, SkipRule.match("跳 过"))
+        assertFalse(JumpAdRule.isAdSkip("跳 过"))
+    }
+
+    @Test fun standaloneAdPrefixAndEnglishTimerRemainAnchoredActions() {
+        for (label in listOf("广告 | 跳过 5秒", "广告丨跳过", "Ad | Skip 5s", "Advertisement Skip", "Skip ad 5s", "SKIP AD 5")) {
+            assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+            assertTrue(label, JumpAdRule.isAdSkip(label))
+        }
+        for (label in listOf("广告设置 | 跳过", "广告 | 跳过登录", "广告 | 5秒后可跳过", "Skip ad in 5s", "广告 | 关闭", "跳 过 教程"))
+            assertEquals(label, SkipRule.NONE, SkipRule.match(label))
+    }
+
+    @Test fun adMarkerInTextDoesNotHideTheActualSkipDescription() {
+        assertEquals("跳过 5秒", SkipRule.buttonLabel("广告", "跳过 5秒"))
+        assertEquals("Skip ad 5s", SkipRule.buttonLabel("AD", "Skip ad 5s"))
+        assertEquals("跳过登录", SkipRule.buttonLabel("跳过登录", "跳过广告"))
+        assertEquals("普通页面", SkipRule.buttonLabel("普通页面", "跳过广告"))
+    }
+
     @Test fun clickToSkipCountdownKeepsLegacyLabelCoverage() {
         for (label in listOf("点击跳过 5s", "轻点跳过广告 3秒", "点击跳过5")) {
             assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
