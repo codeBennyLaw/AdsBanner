@@ -6,6 +6,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun aDividerAttachedToTheSameControlsTimerCanJoinTheSkipAction() {
+        for (separator in listOf("|", "｜", "丨", "/", "·", "•")) {
+            for (timer in listOf("2s$separator", "2 s $separator", "$separator 2s")) {
+                val combined = SkipRule.withCountdown("跳过", timer)
+                assertEquals(timer, SkipRule.STRONG, SkipRule.match(combined.orEmpty()))
+                assertTrue(timer, JumpAdRule.isAdSkip(combined.orEmpty()))
+                assertEquals(timer, combined, SkipRule.buttonLabel(timer, "跳过"))
+                assertEquals(timer, combined, SkipRule.buttonLabel("跳过", timer))
+            }
+        }
+    }
+
+    @Test fun aDividerCannotStripInstructionsOrCombineConflictingActions() {
+        for (timer in listOf("2s后|", "|2s后可跳过", "第2步|", "123s|", "2s||", "|2s|", "广告设置|", "|"))
+            assertEquals(timer, null, SkipRule.withCountdown("跳过", timer))
+        assertEquals(null, SkipRule.withCountdown("关闭", "2s|"))
+        assertEquals(null, SkipRule.withCountdown("跳过登录", "2s|"))
+        assertEquals("跳过登录", SkipRule.buttonLabel("跳过登录", "2s|跳过"))
+    }
+
     @Test fun leadingCountdownAcceptsOneSeparatorBeforeTheSkipAction() {
         for (separator in listOf("|", "｜", "丨", "/", "·", "•")) {
             for (label in listOf("2s${separator}跳过", "2 S $separator 跳过", "2 秒\n$separator\n跳过广告", "2 $separator 跳过")) {
