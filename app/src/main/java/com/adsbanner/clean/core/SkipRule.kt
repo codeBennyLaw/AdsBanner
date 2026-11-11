@@ -18,6 +18,7 @@ object SkipRule {
     private val adIdWords = setOf("ad", "ads", "advert", "advertisement", "splash")
     private val closeIdWords = setOf("close", "dismiss", "cross")
     private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
+    private val countdownEdgeSeparator = Regex("^[|｜丨/·•]\\s*|\\s*[|｜丨/·•]$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
 
     const val NONE = 0
@@ -28,8 +29,8 @@ object SkipRule {
     private val strongPatterns = listOf(
         // 跳过 / 跳过广告 / 跳过5 / 跳过 5s / 跳过广告5秒
         Regex("^跳过\\s*(广告)?\\s*[0-9]{0,2}\\s*[sS秒]?$"),
-        // 2跳过 / 2 跳过 / 5s 跳过 / 5秒跳过 / 3s跳过广告
-        Regex("^[0-9]{1,2}\\s*[sS秒]?\\s*跳过(广告)?$"),
+        // 2跳过 / 2s｜跳过 / 5秒 · 跳过广告
+        Regex("^[0-9]{1,2}\\s*[sS秒]?\\s*[|｜丨/·•]?\\s*跳过(广告)?$"),
         // 跳过丨5 / 跳过|5 / 跳过 · 5
         Regex("^跳过\\s*[|｜丨/·•]\\s*[0-9]{1,2}\\s*[sS秒]?$"),
         Regex("^跳过\\s*[（(]\\s*[0-9]{1,2}\\s*[sS秒]?\\s*[）)]$"),
@@ -95,7 +96,8 @@ object SkipRule {
 
     /** Join only an exact countdown belonging to this same small skip control. */
     fun withCountdown(label: String, countdown: String): String? {
-        val part = normalizedLabel(countdown)
+        // SDKs may attach the visual divider to the timer node. Strip one edge only.
+        val part = normalizedLabel(countdown).replaceFirst(countdownEdgeSeparator, "").trim()
         if (!countdownPart.matches(part) || match(label) != STRONG) return null
         return listOf("$label $part", "$part $label").firstOrNull {
             match(it) == STRONG && JumpAdRule.isAdSkip(it)

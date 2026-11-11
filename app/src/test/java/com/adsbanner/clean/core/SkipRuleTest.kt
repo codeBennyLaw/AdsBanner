@@ -6,6 +6,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun aDividerAttachedToTheSameControlsTimerCanJoinTheSkipAction() {
+        for (separator in listOf("|", "｜", "丨", "/", "·", "•")) {
+            for (timer in listOf("2s$separator", "2 s $separator", "$separator 2s")) {
+                val combined = SkipRule.withCountdown("跳过", timer)
+                assertEquals(timer, SkipRule.STRONG, SkipRule.match(combined.orEmpty()))
+                assertTrue(timer, JumpAdRule.isAdSkip(combined.orEmpty()))
+                assertEquals(timer, combined, SkipRule.buttonLabel(timer, "跳过"))
+                assertEquals(timer, combined, SkipRule.buttonLabel("跳过", timer))
+            }
+        }
+    }
+
+    @Test fun aDividerCannotStripInstructionsOrCombineConflictingActions() {
+        for (timer in listOf("2s后|", "|2s后可跳过", "第2步|", "123s|", "2s||", "|2s|", "广告设置|", "|"))
+            assertEquals(timer, null, SkipRule.withCountdown("跳过", timer))
+        assertEquals(null, SkipRule.withCountdown("关闭", "2s|"))
+        assertEquals(null, SkipRule.withCountdown("跳过登录", "2s|"))
+        assertEquals("跳过登录", SkipRule.buttonLabel("跳过登录", "2s|跳过"))
+    }
+
+    @Test fun leadingCountdownAcceptsOneSeparatorBeforeTheSkipAction() {
+        for (separator in listOf("|", "｜", "丨", "/", "·", "•")) {
+            for (label in listOf("2s${separator}跳过", "2 S $separator 跳过", "2 秒\n$separator\n跳过广告", "2 $separator 跳过")) {
+                assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+                assertTrue(label, JumpAdRule.isAdSkip(label))
+            }
+        }
+    }
+
+    @Test fun countdownSeparatorsDoNotAuthorizeOtherActionsOrFutureSkips() {
+        for (label in listOf("2s|跳过登录", "2s|跳过教程", "2s|跳过片头", "2s|跳过本次闹钟",
+            "2s后|跳过", "2s|后可跳过", "第2步|跳过", "123s|跳过", "2s||跳过", "|2s|跳过", "2s-跳过")) {
+            assertEquals(label, SkipRule.NONE, SkipRule.match(label))
+            assertFalse(label, JumpAdRule.isAdSkip(label, hasAdMarker = true))
+        }
+    }
+
     @Test fun leadingCountdownWithoutAUnitIsACompleteSkipAction() {
         for (label in listOf("2跳过", "2 跳过", "2\n跳过", "0 跳过", "10跳过", "99 跳过广告"))
             assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
