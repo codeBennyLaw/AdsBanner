@@ -330,7 +330,7 @@ class MainActivity : AppCompatActivity() {
         OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
             .setMessage(InterceptNotifier.describe(this))
-            .setPositiveButton("发一条测试") { _, _ -> sendTestNotification() }
+            .setPositiveButton("发 3 条测试") { _, _ -> sendTestNotifications() }
             .setNeutralButton("系统设置") { _, _ ->
                 if (canOpenSettings) {
                     InterceptNotifier.openPromotionSettings(this)
@@ -342,13 +342,15 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun sendTestNotification() {
+    private fun sendTestNotifications() {
         if (!Prefs.interceptNotify) {
             toast("先打开右侧开关")
             return
         }
-        InterceptNotifier.notify(this, "示例应用", StatsStore.Kind.SPLASH)
-        toast("已发送 10 秒测试提示")
+        listOf(StatsStore.Kind.SPLASH, StatsStore.Kind.JUMP, StatsStore.Kind.PAGE_AD).forEachIndexed { index, kind ->
+            InterceptNotifier.notify(this, "示例应用 ${index + 1}", kind)
+        }
+        toast("已发送 3 条独立的 10 秒测试提示")
     }
 
     private fun setupSwitches() {
