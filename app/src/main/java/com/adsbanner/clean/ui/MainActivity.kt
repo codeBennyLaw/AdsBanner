@@ -329,9 +329,9 @@ class MainActivity : AppCompatActivity() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
         OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
-            .setMessage(InterceptNotifier.describe(this))
-            .setPositiveButton("发 3 条测试") { _, _ -> sendTestNotifications() }
-            .setNeutralButton("系统设置") { _, _ ->
+            .setMessage(InterceptNotifier.describe(this) + "\n\n点击“测试”同时发送 3 条提示，不计入统计。")
+            .setPositiveButton("测试") { _, _ -> sendTestNotifications() }
+            .setNeutralButton("设置") { _, _ ->
                 if (canOpenSettings) {
                     InterceptNotifier.openPromotionSettings(this)
                 } else {
@@ -339,7 +339,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("关闭", null)
-            .show()
+            .show().apply {
+                getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.contentDescription = "发送 3 条独立拦截提示"
+                getButton(android.content.DialogInterface.BUTTON_NEUTRAL)?.contentDescription = "打开系统实时通知设置"
+            }
     }
 
     private fun sendTestNotifications() {
