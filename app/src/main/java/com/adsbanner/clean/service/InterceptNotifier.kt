@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -86,7 +87,7 @@ object InterceptNotifier {
         }
         val session = Session(allocateId(), title, appLabel, SystemClock.elapsedRealtime())
 
-        session.contentIntent = contentIntent(app)
+        session.contentIntent = contentIntent(app, session.id)
         synchronized(active) { active[session.id] = session }
         push(app, session, 0, DURATION_MS)
         trim(app)
@@ -209,28 +210,28 @@ object InterceptNotifier {
         val manager = context.getSystemService(NotificationManager::class.java)
 
         val live = manager?.activeNotifications
-            ?.firstOrNull {
+            ?.filter {
                 it.packageName == context.packageName &&
                     it.id >= ID_BASE && it.id <= ID_BASE + ID_SPAN
             }
-            ?.notification
+            .orEmpty()
 
         val promotedFlag = runCatching {
             Notification::class.java.getField("FLAG_PROMOTED_ONGOING").getInt(null)
         }.getOrDefault(0)
 
-        val last = when {
-            live == null -> "最近一条提示：当前无正在显示的提示"
-            promotedFlag != 0 && (live.flags and promotedFlag) != 0 ->
-                "最近一条提示：已被系统提升为实时通知"
-            else -> {
-                val eligible = LiveUpdate.isEligible(live)
-                "最近一条提示：未提升\n资格判定：" + when (eligible) {
-                    true -> "符合提升条件，等系统决定"
+        val promoted = live.count { promotedFlag != 0 && (it.notification.flags and promotedFlag) != 0 }
+        val sessions = live.sortedBy { it.id }.map { posted ->
+            val notification = posted.notification
+            val appLabel = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+            val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+            val state = if (promotedFlag != 0 && (notification.flags and promotedFlag) != 0) "已提升" else
+                when (LiveUpdate.isEligible(notification)) {
+                    true -> "符合条件，未提升"
                     false -> "不符合提升条件"
-                    null -> "系统未返回判定"
+                    null -> "系统未返回资格判定"
                 }
-            }
+            "$appLabel · $title：$state"
         }
 
         return listOf(
@@ -242,7 +243,8 @@ object InterceptNotifier {
                 else -> "未授权"
             },
             "通知总开关：" + if (manager?.areNotificationsEnabled() == true) "开启" else "关闭",
-            last
+            "当前拦截提示：${live.size} 条，已提升 $promoted 条",
+            if (sessions.isEmpty()) "当前无正在显示的提示" else sessions.joinToString("\n")
         ).joinToString("\n")
     }
 
@@ -265,25 +267,29 @@ object InterceptNotifier {
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_EVENT)
             .setContentIntent(session.contentIntent)
+            // Each interception is its own card; never turn concurrent live updates into a summary.
+            .setGroup("adsbanner_intercept_${session.id}")
+            .setGroupSummary(false)
             // 即便进程被杀，超时后系统也会自己收走
             .setTimeoutAfter(remainingMs)
 
-        val promoted = LiveUpdate.canPost(manager)
-        if (promoted) LiveUpdate.applyStyle(builder, progress, session.title)
+        // Request each live update independently; the system still applies the user's permission.
+        val requestPromotion = LiveUpdate.isSupported()
+        if (requestPromotion) LiveUpdate.applyStyle(builder, progress, session.text)
 
         runCatching {
-            val notification = if (promoted) LiveUpdate.build(builder) else builder.build()
+            val notification = if (requestPromotion) LiveUpdate.build(builder) else builder.build()
             manager.notify(session.id, notification)
         }.onFailure { Log.w(TAG, "发送拦截提示失败: ${it.message}") }
     }
 
-    private fun contentIntent(context: Context): PendingIntent {
+    private fun contentIntent(context: Context, id: Int): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         return PendingIntent.getActivity(
             context,
-            0,
+            id,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -366,6 +372,8 @@ object InterceptNotifier {
 
         fun build(builder: Notification.Builder): Notification {
             builder.setColorized(false)
+            // Early API 36 images may expose promotion checks without the builder convenience method.
+            builder.addExtras(Bundle().apply { putBoolean("android.requestPromotedOngoing", true) })
             runCatching { requestPromoted?.invoke(builder, true) }
                 .onFailure { Log.w(TAG, "请求实时通知提升失败: ${it.message}") }
 
