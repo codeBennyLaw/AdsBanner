@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -371,6 +372,8 @@ object InterceptNotifier {
 
         fun build(builder: Notification.Builder): Notification {
             builder.setColorized(false)
+            // Early API 36 images may expose promotion checks without the builder convenience method.
+            builder.addExtras(Bundle().apply { putBoolean("android.requestPromotedOngoing", true) })
             runCatching { requestPromoted?.invoke(builder, true) }
                 .onFailure { Log.w(TAG, "请求实时通知提升失败: ${it.message}") }
 
