@@ -86,7 +86,7 @@ object InterceptNotifier {
         }
         val session = Session(allocateId(), title, appLabel, SystemClock.elapsedRealtime())
 
-        session.contentIntent = contentIntent(app)
+        session.contentIntent = contentIntent(app, session.id)
         synchronized(active) { active[session.id] = session }
         push(app, session, 0, DURATION_MS)
         trim(app)
@@ -265,11 +265,14 @@ object InterceptNotifier {
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_EVENT)
             .setContentIntent(session.contentIntent)
+            // Each interception is its own card; never turn concurrent live updates into a summary.
+            .setGroup("adsbanner_intercept_${session.id}")
+            .setGroupSummary(false)
             // 即便进程被杀，超时后系统也会自己收走
             .setTimeoutAfter(remainingMs)
 
         val promoted = LiveUpdate.canPost(manager)
-        if (promoted) LiveUpdate.applyStyle(builder, progress, session.title)
+        if (promoted) LiveUpdate.applyStyle(builder, progress, session.text)
 
         runCatching {
             val notification = if (promoted) LiveUpdate.build(builder) else builder.build()
@@ -277,13 +280,13 @@ object InterceptNotifier {
         }.onFailure { Log.w(TAG, "发送拦截提示失败: ${it.message}") }
     }
 
-    private fun contentIntent(context: Context): PendingIntent {
+    private fun contentIntent(context: Context, id: Int): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         return PendingIntent.getActivity(
             context,
-            0,
+            id,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
