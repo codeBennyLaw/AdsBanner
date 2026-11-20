@@ -45,6 +45,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AdsBanner">
 
+        <property
+            android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
+            android:value="true" />
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
