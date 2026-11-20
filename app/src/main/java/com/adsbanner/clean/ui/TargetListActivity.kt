@@ -43,7 +43,6 @@ class TargetListActivity : AppCompatActivity() {
         setContentView(R.layout.activity_target_list)
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
-        TabletLayout.lockPhoneToPortrait(this)
         if (exclusionsMode) findViewById<TextView>(R.id.tvPageTitle).text = "例外应用"
         Motion.preparePage(this, getString(if (exclusionsMode) R.string.transition_exclusions else R.string.transition_targets), R.color.surface, savedInstanceState != null)
         list = findViewById(R.id.appList)
