@@ -6,6 +6,7 @@ import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Color
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import android.transition.Transition
 import android.transition.TransitionListenerAdapter
@@ -64,6 +65,7 @@ object Motion {
                 it.cardBackgroundColor.defaultColor))
         }
         if (TabletLayout.isLandscapeTablet(activity)) {
+            prepareTabletHomeForPageOpen(activity)
             activity.startActivity(intent)
             return
         }
@@ -80,6 +82,7 @@ object Motion {
     /** Back progress previews the home page, then the container returns to its entry card. */
     fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int, restored: Boolean = false) {
         if (TabletLayout.isLandscapeTablet(activity)) {
+            prepareTabletPageEnter(activity, restored)
             activity.findViewById<View>(R.id.btnBack).setOnClickListener { finishTabletPage(activity) }
             activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() = finishTabletPage(activity)
@@ -183,26 +186,155 @@ object Motion {
     fun bindPressFeedback(view: View) = PressFeedback.bind(view)
     fun resetPressFeedback(view: View) = PressFeedback.reset(view)
 
+    private fun prepareTabletPageEnter(activity: Activity, restored: Boolean) {
+        if (restored || !tabletAnimationsEnabled(activity)) return
+        val content = activity.findViewById<View>(android.R.id.content)
+        content.setTag(R.id.motion_tablet_exit, false)
+        content.alpha = 0f
+        content.translationX = tabletMotionOffset(activity)
+        content.doOnPreDraw {
+            animateTabletView(
+                view = content,
+                fromTranslationX = tabletMotionOffset(activity),
+                toTranslationX = 0f,
+                fromAlpha = 0f,
+                toAlpha = 1f,
+                duration = PAGE_ENTER_MS,
+                shouldContinue = { content.getTag(R.id.motion_tablet_exit) != true }
+            )
+        }
+    }
+
     private fun finishTabletPage(activity: Activity) {
         val content = activity.findViewById<View>(android.R.id.content)
         if (content.getTag(R.id.motion_tablet_exit) == true) return
         content.setTag(R.id.motion_tablet_exit, true)
 
-        if (!pageAnimationsEnabled(activity) || content.width <= 0) {
+        if (!tabletAnimationsEnabled(activity) || content.width <= 0) {
             finishTabletPageNow(activity)
             return
         }
 
-        val distance = (content.width * 0.1f).coerceAtLeast(
-            activity.resources.displayMetrics.density * 24f
+        prepareTabletHomeForPageClose(activity)
+        val distance = tabletMotionOffset(activity)
+        animateTabletView(
+            view = content,
+            fromTranslationX = content.translationX,
+            toTranslationX = distance,
+            fromAlpha = content.alpha,
+            toAlpha = 0f,
+            duration = PAGE_RETURN_MS,
+            onEnd = {
+                finishTabletPageNow(activity)
+            }
         )
-        content.animate()
-            .alpha(0f)
-            .translationX(distance)
-            .setDuration(PAGE_RETURN_MS)
-            .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
-            .withEndAction { finishTabletPageNow(activity) }
-            .start()
+    }
+
+    private fun prepareTabletHomeForPageOpen(activity: Activity) {
+        val root = activity.findViewById<View>(android.R.id.content) ?: return
+        val offset = tabletMotionOffset(activity)
+        root.animate().cancel()
+        if (!tabletAnimationsEnabled(activity)) {
+            root.translationX = -offset
+            return
+        }
+        root.translationX = 0f
+        val initialWidth = root.width
+        if (initialWidth <= 0) {
+            root.post { animateTabletHomeOpen(root, offset) }
+            return
+        }
+        var started = false
+        val layoutListener = object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                view: View,
+                left: Int,
+                top: Int,
+                right: Int,
+                bottom: Int,
+                oldLeft: Int,
+                oldTop: Int,
+                oldRight: Int,
+                oldBottom: Int
+            ) {
+                if (started || right - left == initialWidth) return
+                started = true
+                root.removeOnLayoutChangeListener(this)
+                animateTabletHomeOpen(root, offset)
+            }
+        }
+        root.addOnLayoutChangeListener(layoutListener)
+        root.postDelayed({
+            if (started) return@postDelayed
+            started = true
+            root.removeOnLayoutChangeListener(layoutListener)
+            animateTabletHomeOpen(root, offset)
+        }, 64L)
+    }
+
+    private fun animateTabletHomeOpen(root: View, offset: Float) {
+        animateTabletView(
+            view = root,
+            fromTranslationX = root.translationX,
+            toTranslationX = -offset,
+            fromAlpha = root.alpha,
+            toAlpha = root.alpha,
+            duration = PAGE_ENTER_MS
+        )
+    }
+
+    private fun prepareTabletHomeForPageClose(activity: Activity) {
+        val root = activity.findViewById<View>(android.R.id.content) ?: return
+        root.animate().cancel()
+        if (!tabletAnimationsEnabled(activity)) {
+            root.translationX = 0f
+            return
+        }
+        animateTabletView(
+            view = root,
+            fromTranslationX = root.translationX,
+            toTranslationX = 0f,
+            fromAlpha = root.alpha,
+            toAlpha = root.alpha,
+            duration = PAGE_RETURN_MS
+        )
+    }
+
+    private fun tabletMotionOffset(activity: Activity): Float =
+        activity.resources.displayMetrics.density * 32f
+
+    private fun tabletAnimationsEnabled(activity: Activity): Boolean =
+        Settings.Global.getFloat(
+            activity.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f
+        ) > 0f && Settings.Global.getFloat(
+            activity.contentResolver,
+            Settings.Global.TRANSITION_ANIMATION_SCALE,
+            1f
+        ) > 0f
+
+    private fun animateTabletView(
+        view: View,
+        fromTranslationX: Float,
+        toTranslationX: Float,
+        fromAlpha: Float,
+        toAlpha: Float,
+        duration: Long,
+        shouldContinue: () -> Boolean = { true },
+        onEnd: (() -> Unit)? = null
+    ) {
+        val startTime = SystemClock.uptimeMillis()
+        val interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+        fun step() {
+            if (!shouldContinue()) return
+            val progress = ((SystemClock.uptimeMillis() - startTime).toFloat() / duration).coerceIn(0f, 1f)
+            val eased = interpolator.getInterpolation(progress)
+            view.translationX = fromTranslationX + (toTranslationX - fromTranslationX) * eased
+            view.alpha = fromAlpha + (toAlpha - fromAlpha) * eased
+            if (progress >= 1f) onEnd?.invoke() else view.postOnAnimation(::step)
+        }
+        view.postOnAnimation(::step)
     }
 
     private fun finishTabletPageNow(activity: Activity) {
