@@ -91,6 +91,23 @@ class MainActivity : AppCompatActivity() {
         AppForeground.visible = true
         ProtectionStore.addPolicyListener(protectionChanged)
         refresh()
+        restoreLandscapeLayout()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) restoreLandscapeLayout()
+    }
+
+    private fun restoreLandscapeLayout() {
+        if (!TabletLayout.isLandscapeTablet(this)) return
+        val root = findViewById<View>(R.id.root) ?: return
+        val viewportWidth = window.decorView.width
+        if (viewportWidth <= 0 || root.width == viewportWidth) return
+        window.decorView.post {
+            root.requestLayout()
+            root.invalidate()
+        }
     }
 
     override fun onPause() {
