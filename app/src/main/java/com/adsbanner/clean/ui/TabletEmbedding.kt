@@ -34,7 +34,7 @@ object TabletEmbedding {
             .setMinSmallestWidthDp(600)
             .setMaxAspectRatioInPortrait(EmbeddingAspectRatio.ALWAYS_DISALLOW)
             .setMaxAspectRatioInLandscape(EmbeddingAspectRatio.ALWAYS_ALLOW)
-            .setFinishPrimaryWithSecondary(SplitRule.FinishBehavior.ALWAYS)
+            .setFinishPrimaryWithSecondary(SplitRule.FinishBehavior.NEVER)
             .setFinishSecondaryWithPrimary(SplitRule.FinishBehavior.ADJACENT)
             .setClearTop(true)
             .setDefaultSplitAttributes(attributes)
