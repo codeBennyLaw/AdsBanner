@@ -11,8 +11,8 @@ android {
         applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "3.0.4"
+        versionCode = 20
+        versionName = "3.1.0"
 
     }
 
@@ -69,6 +69,7 @@ dependencies {
     testImplementation("org.json:json:20240303")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.window:window:1.5.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.recyclerview:recyclerview:1.4.0")
     implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")

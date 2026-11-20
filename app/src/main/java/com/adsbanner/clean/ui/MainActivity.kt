@@ -3,7 +3,6 @@ package com.adsbanner.clean.ui
 import android.Manifest
 import android.app.Dialog
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -70,14 +69,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TabletEmbedding.register(this)
+        TabletLayout.lockPhoneToPortrait(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         Motion.prepareHome(this)
         applySystemBarAppearance()
-        // 清单里已声明 portrait，分屏、悬浮窗等场景下部分 ROM 会忽略，运行时再锁一次
-        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
 
         bindViews()
         applyInsets()
@@ -94,6 +91,23 @@ class MainActivity : AppCompatActivity() {
         AppForeground.visible = true
         ProtectionStore.addPolicyListener(protectionChanged)
         refresh()
+        restoreLandscapeLayout()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) restoreLandscapeLayout()
+    }
+
+    private fun restoreLandscapeLayout() {
+        if (!TabletLayout.isLandscapeTablet(this)) return
+        val root = findViewById<View>(R.id.root) ?: return
+        val viewportWidth = window.decorView.width
+        if (viewportWidth <= 0 || root.width == viewportWidth) return
+        window.decorView.post {
+            root.requestLayout()
+            root.invalidate()
+        }
     }
 
     override fun onPause() {
@@ -306,18 +320,24 @@ class MainActivity : AppCompatActivity() {
             else AccessibilityHelper.openAccessibilitySettings(this)
         }
         findViewById<MaterialCardView>(R.id.cardStats).setOnClickListener { card ->
-            if (openingPage) return@setOnClickListener
-            openingPage = true
+            if (!TabletLayout.isLandscapeTablet(this)) {
+                if (openingPage) return@setOnClickListener
+                openingPage = true
+            }
             Motion.openPage(this, card, StatsActivity::class.java)
         }
         findViewById<MaterialCardView>(R.id.cardTargets).setOnClickListener { card ->
-            if (openingPage) return@setOnClickListener
-            openingPage = true
+            if (!TabletLayout.isLandscapeTablet(this)) {
+                if (openingPage) return@setOnClickListener
+                openingPage = true
+            }
             Motion.openPage(this, card, TargetListActivity::class.java)
         }
         findViewById<View>(R.id.cardProtection).setOnClickListener { card ->
-            if (openingPage) return@setOnClickListener
-            openingPage = true
+            if (!TabletLayout.isLandscapeTablet(this)) {
+                if (openingPage) return@setOnClickListener
+                openingPage = true
+            }
             Motion.openPage(this, card, ProtectionActivity::class.java)
         }
         findViewById<View>(R.id.rowBattery).setOnClickListener { requestIgnoreBatteryOptimization() }

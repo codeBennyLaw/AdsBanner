@@ -45,11 +45,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AdsBanner">
 
+        <property
+            android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
+            android:value="true" />
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:screenOrientation="portrait">
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -62,17 +65,15 @@
         <activity
             android:name=".ui.StatsActivity"
             android:exported="false"
-            android:parentActivityName=".ui.MainActivity"
-            android:screenOrientation="portrait" />
+            android:parentActivityName=".ui.MainActivity" />
 
         <activity
             android:name=".ui.TargetListActivity"
             android:exported="false"
-            android:parentActivityName=".ui.MainActivity"
-            android:screenOrientation="portrait" />
+            android:parentActivityName=".ui.MainActivity" />
 
         <activity android:name=".ui.ProtectionActivity" android:exported="false"
-            android:parentActivityName=".ui.MainActivity" android:screenOrientation="portrait" />
+            android:parentActivityName=".ui.MainActivity" />
 
         <!-- 核心：无障碍服务，由系统绑定/守护 -->
         <service

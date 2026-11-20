@@ -34,7 +34,6 @@ object Motion {
     private const val PAGE_RETURN_MS = RetractionVisuals.DURATION_MS
     private const val EXTRA_CARD_TRANSITION = "com.adsbanner.clean.CARD_TRANSITION"
     private const val EXTRA_ORIGIN_COLOR = "com.adsbanner.clean.ORIGIN_COLOR"
-
     fun prepareHome(activity: Activity) {
         bindPressFeedback(activity.findViewById(R.id.cardStats))
         bindPressFeedback(activity.findViewById(R.id.cardTargets))
@@ -63,6 +62,10 @@ object Motion {
             intent.putExtra(EXTRA_ORIGIN_COLOR, it.cardBackgroundColor.getColorForState(it.drawableState,
                 it.cardBackgroundColor.defaultColor))
         }
+        if (TabletLayout.isLandscapeTablet(activity)) {
+            activity.startActivity(intent)
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             PageOriginMotion.open(activity, source, intent)
             return
@@ -75,6 +78,13 @@ object Motion {
 
     /** Back progress previews the home page, then the container returns to its entry card. */
     fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int, restored: Boolean = false) {
+        if (TabletLayout.isLandscapeTablet(activity)) {
+            activity.findViewById<View>(R.id.btnBack).setOnClickListener { finishTabletPage(activity) }
+            activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = finishTabletPage(activity)
+            })
+            return
+        }
         val content = activity.findViewById<View>(android.R.id.content)
         content.transitionName = name
         val background = ContextCompat.getColor(activity, R.color.bg)
@@ -171,6 +181,10 @@ object Motion {
 
     fun bindPressFeedback(view: View) = PressFeedback.bind(view)
     fun resetPressFeedback(view: View) = PressFeedback.reset(view)
+
+    private fun finishTabletPage(activity: Activity) {
+        activity.finish()
+    }
 
     internal fun whenPageReady(activity: Activity, key: Any, task: () -> Unit) {
         val work = activity.findViewById<View>(android.R.id.content).getTag(R.id.motion_page_work) as? PageTransitionWork

@@ -1,7 +1,6 @@
 package com.adsbanner.clean.ui
 
 import android.animation.ValueAnimator
-import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.text.Layout
 import android.view.View
@@ -89,9 +88,7 @@ class StatsActivity : AppCompatActivity() {
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
         Motion.preparePage(this, getString(R.string.transition_stats), R.color.surface, savedInstanceState != null)
-        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
+        TabletLayout.lockPhoneToPortrait(this)
         range = Range.entries.getOrElse(savedInstanceState?.getInt("range") ?: 0) { Range.TODAY }
         type = Type.entries.getOrElse(savedInstanceState?.getInt("type") ?: 0) { Type.ALL }
         sort = StatsSort(

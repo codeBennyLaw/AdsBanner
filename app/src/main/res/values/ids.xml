@@ -5,4 +5,5 @@
     <item name="motion_origin_anchor" type="id" />
     <item name="motion_view_switch" type="id" />
     <item name="motion_local_loading" type="id" />
+    <item name="motion_tablet_exit" type="id" />
 </resources>
