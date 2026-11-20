@@ -88,7 +88,6 @@ class StatsActivity : AppCompatActivity() {
         applySystemBarAppearance()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.tvPageTitle), true)
         Motion.preparePage(this, getString(R.string.transition_stats), R.color.surface, savedInstanceState != null)
-        TabletLayout.lockPhoneToPortrait(this)
         range = Range.entries.getOrElse(savedInstanceState?.getInt("range") ?: 0) { Range.TODAY }
         type = Type.entries.getOrElse(savedInstanceState?.getInt("type") ?: 0) { Type.ALL }
         sort = StatsSort(

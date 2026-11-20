@@ -75,7 +75,6 @@ class ProtectionActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        TabletLayout.lockPhoneToPortrait(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_protection)
         applySystemBarAppearance()
