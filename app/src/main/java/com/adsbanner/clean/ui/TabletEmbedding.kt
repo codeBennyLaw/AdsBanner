@@ -32,8 +32,8 @@ object TabletEmbedding {
             .setAnimationParams(
                 EmbeddingAnimationParams.Builder()
                     .setOpenAnimation(EmbeddingAnimationParams.AnimationSpec.DEFAULT)
-                    .setCloseAnimation(EmbeddingAnimationParams.AnimationSpec.JUMP_CUT)
-                    .setChangeAnimation(EmbeddingAnimationParams.AnimationSpec.JUMP_CUT)
+                    .setCloseAnimation(EmbeddingAnimationParams.AnimationSpec.DEFAULT)
+                    .setChangeAnimation(EmbeddingAnimationParams.AnimationSpec.DEFAULT)
                     .build()
             )
             .build()

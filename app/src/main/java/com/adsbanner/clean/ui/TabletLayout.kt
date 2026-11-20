@@ -10,6 +10,9 @@ object TabletLayout {
     private const val TABLET_MIN_WIDTH_DP = 600
 
     fun isTablet(context: Context): Boolean {
+        if (context.resources.configuration.smallestScreenWidthDp >= TABLET_MIN_WIDTH_DP) {
+            return true
+        }
         val metrics = DisplayMetrics()
         context.display?.getRealMetrics(metrics)
         if (metrics.widthPixels > 0 && metrics.heightPixels > 0 && metrics.density > 0f) {
