@@ -80,9 +80,9 @@ object Motion {
     /** Back progress previews the home page, then the container returns to its entry card. */
     fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int, restored: Boolean = false) {
         if (TabletLayout.isLandscapeTablet(activity)) {
-            activity.findViewById<View>(R.id.btnBack).setOnClickListener { activity.finish() }
+            activity.findViewById<View>(R.id.btnBack).setOnClickListener { finishTabletPage(activity) }
             activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() = activity.finish()
+                override fun handleOnBackPressed() = finishTabletPage(activity)
             })
             return
         }
@@ -182,6 +182,12 @@ object Motion {
 
     fun bindPressFeedback(view: View) = PressFeedback.bind(view)
     fun resetPressFeedback(view: View) = PressFeedback.reset(view)
+
+    private fun finishTabletPage(activity: Activity) {
+        activity.finish()
+        @Suppress("DEPRECATION")
+        activity.overridePendingTransition(0, 0)
+    }
 
     internal fun whenPageReady(activity: Activity, key: Any, task: () -> Unit) {
         val work = activity.findViewById<View>(android.R.id.content).getTag(R.id.motion_page_work) as? PageTransitionWork
