@@ -3,6 +3,7 @@ package com.adsbanner.clean.ui
 import android.content.ComponentName
 import android.content.Context
 import androidx.window.embedding.EmbeddingAspectRatio
+import androidx.window.embedding.EmbeddingAnimationParams
 import androidx.window.embedding.RuleController
 import androidx.window.embedding.SplitAttributes
 import androidx.window.embedding.SplitPairFilter
@@ -28,6 +29,13 @@ object TabletEmbedding {
         val attributes = SplitAttributes.Builder()
             .setSplitType(SplitAttributes.SplitType.ratio(0.38f))
             .setLayoutDirection(SplitAttributes.LayoutDirection.LEFT_TO_RIGHT)
+            .setAnimationParams(
+                EmbeddingAnimationParams.Builder()
+                    .setOpenAnimation(EmbeddingAnimationParams.AnimationSpec.DEFAULT)
+                    .setCloseAnimation(EmbeddingAnimationParams.AnimationSpec.JUMP_CUT)
+                    .setChangeAnimation(EmbeddingAnimationParams.AnimationSpec.JUMP_CUT)
+                    .build()
+            )
             .build()
         val rule = SplitPairRule.Builder(filters)
             .setMinWidthDp(600)

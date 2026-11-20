@@ -184,6 +184,28 @@ object Motion {
     fun resetPressFeedback(view: View) = PressFeedback.reset(view)
 
     private fun finishTabletPage(activity: Activity) {
+        val content = activity.findViewById<View>(android.R.id.content)
+        if (content.getTag(R.id.motion_tablet_exit) == true) return
+        content.setTag(R.id.motion_tablet_exit, true)
+
+        if (!pageAnimationsEnabled(activity) || content.width <= 0) {
+            finishTabletPageNow(activity)
+            return
+        }
+
+        val distance = (content.width * 0.1f).coerceAtLeast(
+            activity.resources.displayMetrics.density * 24f
+        )
+        content.animate()
+            .alpha(0f)
+            .translationX(distance)
+            .setDuration(PAGE_RETURN_MS)
+            .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
+            .withEndAction { finishTabletPageNow(activity) }
+            .start()
+    }
+
+    private fun finishTabletPageNow(activity: Activity) {
         activity.finish()
         @Suppress("DEPRECATION")
         activity.overridePendingTransition(0, 0)
