@@ -63,6 +63,10 @@ object Motion {
             intent.putExtra(EXTRA_ORIGIN_COLOR, it.cardBackgroundColor.getColorForState(it.drawableState,
                 it.cardBackgroundColor.defaultColor))
         }
+        if (TabletLayout.isLandscapeTablet(activity)) {
+            activity.startActivity(intent)
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             PageOriginMotion.open(activity, source, intent)
             return
@@ -75,6 +79,13 @@ object Motion {
 
     /** Back progress previews the home page, then the container returns to its entry card. */
     fun preparePage(activity: AppCompatActivity, name: String, sourceColor: Int, restored: Boolean = false) {
+        if (TabletLayout.isLandscapeTablet(activity)) {
+            activity.findViewById<View>(R.id.btnBack).setOnClickListener { activity.finish() }
+            activity.onBackPressedDispatcher.addCallback(activity, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() = activity.finish()
+            })
+            return
+        }
         val content = activity.findViewById<View>(android.R.id.content)
         content.transitionName = name
         val background = ContextCompat.getColor(activity, R.color.bg)

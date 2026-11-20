@@ -75,6 +75,7 @@ class ProtectionActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TabletLayout.lockPhoneToPortrait(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_protection)
         applySystemBarAppearance()
@@ -102,7 +103,7 @@ class ProtectionActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardExceptions).also { card ->
             Motion.bindPressFeedback(card)
             card.setOnClickListener {
-                if (!openingPage) {
+                if (TabletLayout.isLandscapeTablet(this) || !openingPage) {
                     openingPage = true
                     Motion.openPage(this, card, Intent(this, TargetListActivity::class.java)
                         .putExtra(TargetListActivity.EXTRA_EXCLUSIONS, true))
