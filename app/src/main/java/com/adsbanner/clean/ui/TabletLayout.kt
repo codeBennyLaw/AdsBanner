@@ -1,8 +1,6 @@
 package com.adsbanner.clean.ui
 
-import android.app.Activity
 import android.content.Context
-import android.content.pm.ActivityInfo
 import android.util.DisplayMetrics
 import kotlin.math.min
 
@@ -28,9 +26,4 @@ object TabletLayout {
             metrics.widthPixels > metrics.heightPixels
         } == true
 
-    fun lockPhoneToPortrait(activity: Activity) {
-        if (!isTablet(activity) && activity.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) {
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        }
-    }
 }

@@ -70,7 +70,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TabletEmbedding.register(this)
-        TabletLayout.lockPhoneToPortrait(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         Motion.prepareHome(this)
