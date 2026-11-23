@@ -4,13 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SplashScanSessionTest {
-    @Test fun userNavigationEndsOnlyTheAdCrossAllowanceUntilANewLaunch() {
+    @Test fun userNavigationEndsAllSplashActionsUntilANewLaunch() {
         val session = SplashScanSession()
         session.start("app", 1_000)
         assertTrue(session.allowAdClose(1_100, 10_000))
         session.onUserInteraction()
         assertFalse(session.allowAdClose(1_200, 10_000))
-        assertTrue(session.allowPlainSkip(1_200, 10_000, 100))
+        assertFalse(session.pending(1_200, 10_000))
+        assertFalse(session.allowWeak(1_200))
         session.start("other", 2_000)
         assertTrue(session.allowAdClose(2_100, 10_000))
     }
@@ -29,22 +30,24 @@ class SplashScanSessionTest {
         assertFalse(session.allowAdClose(12_100, 10_000))
     }
 
-    @Test fun launchPlainSkipRetainsTheOriginalCoverageAndDeadline() {
+    @Test fun userNavigationWhileCoveredCannotResumeClicksAfterTheShadeCloses() {
         val session = SplashScanSession()
         session.start("app", 1_000)
-        assertTrue(session.allowPlainSkip(6_999, 10_000, 80))
-        assertFalse(session.allowPlainSkip(7_001, 10_000, 80))
-        assertTrue(session.allowPlainSkip(10_999, 10_000, 100))
-        assertFalse(session.allowPlainSkip(11_001, 10_000, 100))
-        assertFalse(session.allowPlainSkip(1_100, 10_000, 60))
-        assertFalse(session.allowWeak(5_000))
+        session.updateCoverage(1_100, true)
+        session.onUserInteraction()
+        session.updateCoverage(1_200, false)
+        assertFalse(session.pending(1_300, 10_000))
+        assertFalse(session.allowWeak(1_300))
+        assertFalse(session.allowAdClose(1_300, 10_000))
     }
-    @Test fun wakeAndShareReturnCannotAuthorizeUnmarkedPlainSkip() {
+    @Test fun userInteractionAlsoEndsAResumedScan() {
         val session = SplashScanSession()
         session.start("app", 1_000, resumed = true)
-        for (score in listOf(80, 85, 90, 100)) assertFalse(session.allowPlainSkip(1_100, 10_000, score))
+        assertTrue(session.pending(1_100, 10_000))
+        session.onUserInteraction()
+        assertFalse(session.pending(1_200, 10_000))
         session.clear()
-        assertFalse(session.allowPlainSkip(1_100, 10_000, 100))
+        assertFalse(session.pending(1_300, 10_000))
     }
 
     @Test fun notificationShadeDoesNotConsumeTheSplashWindow() {

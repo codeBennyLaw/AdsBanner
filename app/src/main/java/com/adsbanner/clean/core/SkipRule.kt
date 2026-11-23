@@ -4,7 +4,7 @@ package com.adsbanner.clean.core
  * "跳过按钮"文案识别。
  *
  * 只做文案判断，位置判断交给 AccessibilityService（需要结合屏幕尺寸）。
- * 强匹配覆盖全屏小型控件，启动兼容与恢复检测分别校验。普通关闭仅限启动初期右上角，
+ * 强匹配只描述文案，点击还需校验真实按钮行为及独立广告证据。普通关闭仅限启动初期右上角，
  * 叉号另需独立广告标记与角落位置校验，不能只凭图形关闭普通弹窗。
  */
 object SkipRule {
@@ -17,6 +17,7 @@ object SkipRule {
     private val idSeparator = Regex("[^a-z0-9]+")
     private val adIdWords = setOf("ad", "ads", "advert", "advertisement", "splash")
     private val closeIdWords = setOf("close", "dismiss", "cross")
+    private val ordinaryIdWords = setOf("setting", "settings", "preference", "switch", "checkbox", "title", "summary", "description", "help")
     private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
     private val countdownEdgeSeparator = Regex("^[|｜丨/·•]\\s*|\\s*[|｜丨/·•]$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
@@ -94,6 +95,16 @@ object SkipRule {
             words.any { it in closeIdWords || (it == "skip" && "splash" in words) }
     }
 
+    /** A named ad action is evidence; a preference describing that action is not. */
+    fun isAdSkipResourceId(viewId: String?): Boolean {
+        if (viewId == null || !viewId.contains(":id/")) return false
+        val entry = viewId.substringAfter(":id/")
+        if (entry.length !in 1..128) return false
+        val words = entry.replace(camelBoundary, "$1_$2").lowercase(java.util.Locale.ROOT).split(idSeparator).toSet()
+        return words.none { it in ordinaryIdWords } && words.any { it in adIdWords } &&
+            words.any { it == "skip" || it in closeIdWords }
+    }
+
     /** Join only an exact countdown belonging to this same small skip control. */
     fun withCountdown(label: String, countdown: String): String? {
         // SDKs may attach the visual divider to the timer node. Strip one edge only.
@@ -117,7 +128,7 @@ object SkipRule {
     }
 
     /** A plain countdown also belongs to alarms/timers; it cannot authorize a generic close. */
-    fun hasAdEvidence(raw: String): Boolean = raw.contains("广告") || JumpAdRule.isAdSkip(raw)
+    fun hasAdEvidence(raw: String): Boolean = isStandaloneAdMarker(normalizedLabel(raw)) || JumpAdRule.hasSkipCountdown(raw)
 
     /** Outside the top region, only a standalone ad label may authorize a plain skip. */
     fun isStandaloneAdMarker(raw: String): Boolean = raw.length <= 20 && standaloneAdMarker.matches(raw.trim())

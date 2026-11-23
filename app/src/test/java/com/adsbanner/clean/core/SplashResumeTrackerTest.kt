@@ -4,6 +4,43 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SplashResumeTrackerTest {
+    @Test fun openingAndBackingOutOfDetailsCannotRearmAFinishedScan() {
+        val tracker = tracker()
+        tracker.finishScan("app")
+        repeat(10) { index ->
+            val opened = tracker.enter("app", "Detail", 11, 100L + index * 100)
+            assertEquals(SplashResumeTracker.Entry.ACTIVITY, opened)
+            assertFalse(tracker.allowsScan(opened))
+            val returned = tracker.enter("app", "Main", 10, 150L + index * 100)
+            assertEquals(SplashResumeTracker.Entry.ACTIVITY, returned)
+            assertFalse(tracker.allowsScan(returned))
+        }
+        tracker.onTransientWindow()
+        val returned = tracker.enter("app", "Main", 10, 2_000)
+        assertEquals(SplashResumeTracker.Entry.RETURN, returned)
+        assertFalse(tracker.allowsScan(returned))
+    }
+
+    @Test fun anActivityChangeNeverStartsANewLaunchBudget() {
+        val tracker = tracker()
+        assertFalse(tracker.allowsScan(tracker.enter("app", "Main", 10, 100)))
+        assertFalse(tracker.allowsScan(tracker.enter("app", "Detail", 11, 200)))
+    }
+
+    @Test fun genuineAppLaunchAndWakeCanDetectANewSplashAfterCompletion() {
+        val tracker = tracker()
+        tracker.finishScan("app")
+        assertTrue(tracker.allowsScan(tracker.enter("other", "Main", 20, 100)))
+        // Finishing an old app's session must not suppress the new app's return context.
+        tracker.finishScan("app")
+        tracker.onTransientWindow()
+        assertTrue(tracker.allowsScan(tracker.enter("other", "Main", 20, 200)))
+        tracker.finishScan("other")
+        tracker.onScreenHidden()
+        tracker.onScreenReady(300)
+        assertTrue(tracker.allowsScan(tracker.enter("other", "Main", 20, 301)))
+    }
+
     private fun tracker() = SplashResumeTracker().apply {
         assertEquals(SplashResumeTracker.Entry.LAUNCH, enter("app", "Main", 10, 0))
     }
