@@ -161,9 +161,11 @@ class SkipRuleTest {
             .forEach { assertFalse(it, SkipRule.hasAdEvidence(it)) }
     }
 
-    @Test fun explicitAdsAndSkipCountdownsStillAuthorizeAdClose() {
-        listOf("广告", "关闭广告", "跳过 5", "3s skip ad")
+    @Test fun onlyStandaloneAdMarkersAndSkipCountdownsArePageEvidence() {
+        listOf("广告", "跳过 5", "3s skip ad")
             .forEach { assertTrue(it, SkipRule.hasAdEvidence(it)) }
+        listOf("广告设置", "会员免广告", "自动跳过广告", "跳过广告", "关闭广告", "跳过广告说明", "Skip ad")
+            .forEach { assertFalse(it, SkipRule.hasAdEvidence(it)) }
     }
 
     @Test fun standaloneAdMarkersAreDistinctFromSettingsAndOrdinaryCountdowns() {

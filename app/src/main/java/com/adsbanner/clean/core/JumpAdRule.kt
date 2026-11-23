@@ -10,4 +10,8 @@ internal object JumpAdRule {
         val label = SkipRule.normalizedLabel(raw)
         return hasAdMarker || label.contains("广告") || englishAd.matches(label) || countdown.containsMatchIn(label)
     }
+
+    /** Ad-related words also occur in settings and articles; only an exact skip timer is self-contained proof. */
+    fun hasSkipCountdown(raw: String): Boolean = SkipRule.match(raw) == SkipRule.STRONG &&
+        countdown.containsMatchIn(SkipRule.normalizedLabel(raw))
 }

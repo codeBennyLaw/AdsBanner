@@ -11,6 +11,7 @@ internal class SplashResumeTracker {
     private var wakeUntil: Long? = null
     private var transientWindow = false
     private var nextWindowCheckAt = 0L
+    private var scanFinished = false
 
     fun clear() {
         packageName = null
@@ -20,6 +21,16 @@ internal class SplashResumeTracker {
         wakeUntil = null
         transientWindow = false
         nextWindowCheckAt = 0L
+        scanFinished = false
+    }
+
+    fun finishScan(pkg: String) { if (pkg == packageName) scanFinished = true }
+
+    /** A user's return within this app cannot restart a finished launch scan. */
+    fun allowsScan(entry: Entry): Boolean = when (entry) {
+        Entry.LAUNCH, Entry.WAKE -> true
+        Entry.RETURN -> !scanFinished
+        else -> false
     }
 
     fun onScreenHidden() {
@@ -61,6 +72,7 @@ internal class SplashResumeTracker {
             else -> Entry.NONE
         }
         if (changed) { activity = null; windowId = null }
+        if (changed || result == Entry.WAKE) scanFinished = false
         packageName = pkg
         if (declaredActivity != null) activity = declaredActivity
         if (validId != null) windowId = validId
