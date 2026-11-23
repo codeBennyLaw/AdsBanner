@@ -33,6 +33,7 @@ import com.adsbanner.clean.core.SkipTargetPolicy
 import com.adsbanner.clean.core.SkipRetryPolicy
 import com.adsbanner.clean.core.SplashClosePolicy
 import com.adsbanner.clean.core.SplashSkipPolicy
+import com.adsbanner.clean.core.SplashCountdownTracker
 import com.adsbanner.clean.core.SystemBarTargetPolicy
 import com.adsbanner.clean.core.SplashScanSession
 import com.adsbanner.clean.core.SplashScanCadence
@@ -74,7 +75,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private data class PendingSkip(val candidate: Candidate, val pkg: String, val bounds: Rect,
         val gesture: Boolean, val startedAt: Long, val absentAt: Long? = null)
     private data class FailedSkip(val node: AccessibilityNodeInfo, val label: String, val failures: Int, val failedAt: Long)
-    private data class ValidatedTarget(val bounds: Rect, val nativeOnly: Boolean)
+    private data class ValidatedTarget(val bounds: Rect, val nativeOnly: Boolean, val coordinateOnly: Boolean = false)
+    private enum class SkipAction { DIRECT, COORDINATE_ONLY, UNSAFE }
     private var pendingSkip: PendingSkip? = null
     private val failedSkips = ArrayList<FailedSkip>(4)
     private val verifySkip = Runnable { verifyPendingSkip() }
@@ -82,6 +84,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val screenState = ScreenStateGate()
     private val splashResume = SplashResumeTracker()
+    private val splashCountdown = SplashCountdownTracker()
     private val foregroundCheck = SplashForegroundCheck()
     private val reconcileForeground = Runnable { reconcileSplashForeground() }
     private var receiverRegistered = false
@@ -305,6 +308,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         super.onConfigurationChanged(newConfig)
         screenCache = null
         clearSplashSource()
+        splashCountdown.clear()
         pauseAdGuard.stop()
     }
 
@@ -407,6 +411,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
 
     private fun stopSplashScan() {
+        splashCountdown.clear()
         splashSession.packageName?.let(splashResume::finishScan)
         handler.removeCallbacks(reconcileForeground)
         foregroundCheck.clear()
@@ -515,6 +520,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             }
             if (activePkg == pkg) splashSession.observeTarget()
             splashSession.updateCoverage(now, covered)
+            if (covered) splashCountdown.clear()
             if (!splashSession.pending(now, Prefs.splashWindowMs) || skipTryCount >= 384) {
                 stopSplashScan()
                 return
@@ -972,6 +978,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             (covered && strength != SkipRule.STRONG)) return null
         val score = scoreOf(strength, self, screenSize(), label)
         if (score <= 0) return null
+        var coordinateOnly = false
         if (candidate.weak && !hasSkipAction(candidate.node)) return null
         if (candidate.weak && SkipRule.isCloseIcon(label)) {
             if (pkg in WEAK_MATCH_BLOCKED || !splashSession.allowAdClose(SystemClock.elapsedRealtime(), Prefs.splashWindowMs) ||
@@ -982,47 +989,66 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 !hasLiveAdMarker(pkg, candidate.node.windowId, covered, self,
                     topOnly = true, treeEvidence = candidate.treeEvidence)) return null
         } else {
-            if (!isConfirmedAdSkip(candidate.node, covered, candidate.treeEvidence)) return null
+            val action = confirmedSkipControl(candidate.node, covered, candidate.treeEvidence) ?: return null
+            coordinateOnly = action == SkipAction.COORDINATE_ONLY
             if (candidate.node.isVisibleToUser) jumpGuard.onAdCandidate(pkg, label)
         }
-        return ValidatedTarget(self, statusBarTarget)
+        return ValidatedTarget(self, statusBarTarget, coordinateOnly)
     }
 
     /** Shared with jump protection so ordinary ad-related text cannot authorize an automatic return either. */
-    internal fun isConfirmedAdSkip(node: AccessibilityNodeInfo, covered: Boolean = false, treeEvidence: Boolean = false): Boolean {
-        val pkg = node.packageName?.toString() ?: return false
+    internal fun isConfirmedAdSkip(node: AccessibilityNodeInfo, covered: Boolean = false, treeEvidence: Boolean = false): Boolean =
+        confirmedSkipControl(node, covered, treeEvidence) != null
+
+    private fun confirmedSkipControl(node: AccessibilityNodeInfo, covered: Boolean, treeEvidence: Boolean): SkipAction? {
+        val pkg = node.packageName?.toString() ?: return null
         val label = skipNodeLabel(node)
-        if (SkipRule.match(label) != SkipRule.STRONG) return false
+        if (SkipRule.match(label) != SkipRule.STRONG) return null
         val target = Rect().also(node::getBoundsInScreen)
+        val screen = screenSize()
         if (!node.isEnabled || (!node.isVisibleToUser && !covered && !isStatusBarTarget(node)) ||
-            scoreOf(SkipRule.STRONG, target, screenSize(), label) <= 0 || !hasSkipAction(node)) return false
-        if (SplashSkipPolicy.hasEvidence(label, node.viewIdResourceName, nearbyAd = false)) return true
-        return SplashSkipPolicy.hasEvidence(label, node.viewIdResourceName,
-            hasLiveAdMarker(pkg, node.windowId, covered, target, treeEvidence = treeEvidence))
+            scoreOf(SkipRule.STRONG, target, screen, label) <= 0) return null
+        val action = skipActionOf(node)
+        if (action == SkipAction.UNSAFE) return null
+        if (action == SkipAction.DIRECT) {
+            if (SplashSkipPolicy.hasEvidence(label, node.viewIdResourceName, nearbyAd = false) ||
+                SplashSkipPolicy.hasEvidence(label, node.viewIdResourceName,
+                    hasLiveAdMarker(pkg, node.windowId, covered, target, treeEvidence = treeEvidence))) return action
+            return null
+        }
+        val now = SystemClock.elapsedRealtime()
+        return action.takeIf {
+            SplashSkipPolicy.allowsCountdownFallback(label, node.viewIdResourceName, target.toTargetBounds(), screen.x, screen.y,
+                coldLaunch = splashSession.packageName == pkg && !splashSession.resumed && splashSession.pending(now, Prefs.splashWindowMs),
+                covered = covered, safeHierarchy = true) &&
+                splashCountdown.observe(node.windowId, label, target.toTargetBounds(), now)
+        }
     }
 
     /** A label must belong to its own button or a tightly fitting clickable parent, never a toggle or article. */
-    private fun hasSkipAction(target: AccessibilityNodeInfo): Boolean {
+    private fun hasSkipAction(target: AccessibilityNodeInfo): Boolean = skipActionOf(target) == SkipAction.DIRECT
+
+    private fun skipActionOf(target: AccessibilityNodeInfo): SkipAction {
         val self = Rect().also(target::getBoundsInScreen).toTargetBounds()
         var node: AccessibilityNodeInfo? = copyNode(target)
         try {
-            repeat(4) {
-                val current = node ?: return false
+            repeat(8) { depth ->
+                val current = node ?: return SkipAction.COORDINATE_ONLY
                 if (current.packageName != target.packageName || current.windowId != target.windowId ||
-                    !current.isEnabled || current.isEditable || current.isCheckable || current.isScrollable) return false
+                    !current.isEnabled || current.isEditable || current.isCheckable || current.isScrollable ||
+                    SplashSkipPolicy.isNavigationContainer(current.className?.toString())) return SkipAction.UNSAFE
                 val action = current.isClickable || current.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
-                if (action) {
-                    if (!SplashSkipPolicy.actionable(action, current.isEditable, current.isCheckable, current.isScrollable) ||
-                        !SkipTargetPolicy.preciseParent(self, Rect().also(current::getBoundsInScreen).toTargetBounds())) return false
+                if (action && depth < 4 && SkipTargetPolicy.preciseParent(self, Rect().also(current::getBoundsInScreen).toTargetBounds())) {
                     // A parent describing a different action cannot borrow a child's skip label.
                     val parentLabel = SkipRule.buttonLabel(current.text?.toString().orEmpty(), current.contentDescription?.toString().orEmpty())
-                    return current == target || parentLabel.isEmpty() || SkipRule.match(parentLabel) != SkipRule.NONE
+                    return if (current == target || parentLabel.isEmpty() || SkipRule.match(parentLabel) != SkipRule.NONE)
+                        SkipAction.DIRECT else SkipAction.UNSAFE
                 }
                 val parent = current.parent
                 recycleNode(current)
                 node = parent
             }
-            return false
+            return SkipAction.COORDINATE_ONLY
         } finally { node?.let(::recycleNode) }
     }
 
@@ -1073,6 +1099,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val validated = validatedBounds(candidate, pkg, covered) ?: return false
         val self = validated.bounds
         candidate.gestureAllowed = !validated.nativeOnly
+        if (validated.coordinateOnly) return false
 
         // 优先点节点自身。向上找可点击父节点时，必须确认父节点没有明显放大成容器，
         // 否则会点到容器中心 —— 广告层里「×」和「⋮」常挂在同一个可点击容器下，就会点偏。
@@ -1140,6 +1167,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 override fun onCancelled(gestureDescription: GestureDescription?) = complete(false)
             }, handler)
         }.getOrDefault(false)
+        if (accepted && target.coordinateOnly) {
+            splashCountdown.consume(candidate.node.windowId, skipNodeLabel(candidate.node), bounds.toTargetBounds())
+        }
         if (!accepted) complete(false)
     }
 

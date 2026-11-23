@@ -4,6 +4,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SplashSkipPolicyTest {
+    @Test fun knownScrollingAndPagingContainersAreUnsafeEvenBeforeTheyExposeScrollableFlags() {
+        for (name in listOf("android.widget.ScrollView", "android.widget.HorizontalScrollView", "androidx.core.widget.NestedScrollView", "androidx.recyclerview.widget.RecyclerView", "android.widget.ListView", "androidx.viewpager2.widget.ViewPager2"))
+            assertTrue(name, SplashSkipPolicy.isNavigationContainer(name))
+        for (name in listOf("android.widget.TextView", "android.widget.FrameLayout", "android.widget.Button", "android.webkit.WebView"))
+            assertFalse(name, SplashSkipPolicy.isNavigationContainer(name))
+        assertFalse(SplashSkipPolicy.isNavigationContainer(null))
+    }
+
+    @Test fun touchOnlyCountdownFallbackRequiresACompactRightCornerAndColdLaunch() {
+        val right = SkipTargetPolicy.Bounds(820, 1810, 960, 1890)
+        assertTrue(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, true, false, true))
+        assertTrue(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(top = 100, bottom = 180), 1000, 2000, true, false, true))
+        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, false, false, true))
+        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, true, true, true))
+        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, true, false, false))
+        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(left = 200, right = 340), 1000, 2000, true, false, true))
+        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(top = 1000, bottom = 1080), 1000, 2000, true, false, true))
+        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(left = 500), 1000, 2000, true, false, true))
+    }
+
+    @Test fun touchFallbackDoesNotAdmitSettingsPlainLabelsOrFinishedTimers() {
+        val right = SkipTargetPolicy.Bounds(820, 1810, 960, 1890)
+        for (label in listOf("跳过广告", "跳过", "2s后可跳过", "跳过登录2s", "跳过0s", "跳过30s"))
+            assertFalse(label, SplashSkipPolicy.allowsCountdownFallback(label, null, right, 1000, 2000, true, false, true))
+        for (id in listOf("android:id/title", "app:id/ad_skip_switch", "app:id/adSkipDescription"))
+            assertFalse(id, SplashSkipPolicy.allowsCountdownFallback("跳过2s", id, right, 1000, 2000, true, false, true))
+    }
+
     @Test fun ordinaryLabelsCannotAuthorizeATapEvenWhenTheyMatchTheSkipVocabulary() {
         for (label in listOf("跳过广告", "关闭广告", "跳过", "skip ad", "Skip", "广告 | 跳过")) {
             assertEquals(label, SkipRule.STRONG, SkipRule.match(label))

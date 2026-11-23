@@ -105,6 +105,13 @@ object SkipRule {
             words.any { it == "skip" || it in closeIdWords }
     }
 
+    fun isOrdinaryResourceId(viewId: String?): Boolean {
+        if (viewId == null || !viewId.contains(":id/")) return false
+        val words = viewId.substringAfter(":id/").replace(camelBoundary, "$1_$2")
+            .lowercase(java.util.Locale.ROOT).split(idSeparator)
+        return words.any { it in ordinaryIdWords }
+    }
+
     /** Join only an exact countdown belonging to this same small skip control. */
     fun withCountdown(label: String, countdown: String): String? {
         // SDKs may attach the visual divider to the timer node. Strip one edge only.

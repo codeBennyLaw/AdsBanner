@@ -4,6 +4,7 @@ package com.adsbanner.clean.core
 internal object JumpAdRule {
     private val countdown = Regex("\\d{1,2}\\s*[sS秒]|^[0-9]{1,2}\\s*[|｜丨/·•]?\\s*跳过(广告)?$|^(点击|轻点)?\\s*跳过(广告)?\\s*\\d{1,2}$|^跳过\\s*[|｜丨/·•（(]\\s*\\d{1,2}\\s*[）)]?$")
     private val englishAd = Regex("^(skip\\s*ad(\\s*[0-9]{1,2}\\s*s?)?|(ad|advertisement)\\s*[|｜丨/·•]?\\s*skip)$", RegexOption.IGNORE_CASE)
+    private val counterNumber = Regex("[0-9]{1,2}")
 
     fun isAdSkip(raw: String, hasAdMarker: Boolean = false): Boolean {
         if (SkipRule.match(raw) != SkipRule.STRONG) return false
@@ -14,4 +15,7 @@ internal object JumpAdRule {
     /** Ad-related words also occur in settings and articles; only an exact skip timer is self-contained proof. */
     fun hasSkipCountdown(raw: String): Boolean = SkipRule.match(raw) == SkipRule.STRONG &&
         countdown.containsMatchIn(SkipRule.normalizedLabel(raw))
+
+    fun skipCountdownSeconds(raw: String): Int? = if (hasSkipCountdown(raw))
+        counterNumber.find(SkipRule.normalizedLabel(raw))?.value?.toIntOrNull() else null
 }
