@@ -20,7 +20,7 @@ import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.StatsStore
 
 /** 以主动操作优先的跳转守护；窗口变快本身不能证明是广告拉起。 */
-internal class JumpGuard(private val service: AccessibilityService) {
+internal class JumpGuard(private val service: AdSkipAccessibilityService) {
     private val handler = Handler(Looper.getMainLooper())
     private val session = JumpGuardSession()
     private var expectedPackage: String? = null
@@ -56,7 +56,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
                 cancelReturn()
                 return
             }
-            // 自动跳过也会产生点击事件，明确的跳过按钮不作为购物意图。
+            // 只排除开屏引擎正在提交的点击；用户点击同名文字仍是主动操作。
             if (type != AccessibilityEvent.TYPE_VIEW_CLICKED || !isSkipClick(event)) {
                 session.userInteraction(pkg, now)
                 if (pending?.let { it.from == pkg || it.target == pkg } == true) cancelReturn()
@@ -75,7 +75,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
 
     /** 开屏引擎已经读取过的按钮直接复用，不在广告关闭前增加一次树遍历。 */
     fun onAdCandidate(pkg: String, label: String) {
-        if (Prefs.jumpGuard && !isTrusted(pkg) && JumpAdRule.isAdSkip(label)) {
+        if (Prefs.jumpGuard && !isTrusted(pkg) && JumpAdRule.isAdSkip(label, hasAdMarker = true)) {
             session.observeAd(pkg, SystemClock.elapsedRealtime(), Prefs.splashWindowMs)
         }
     }
@@ -160,7 +160,6 @@ internal class JumpGuard(private val service: AccessibilityService) {
         val root = service.rootInActiveWindow ?: return
         try {
             if (root.packageName?.toString() != pkg) return
-            var hasAdMarker: Boolean? = null
             for (text in arrayOf("跳过", "skip", "关闭广告")) {
                 val nodes = runCatching { root.findAccessibilityNodeInfosByText(text) }.getOrDefault(emptyList())
                 try {
@@ -168,16 +167,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
                         if (node.packageName?.toString() != pkg || !node.isVisibleToUser || !nearTop(node)) continue
                         val label = label(node)
                         if (SkipRule.match(label) != SkipRule.STRONG) continue
-                        if (!JumpAdRule.isAdSkip(label) && hasAdMarker == null) {
-                            val markers = runCatching { root.findAccessibilityNodeInfosByText("广告") }.getOrDefault(emptyList())
-                            try {
-                                hasAdMarker = markers.any {
-                                    it.packageName?.toString() == pkg && it.isVisibleToUser && nearTop(it) &&
-                                        label(it).let { value -> value.length <= 16 && value.contains("广告") }
-                                }
-                            } finally { markers.forEach(::recycleNode) }
-                        }
-                        if (JumpAdRule.isAdSkip(label, hasAdMarker == true)) {
+                        if (service.isConfirmedAdSkip(node)) {
                             session.observeAd(pkg, now, Prefs.splashWindowMs)
                             return
                         }
@@ -243,9 +233,7 @@ internal class JumpGuard(private val service: AccessibilityService) {
     }
 
     private fun isSkipClick(event: AccessibilityEvent): Boolean {
-        if (event.text.any { SkipRule.match(it.toString()) == SkipRule.STRONG }) return true
-        val source = event.source ?: return false
-        return try { SkipRule.match(label(source)) == SkipRule.STRONG } finally { recycleNode(source) }
+        return service.isPendingSkipClick(event)
     }
 
     private fun isTrusted(pkg: String): Boolean = !ProtectionStore.allows(pkg) || pkg == service.packageName || AppInfoHelper.isHomeOrSystem(service, pkg)
