@@ -30,6 +30,7 @@
             style="@style/Widget.AdsBanner.TypeOption"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="页面内广告" />
+            android:text="页面内广告"
+            android:visibility="gone" />
     </RadioGroup>
 </ScrollView>

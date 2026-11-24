@@ -30,7 +30,7 @@ import java.util.Locale
 
 class StatsActivity : AppCompatActivity() {
     private enum class Range { TODAY, ALL }
-    private enum class Type { ALL, SPLASH, JUMP, PAGE }
+    private enum class Type { ALL, SPLASH, JUMP }
     private data class RowsKey(val snapshot: StatsStore.Snapshot, val range: Range, val type: Type, val day: LocalDate)
     private data class RenderKey(val rows: RowsKey, val sort: StatsSort)
     private data class Rows(val key: RowsKey, val rows: List<StatAppRow>) {
@@ -208,7 +208,7 @@ class StatsActivity : AppCompatActivity() {
         if (typeMenu?.isShowing == true) return
         val content = layoutInflater.inflate(R.layout.dropdown_stats_type, null)
         val dialog = OriginDialog.Builder(this, typeButton).asDropdown().setView(content).create()
-        val choices = listOf(R.id.typeAll, R.id.typeSplash, R.id.typeJump, R.id.typePage)
+        val choices = listOf(R.id.typeAll, R.id.typeSplash, R.id.typeJump)
             .map { content.findViewById<RadioButton>(it) }
         var selected = false
         var closing = false
@@ -349,16 +349,15 @@ class StatsActivity : AppCompatActivity() {
                 val total = countOf(stat, requestedRange, requestedType)
                 if (total <= 0) null else {
                     val detail = when (requestedType) {
-                        Type.ALL -> "开屏 ${if (today) stat.todaySplash else stat.splash} · 跳转 ${if (today) stat.todayJump else stat.jump} · 页面 ${if (today) stat.todayPage else stat.page}"
+                        Type.ALL -> if ((if (today) stat.todayPage else stat.page) > 0) "拦截记录" else
+                            "开屏 ${if (today) stat.todaySplash else stat.splash} · 跳转 ${if (today) stat.todayJump else stat.jump}"
                         Type.SPLASH -> "开屏广告跳过"
                         Type.JUMP -> "误触跳转拦截"
-                        Type.PAGE -> "页面内广告关闭"
                     }
                     val last = when (requestedType) {
                         Type.ALL -> stat.lastAt
                         Type.SPLASH -> stat.lastSplashAt
                         Type.JUMP -> stat.lastJumpAt
-                        Type.PAGE -> stat.lastPageAt
                     }
                     val recent = if (last <= 0) "" else {
                         calendar.timeInMillis = last
@@ -402,7 +401,6 @@ class StatsActivity : AppCompatActivity() {
             Type.ALL -> if (today) stat.todayTotal else stat.total
             Type.SPLASH -> if (today) stat.todaySplash else stat.splash
             Type.JUMP -> if (today) stat.todayJump else stat.jump
-            Type.PAGE -> if (today) stat.todayPage else stat.page
         }
     }
 
@@ -424,7 +422,6 @@ class StatsActivity : AppCompatActivity() {
         Type.ALL -> "全部类型"
         Type.SPLASH -> "开屏广告"
         Type.JUMP -> "误触跳转"
-        Type.PAGE -> "页面内广告"
     }
 
     private fun renderHeatmap() {

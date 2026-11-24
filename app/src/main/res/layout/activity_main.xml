@@ -264,12 +264,14 @@
                 </LinearLayout>
                 <View
                     style="@style/Setting.Divider"
-                    android:layout_width="match_parent" />
+                    android:layout_width="match_parent"
+                    android:visibility="gone" />
                 <LinearLayout
                     style="@style/Setting.Row"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:id="@+id/rowInAppAd">
+                    android:id="@+id/rowInAppAd"
+                    android:visibility="gone">
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
