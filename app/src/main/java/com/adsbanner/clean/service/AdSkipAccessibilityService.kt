@@ -735,7 +735,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val node = pending.candidate.node
             val refreshed = node.refresh()
             val sameNode = refreshed && node.packageName?.toString() == pending.pkg
-            val matches = sameNode && pendingLabelMatches(node, pending)
+            val matches = sameNode && pendingOriginalLabelMatches(node, pending)
             if (pkg != pending.pkg) {
                 if (sameNode && !matches && (pkg == null || pkg in IGNORED_PACKAGES || pkg in imePackages)) {
                     confirmPendingDisappearance()
@@ -819,7 +819,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun pendingTargetMayRemain(root: AccessibilityNodeInfo, pending: PendingSkip,
         refreshed: Boolean = pending.candidate.node.refresh(), knownMatches: Boolean? = null): Boolean {
         val node = pending.candidate.node
-        val matches = knownMatches ?: (refreshed && node.packageName?.toString() == pending.pkg && pendingLabelMatches(node, pending))
+        val matches = knownMatches ?: (refreshed && node.packageName?.toString() == pending.pkg && pendingOriginalLabelMatches(node, pending))
         val sameWindow = root.windowId == node.windowId
         val originalActivity = pending.activity.ifEmpty { verifiedActivityWindows.activity(pending.pkg, pending.windowId).orEmpty() }
         val currentActivity = verifiedActivityWindows.activity(pending.pkg, root.windowId)
@@ -1590,14 +1590,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun pendingLabelMatches(node: AccessibilityNodeInfo, pending: PendingSkip): Boolean {
+    private fun pendingOriginalLabelMatches(node: AccessibilityNodeInfo, pending: PendingSkip): Boolean {
         if (pending.candidate.rule != null) return nodeLabel(node) == pending.candidate.label
         if (pending.candidate.cainiaoContainerOwned &&
             (pending.candidate.label == "跳过" || pending.candidate.label.equals("skip", ignoreCase = true)) &&
             SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty()).isEmpty()) {
-            val screen = screenSize()
             // Identity verification does not need to reauthorize a touch or read a covered sibling marker.
-            if (CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), Rect().also(node::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)) return true
+            if (node.className?.toString()?.substringAfterLast('.') == "View") return true
         }
         return SkipRule.match(skipNodeLabel(node)) >= (if (pending.candidate.weak) SkipRule.WEAK else SkipRule.STRONG)
     }
@@ -1613,7 +1612,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (node.packageName?.toString() == pending.pkg && node.windowId == root.windowId &&
                 (node.isVisibleToUser || covered || isStatusBarTarget(node)) &&
                 CainiaoSplashPolicy.targetBounds(bounds.toTargetBounds(), screen.x, screen.y) &&
-                (SkipRule.match(skipNodeLabel(node)) == SkipRule.STRONG || pendingLabelMatches(node, pending))) return copyNode(node)
+                (SkipRule.match(skipNodeLabel(node)) == SkipRule.STRONG ||
+                    (covered && CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toTargetBounds(), screen.x, screen.y)))) return copyNode(node)
             for (index in 0 until node.childCount) {
                 if (visited >= 700) break
                 val child = node.getChild(index) ?: continue
