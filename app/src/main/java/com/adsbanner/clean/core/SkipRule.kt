@@ -17,7 +17,7 @@ object SkipRule {
     private val idSeparator = Regex("[^a-z0-9]+")
     private val adIdWords = setOf("ad", "ads", "advert", "advertisement", "splash")
     private val closeIdWords = setOf("close", "dismiss", "cross")
-    private val ordinaryIdWords = setOf("setting", "settings", "preference", "switch", "checkbox", "title", "summary", "description", "help")
+    private val ordinaryIdWords = setOf("setting", "settings", "preference", "preferences", "switch", "checkbox", "title", "summary", "description", "help")
     private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
     private val countdownEdgeSeparator = Regex("^[|｜丨/·•]\\s*|\\s*[|｜丨/·•]$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
@@ -41,11 +41,11 @@ object SkipRule {
         Regex("^(点击|轻点)\\s*跳过(广告)?\\s*([0-9]{1,2}\\s*[sS秒]?)?$"),
         // 关闭广告 / 关闭开屏广告（本质仍是广告专属按钮）
         Regex("^关闭(开屏)?广告$"),
-        // skip / skip ad / 5s skip
+        // skip / skip ad / 5 skip / Skip (5s) / Skip | 5
         Regex("^skip(\\s*ad)?$", RegexOption.IGNORE_CASE),
-        Regex("^[0-9]{1,2}\\s*s\\s*skip(\\s*ad)?$", RegexOption.IGNORE_CASE),
-        Regex("^skip\\s*[0-9]{1,2}\\s*s$", RegexOption.IGNORE_CASE),
-        Regex("^skip\\s*ad\\s*[0-9]{1,2}\\s*s?$", RegexOption.IGNORE_CASE)
+        Regex("^[0-9]{1,2}\\s*s?\\s*[|｜丨/·•]?\\s*skip(\\s*ad)?$", RegexOption.IGNORE_CASE),
+        Regex("^skip(\\s*ad)?\\s*[|｜丨/·•]?\\s*[0-9]{1,2}\\s*s?$", RegexOption.IGNORE_CASE),
+        Regex("^skip(\\s*ad)?\\s*[（(]\\s*[0-9]{1,2}\\s*s?\\s*[）)]$", RegexOption.IGNORE_CASE)
     )
 
     /** 普通关闭限右上角，叉号由独立的广告与角落策略校验。 */

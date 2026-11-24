@@ -36,6 +36,7 @@ import com.adsbanner.clean.core.SplashSkipPolicy
 import com.adsbanner.clean.core.SplashCountdownTracker
 import com.adsbanner.clean.core.SplashSkipConfirmationPolicy
 import com.adsbanner.clean.core.KnownSplashControls
+import com.adsbanner.clean.core.XunleiSplashPolicy
 import com.adsbanner.clean.core.VerifiedActivityWindows
 import com.adsbanner.clean.core.SystemBarTargetPolicy
 import com.adsbanner.clean.core.SplashScanSession
@@ -1045,7 +1046,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 (visible || covered || isStatusBarTarget(node, screenWindows))) {
                 val hintBounds = Rect().also(node::getBoundsInScreen)
                 if (label.length <= 16 && hintBounds.centerY() < screen.y * 0.35f && SkipRule.hasAdEvidence(label)) adHints++
-                if (SkipRule.isStandaloneAdMarker(label) && SkipTargetPolicy.smallTarget(hintBounds.toTargetBounds(), screen.x, screen.y)) {
+                if ((SkipRule.isStandaloneAdMarker(label) || XunleiSplashPolicy.isMemberAdMarker(root.packageName?.toString().orEmpty(), label)) &&
+                    SkipTargetPolicy.smallTarget(hintBounds.toTargetBounds(), screen.x, screen.y)) {
                     if (adMarkers.size < 16 && node.packageName == root.packageName && node.windowId == root.windowId)
                         adMarkers.add(label to hintBounds.toTargetBounds())
                 }
@@ -1094,6 +1096,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     !context.forbidden && (context.id != null ||
                         KnownSplashControls.matches(root.packageName?.toString().orEmpty(), knownSplashActivity(candidate.node),
                             candidate.node.viewIdResourceName, candidate.label, rect.toTargetBounds(), screen.x, screen.y) ||
+                        adMarkers.any { (label, marker) -> XunleiSplashPolicy.matches(root.packageName?.toString().orEmpty(),
+                            knownSplashActivity(candidate.node), candidate.label, candidate.node.viewIdResourceName,
+                            rect.toTargetBounds(), label, marker, screen.x, screen.y) } ||
                         SplashSkipPolicy.hasEvidence(candidate.label, candidate.node.viewIdResourceName,
                             adMarkers.any { (label, marker) -> SplashSkipPolicy.markerNearTarget(label, marker,
                                 rect.toTargetBounds(), screen.x, screen.y) }))
@@ -1175,8 +1180,12 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val context = namedAdControl(node, label, target)
         if (context.forbidden) return null
         val dedicatedPage = KnownSplashControls.matches(pkg, knownSplashActivity(node), null, label, target.toTargetBounds(), screen.x, screen.y)
-        val trustedControl = context.id != null || dedicatedPage
-        val action = skipActionOf(node, trustedControl)
+        val xunleiSplash = XunleiSplashPolicy.acceptsTarget(pkg, knownSplashActivity(node), label, node.viewIdResourceName,
+            target.toTargetBounds(), screen.x, screen.y) && hasSafeAdEvidenceHierarchy(node) && hasLiveAdMarker(pkg, node.windowId, covered, target,
+                treeEvidence = treeEvidence, xunleiOnly = true)
+        val trustedControl = context.id != null || dedicatedPage || xunleiSplash
+        // A text pair supplies ad proof, not permission to borrow a scrolling ancestor's action.
+        val action = skipActionOf(node, context.id != null || dedicatedPage)
         if (action == SkipAction.UNSAFE) return null
         if (action == SkipAction.DIRECT) {
             if (trustedControl || SplashSkipPolicy.hasEvidence(label, node.viewIdResourceName, nearbyAd = false) ||
@@ -1207,6 +1216,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 val current = node ?: return AdControlContext(controlId)
                 if (current.packageName != target.packageName || current.windowId != target.windowId ||
                     current.isEditable || current.isCheckable ||
+                    SkipRule.isOrdinaryResourceId(current.viewIdResourceName) ||
                     SkipRule.isSearchResourceId(current.viewIdResourceName)) return AdControlContext(forbidden = true)
                 val id = current.viewIdResourceName
                 if (KnownSplashControls.isControlId(pkg, id) &&
@@ -1227,31 +1237,55 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private fun skipActionOf(target: AccessibilityNodeInfo, trustedControl: Boolean = false): SkipAction {
         val self = Rect().also(target::getBoundsInScreen).toTargetBounds()
+        var direct = false
         var node: AccessibilityNodeInfo? = copyNode(target)
         try {
-            repeat(if (trustedControl) 4 else 8) { depth ->
-                val current = node ?: return SkipAction.COORDINATE_ONLY
+            repeat(30) { depth ->
+                val current = node ?: return if (direct) SkipAction.DIRECT else SkipAction.COORDINATE_ONLY
+                val navigation = current.isScrollable || SplashSkipPolicy.isNavigationContainer(current.className?.toString())
                 if (current.packageName != target.packageName || current.windowId != target.windowId ||
-                    !current.isEnabled || current.isEditable || current.isCheckable || SkipRule.isSearchResourceId(current.viewIdResourceName) ||
-                    ((current.isScrollable || SplashSkipPolicy.isNavigationContainer(current.className?.toString())) &&
-                        (!trustedControl || depth == 0))) return SkipAction.UNSAFE
+                    !current.isEnabled || current.isEditable || current.isCheckable ||
+                    SkipRule.isOrdinaryResourceId(current.viewIdResourceName) || SkipRule.isSearchResourceId(current.viewIdResourceName) ||
+                    (navigation && (!trustedControl || depth == 0))) return SkipAction.UNSAFE
                 val action = current.isClickable || current.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
-                if (action && depth < 4 && SkipTargetPolicy.preciseParent(self, Rect().also(current::getBoundsInScreen).toTargetBounds())) {
+                if (!direct && action && !navigation && depth < 4 &&
+                    SkipTargetPolicy.preciseParent(self, Rect().also(current::getBoundsInScreen).toTargetBounds())) {
                     // A parent describing a different action cannot borrow a child's skip label.
                     val parentLabel = SkipRule.buttonLabel(current.text?.toString().orEmpty(), current.contentDescription?.toString().orEmpty())
-                    return if (current == target || parentLabel.isEmpty() || SkipRule.match(parentLabel) != SkipRule.NONE)
-                        SkipAction.DIRECT else SkipAction.UNSAFE
+                    if (current != target && parentLabel.isNotEmpty() && SkipRule.match(parentLabel) == SkipRule.NONE)
+                        return SkipAction.UNSAFE
+                    // Finding an action does not waive checks on the remaining ancestors.
+                    direct = true
                 }
                 val parent = current.parent
                 recycleNode(current)
                 node = parent
             }
-            return SkipAction.COORDINATE_ONLY
+            return if (node != null) SkipAction.UNSAFE else if (direct) SkipAction.DIRECT else SkipAction.COORDINATE_ONLY
+        } finally { node?.let(::recycleNode) }
+    }
+
+    /** Neither half of an unnumbered text pair may come from a settings or scrolling surface. */
+    private fun hasSafeAdEvidenceHierarchy(target: AccessibilityNodeInfo): Boolean {
+        var node: AccessibilityNodeInfo? = copyNode(target)
+        try {
+            repeat(30) {
+                val current = node ?: return true
+                if (current.packageName != target.packageName || current.windowId != target.windowId ||
+                    current.isEditable || current.isCheckable || current.isScrollable ||
+                    SplashSkipPolicy.isNavigationContainer(current.className?.toString()) ||
+                    SkipRule.isOrdinaryResourceId(current.viewIdResourceName) ||
+                    SkipRule.isSearchResourceId(current.viewIdResourceName)) return false
+                val parent = current.parent
+                recycleNode(current)
+                node = parent
+            }
+            return node == null
         } finally { node?.let(::recycleNode) }
     }
 
     private fun hasLiveAdMarker(pkg: String, windowId: Int, covered: Boolean, target: Rect,
-        topOnly: Boolean = false, closeIcon: Boolean = false, treeEvidence: Boolean): Boolean {
+        topOnly: Boolean = false, closeIcon: Boolean = false, treeEvidence: Boolean, xunleiOnly: Boolean = false): Boolean {
         val screenWindows = windows.orEmpty()
         val root = screenWindows.firstOrNull { it.id == windowId }?.root ?: rootInActiveWindow
             ?: run { recycleWindows(screenWindows); return false }
@@ -1264,8 +1298,12 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 if (node.packageName?.toString() != pkg || node.windowId != windowId ||
                     (!node.isVisibleToUser && !(covered && !closeIcon) && !isStatusBarTarget(node, screenWindows)) ||
                     (topOnly && bounds.centerY() >= screen.y * 0.35f)) return false
-                return if (closeIcon) SplashClosePolicy.markerNearTarget(text, bounds.toTargetBounds(), target.toTargetBounds(), screen.x, screen.y)
+                if (xunleiOnly) return node.isVisibleToUser && XunleiSplashPolicy.matches(pkg,
+                    verifiedActivityWindows.activity(pkg, windowId).orEmpty(), "跳过", null, target.toTargetBounds(),
+                    text, bounds.toTargetBounds(), screen.x, screen.y) && hasSafeAdEvidenceHierarchy(node)
+                val nearby = if (closeIcon) SplashClosePolicy.markerNearTarget(text, bounds.toTargetBounds(), target.toTargetBounds(), screen.x, screen.y)
                     else SplashSkipPolicy.markerNearTarget(text, bounds.toTargetBounds(), target.toTargetBounds(), screen.x, screen.y)
+                return nearby && hasSafeAdEvidenceHierarchy(node)
             }
             for (query in if (topOnly) arrayOf("广告") else arrayOf("广告", "ad")) {
                 val markers = root.findAccessibilityNodeInfosByText(query).orEmpty()
@@ -1313,6 +1351,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     val parentRect = Rect()
                     node.getBoundsInScreen(parentRect)
                     val precise = SkipTargetPolicy.preciseParent(self.toTargetBounds(), parentRect.toTargetBounds())
+                    if (precise && node != candidate.node) {
+                        val label = SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty())
+                        if (node.isEditable || node.isCheckable || node.isScrollable ||
+                            SplashSkipPolicy.isNavigationContainer(node.className?.toString()) ||
+                            SkipRule.isOrdinaryResourceId(node.viewIdResourceName) || SkipRule.isSearchResourceId(node.viewIdResourceName) ||
+                            (label.isNotEmpty() && SkipRule.match(label) == SkipRule.NONE)) {
+                            candidate.gestureAllowed = false
+                            return false
+                        }
+                    }
                     if (precise && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                         beginSkipVerification(candidate, pkg, gesture = false)
                         return true
