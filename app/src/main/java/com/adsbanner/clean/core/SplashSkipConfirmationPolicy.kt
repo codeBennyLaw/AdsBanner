@@ -5,6 +5,11 @@ internal object SplashSkipConfirmationPolicy {
     const val GESTURE_SETTLE_MS = 1_000L
     const val ABSENCE_MS = 200L
 
+    /** Only retain result verification; this does not authorize a click or prove success. */
+    fun canKeepGestureResult(gesture: Boolean, startedUptime: Long, eventUptime: Long,
+        targetWindowId: Int, eventWindowId: Int): Boolean = gesture && startedUptime > 0 &&
+        targetWindowId >= 0 && targetWindowId == eventWindowId && eventUptime - startedUptime in 0L..300L
+
     fun ownGestureParentClick(gesture: Boolean, startedUptime: Long, eventUptime: Long,
         target: SkipTargetPolicy.Bounds, source: SkipTargetPolicy.Bounds): Boolean =
         gesture && startedUptime > 0 && eventUptime - startedUptime in 0L..300L &&

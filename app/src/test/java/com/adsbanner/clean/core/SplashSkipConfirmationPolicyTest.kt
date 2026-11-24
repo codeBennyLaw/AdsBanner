@@ -7,6 +7,16 @@ class SplashSkipConfirmationPolicyTest {
     private val target = SkipTargetPolicy.Bounds(820, 1810, 960, 1890)
     private val parent = SkipTargetPolicy.Bounds(0, 0, 1000, 2000)
 
+    @Test fun aTransitionReportMayRetainTheResultOnlyForTheSameAcceptedGestureWindow() {
+        assertTrue(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1060, 20, 20))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(false, 1000, 1060, 20, 20))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1060, 20, 21))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1301, 20, 20))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 999, 20, 20))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 0, 60, 20, 20))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1060, -1, -1))
+    }
+
     @Test fun injectedGestureCanReportTheClickOnItsLargeAncestor() {
         assertTrue(SplashSkipConfirmationPolicy.ownGestureParentClick(true, 1000, 1060, target, parent))
         assertFalse(SplashSkipConfirmationPolicy.ownGestureParentClick(false, 1000, 1060, target, parent))
