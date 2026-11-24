@@ -6,6 +6,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun englishCountdownsShareTheSameEvidenceAcrossSkipAndJumpProtection() {
+        for (label in listOf("Skip 5", "SKIP AD 5", "5 Skip", "5s | Skip ad", "Skip | 5s",
+                "Skip (5s)", "Skip ad（5）", "Ad | Skip 5", "Advertisement Skip (5)")) {
+            assertEquals(label, SkipRule.STRONG, SkipRule.match(label))
+            assertTrue(label, JumpAdRule.hasSkipCountdown(label))
+            assertTrue(label, JumpAdRule.isAdSkip(label))
+            assertEquals(label, 5, JumpAdRule.skipCountdownSeconds(label))
+            assertTrue(label, SplashSkipPolicy.hasEvidence(label, null, nearbyAd = false))
+        }
+        assertEquals("Skip 5", SkipRule.withCountdown("Skip", "5"))
+        assertEquals("Skip 5", SkipRule.buttonLabel("5", "Skip"))
+    }
+
+    @Test fun englishCountdownsCannotAdmitFutureActionsInstructionsOrMultipleTimers() {
+        for (label in listOf("Skip ad in 5s", "5s until Skip", "Skip login 5", "Skip tutorial (5)",
+                "Step 5 Skip", "Skip 123", "123 Skip", "5 Skip 4", "Skip || 5", "Skip (5s", "Skip 5s)")) {
+            assertEquals(label, SkipRule.NONE, SkipRule.match(label))
+            assertFalse(label, JumpAdRule.hasSkipCountdown(label))
+            assertFalse(label, JumpAdRule.isAdSkip(label, hasAdMarker = true))
+        }
+        assertFalse(JumpAdRule.hasSkipCountdown("Skip ad"))
+        assertEquals(null, SkipRule.withCountdown("Skip", "in 5s"))
+    }
+
     @Test fun aDividerAttachedToTheSameControlsTimerCanJoinTheSkipAction() {
         for (separator in listOf("|", "｜", "丨", "/", "·", "•")) {
             for (timer in listOf("2s$separator", "2 s $separator", "$separator 2s")) {
