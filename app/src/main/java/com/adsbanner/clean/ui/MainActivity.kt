@@ -348,7 +348,7 @@ class MainActivity : AppCompatActivity() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
         OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
-            .setMessage(InterceptNotifier.describe(this) + "\n\n点击“测试”同时发送 3 条提示，不计入统计。")
+            .setMessage(InterceptNotifier.describe(this) + "\n\n点击“测试”同时发送 2 条提示，不计入统计。")
             .setPositiveButton("测试") { _, _ -> sendTestNotifications() }
             .setNeutralButton("设置") { _, _ ->
                 if (canOpenSettings) {
@@ -359,7 +359,7 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("关闭", null)
             .show().apply {
-                getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.contentDescription = "发送 3 条独立拦截提示"
+                getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.contentDescription = "发送 2 条独立拦截提示"
                 getButton(android.content.DialogInterface.BUTTON_NEUTRAL)?.contentDescription = "打开系统实时通知设置"
             }
     }
@@ -369,10 +369,10 @@ class MainActivity : AppCompatActivity() {
             toast("先打开右侧开关")
             return
         }
-        listOf(StatsStore.Kind.SPLASH, StatsStore.Kind.JUMP, StatsStore.Kind.PAGE_AD).forEachIndexed { index, kind ->
+        listOf(StatsStore.Kind.SPLASH, StatsStore.Kind.JUMP).forEachIndexed { index, kind ->
             InterceptNotifier.notify(this, "示例应用 ${index + 1}", kind)
         }
-        toast("已发送 3 条独立的 10 秒测试提示")
+        toast("已发送 2 条独立的 10 秒测试提示")
     }
 
     private fun setupSwitches() {
