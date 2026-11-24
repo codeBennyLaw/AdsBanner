@@ -43,6 +43,7 @@ class CainiaoSplashPolicyTest {
     @Test fun adChoicesImagesShakeButtonsAndOrdinaryPagePositionsAreNotCanvasSkips() {
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.widget.ImageView", circle, width, height))
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", SkipTargetPolicy.Bounds(1190, 72, 1204, 86), width, height))
+        assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle.copy(top = 40, bottom = 144), width, height))
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle.copy(top = 1700, bottom = 1804), width, height))
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle.copy(left = 800), width, height))
     }

@@ -26,6 +26,7 @@ internal object CainiaoSplashPolicy {
     /** Do not confuse a tiny ad-choice dot or a large shake/CTA surface with the circular control. */
     fun unlabeledBounds(className: String?, bounds: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean =
         className?.substringAfterLast('.') == "View" && targetBounds(bounds, width, height) &&
+            bounds.top >= height * 0.035f &&
             bounds.width >= width * 0.04f && bounds.height >= height * 0.015f &&
             bounds.width >= bounds.height * 0.70f && bounds.width <= bounds.height * 1.50f
 
