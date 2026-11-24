@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SkipRuleTest {
+    @Test fun pluralPreferenceContainersCannotSupplyAdControlIdentity() {
+        for (id in listOf("app:id/preferences", "app:id/adSkipPreferences", "app:id/splash_skip_preferences")) {
+            assertTrue(id, SkipRule.isOrdinaryResourceId(id))
+            assertFalse(id, SkipRule.isAdSkipResourceId(id))
+        }
+        assertFalse(SkipRule.isOrdinaryResourceId("app:id/splash_skip_btn"))
+    }
+
     @Test fun englishCountdownsShareTheSameEvidenceAcrossSkipAndJumpProtection() {
         for (label in listOf("Skip 5", "SKIP AD 5", "5 Skip", "5s | Skip ad", "Skip | 5s",
                 "Skip (5s)", "Skip ad（5）", "Ad | Skip 5", "Advertisement Skip (5)")) {

@@ -17,7 +17,7 @@ object SkipRule {
     private val idSeparator = Regex("[^a-z0-9]+")
     private val adIdWords = setOf("ad", "ads", "advert", "advertisement", "splash")
     private val closeIdWords = setOf("close", "dismiss", "cross")
-    private val ordinaryIdWords = setOf("setting", "settings", "preference", "switch", "checkbox", "title", "summary", "description", "help")
+    private val ordinaryIdWords = setOf("setting", "settings", "preference", "preferences", "switch", "checkbox", "title", "summary", "description", "help")
     private val countdownPart = Regex("^[0-9]{1,2}\\s*[sS秒]?$")
     private val countdownEdgeSeparator = Regex("^[|｜丨/·•]\\s*|\\s*[|｜丨/·•]$")
     private val standaloneAdMarker = Regex("^(广告|ad|advertisement)(\\s*[|丨/·•]?\\s*[0-9]{1,2}\\s*[sS秒]?)?$", RegexOption.IGNORE_CASE)
