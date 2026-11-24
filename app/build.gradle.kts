@@ -11,8 +11,8 @@ android {
         applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "3.1.4"
+        versionCode = 25
+        versionName = "3.1.5"
 
     }
 
