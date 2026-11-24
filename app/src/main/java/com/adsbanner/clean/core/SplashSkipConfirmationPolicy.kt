@@ -2,7 +2,7 @@ package com.adsbanner.clean.core
 
 /** Confirm an already submitted action without confusing its event with a new user tap. */
 internal object SplashSkipConfirmationPolicy {
-    const val RESULT_SETTLE_MS = 1_000L
+    const val RESULT_SETTLE_MS = 2_000L
     const val WINDOW_SETTLE_MS = 2_000L
     const val ABSENCE_MS = 200L
 
