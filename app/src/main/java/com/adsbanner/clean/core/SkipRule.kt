@@ -112,6 +112,17 @@ object SkipRule {
         return words.any { it in ordinaryIdWords }
     }
 
+    fun isSearchResourceId(viewId: String?): Boolean {
+        if (viewId == null || !viewId.contains(":id/")) return false
+        val words = viewId.substringAfter(":id/").replace(camelBoundary, "$1_$2")
+            .lowercase(java.util.Locale.ROOT).split(idSeparator)
+        return words.any { it in setOf("search", "searchbar", "searchbox", "query", "keyword") }
+    }
+
+    fun isSplashAdControlResourceId(viewId: String?): Boolean = isAdCloseResourceId(viewId) &&
+        viewId.orEmpty().substringAfter(":id/").replace(camelBoundary, "$1_$2")
+            .lowercase(java.util.Locale.ROOT).split(idSeparator).contains("splash")
+
     /** Join only an exact countdown belonging to this same small skip control. */
     fun withCountdown(label: String, countdown: String): String? {
         // SDKs may attach the visual divider to the timer node. Strip one edge only.

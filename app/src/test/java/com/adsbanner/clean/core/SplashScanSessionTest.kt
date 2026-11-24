@@ -4,6 +4,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SplashScanSessionTest {
+    @Test fun aFeedScrollKeepsOnlyKnownControlQueriesWithinTheOriginalDeadline() {
+        val session = SplashScanSession()
+        session.start("tv.danmaku.bili", 1000)
+        session.restrictToKnownControls()
+        assertTrue(session.knownControlsOnly)
+        assertTrue(session.pending(1500, 10_000))
+        assertFalse(session.allowWeak(1500))
+        assertFalse(session.allowAdClose(1500, 10_000))
+        assertFalse(session.pending(11_001, 10_000))
+        session.onUserInteraction()
+        assertFalse(session.pending(1500, 10_000))
+    }
+
+    @Test fun aKnownOnlyMainReturnNeverEnablesGenericCloseOrExtendsItsWindow() {
+        val session = SplashScanSession()
+        session.start("tv.danmaku.bili", 1000, resumed = true, knownControlsOnly = true)
+        assertTrue(session.pending(1500, 10_000))
+        assertTrue(session.knownControlsOnly)
+        assertFalse(session.allowWeak(1500))
+        assertFalse(session.pending(11_001, 10_000))
+        session.clear()
+        assertFalse(session.knownControlsOnly)
+    }
+
     @Test fun userNavigationEndsAllSplashActionsUntilANewLaunch() {
         val session = SplashScanSession()
         session.start("app", 1_000)

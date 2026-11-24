@@ -8,6 +8,10 @@ internal object SplashSkipPolicy {
 
     fun isNavigationContainer(className: String?): Boolean = className?.substringAfterLast('.') in navigationContainers
 
+    fun compactClose(target: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean =
+        target.width <= width * 0.24f && target.height <= height * 0.08f &&
+            SkipTargetPolicy.score(SkipRule.WEAK, target, width, height, closeIcon = true) > 0
+
     fun actionable(hasClickAction: Boolean, editable: Boolean, checkable: Boolean, scrollable: Boolean): Boolean =
         hasClickAction && !editable && !checkable && !scrollable
 
@@ -15,13 +19,13 @@ internal object SplashSkipPolicy {
         SkipRule.match(label) == SkipRule.STRONG &&
             (JumpAdRule.hasSkipCountdown(label) || SkipRule.isAdSkipResourceId(viewId) || nearbyAd)
 
-    /** Touch-only controls need a live countdown, a compact right corner and the original launch session. */
+    /** Unknown touch-only controls need a live countdown and a bounded active scan. */
     fun allowsCountdownFallback(label: String, viewId: String?, target: SkipTargetPolicy.Bounds,
-        width: Int, height: Int, coldLaunch: Boolean, covered: Boolean, safeHierarchy: Boolean): Boolean =
-        coldLaunch && !covered && safeHierarchy && !SkipRule.isOrdinaryResourceId(viewId) &&
+        width: Int, height: Int, activeScan: Boolean, covered: Boolean, safeHierarchy: Boolean): Boolean =
+        activeScan && !covered && safeHierarchy && !SkipRule.isOrdinaryResourceId(viewId) && !SkipRule.isSearchResourceId(viewId) &&
             JumpAdRule.skipCountdownSeconds(label)?.let { it in 1..10 } == true &&
-            target.width <= width * 0.24f && target.height <= height * 0.06f &&
-            SkipTargetPolicy.score(SkipRule.STRONG, target, width, height) in setOf(90, 100)
+            target.width <= width * 0.32f && target.height <= height * 0.08f &&
+            SkipTargetPolicy.score(SkipRule.STRONG, target, width, height) > 0
 
     /** An independent compact ad label must occupy the same vertical band as the control. */
     fun markerNearTarget(label: String, marker: SkipTargetPolicy.Bounds,

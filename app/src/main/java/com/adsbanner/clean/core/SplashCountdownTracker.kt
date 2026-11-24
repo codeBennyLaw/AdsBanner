@@ -22,6 +22,17 @@ internal class SplashCountdownTracker {
 
     fun clear() { observations.clear() }
 
+    fun invalidateProofs() { observations.removeAll { !it.consumed } }
+
+    fun canAttempt(windowId: Int, bounds: SkipTargetPolicy.Bounds): Boolean =
+        observations.none { it.consumed && it.windowId == windowId && samePosition(it.bounds, bounds) } &&
+            (observations.size < 8 || observations.any { !it.consumed })
+
+    /** A static label gets a short burst, not faster polling for the whole launch window. */
+    fun nextCheckDelay(now: Long): Long? = 80L.takeIf {
+        observations.any { !it.consumed && it.seconds > 0 && now - it.tickAt in 0L..1_500L }
+    }
+
     fun observe(windowId: Int, label: String, bounds: SkipTargetPolicy.Bounds, now: Long): Boolean {
         val seconds = JumpAdRule.skipCountdownSeconds(label) ?: return false
         if (windowId < 0 || seconds !in 0..10 || bounds.width <= 0 || bounds.height <= 0) return false
@@ -52,11 +63,16 @@ internal class SplashCountdownTracker {
     }
 
     /** One accepted coordinate gesture per observed control, even if its timer node is recreated. */
-    fun consume(windowId: Int, label: String, bounds: SkipTargetPolicy.Bounds) {
+    fun consume(windowId: Int, label: String, bounds: SkipTargetPolicy.Bounds, now: Long = 0L) {
         val signature = signature(label)
-        observations.firstOrNull {
+        val existing = observations.firstOrNull {
             it.windowId == windowId && it.signature == signature && samePosition(it.bounds, bounds)
-        }?.consumed = true
+        }
+        if (existing != null) { existing.consumed = true; return }
+        if (!canAttempt(windowId, bounds)) return
+        if (observations.size >= 8) observations.removeAt(observations.indexOfFirst { !it.consumed })
+        observations.add(Observation(windowId, signature, bounds, JumpAdRule.skipCountdownSeconds(label) ?: 0,
+            now, now, consumed = true))
     }
 
     private fun signature(label: String): String = SkipRule.normalizedLabel(label)

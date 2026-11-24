@@ -12,15 +12,15 @@ class SplashSkipPolicyTest {
         assertFalse(SplashSkipPolicy.isNavigationContainer(null))
     }
 
-    @Test fun touchOnlyCountdownFallbackRequiresACompactRightCornerAndColdLaunch() {
+    @Test fun touchOnlyCountdownFallbackRequiresACompactTargetAndAnActiveScan() {
         val right = SkipTargetPolicy.Bounds(820, 1810, 960, 1890)
         assertTrue(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, true, false, true))
         assertTrue(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(top = 100, bottom = 180), 1000, 2000, true, false, true))
         assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, false, false, true))
         assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, true, true, true))
         assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right, 1000, 2000, true, false, false))
-        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(left = 200, right = 340), 1000, 2000, true, false, true))
-        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(top = 1000, bottom = 1080), 1000, 2000, true, false, true))
+        assertTrue(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(left = 200, right = 340), 1000, 2000, true, false, true))
+        assertTrue(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(top = 1000, bottom = 1080), 1000, 2000, true, false, true))
         assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", null, right.copy(left = 500), 1000, 2000, true, false, true))
     }
 
@@ -30,6 +30,7 @@ class SplashSkipPolicyTest {
             assertFalse(label, SplashSkipPolicy.allowsCountdownFallback(label, null, right, 1000, 2000, true, false, true))
         for (id in listOf("android:id/title", "app:id/ad_skip_switch", "app:id/adSkipDescription"))
             assertFalse(id, SplashSkipPolicy.allowsCountdownFallback("跳过2s", id, right, 1000, 2000, true, false, true))
+        assertFalse(SplashSkipPolicy.allowsCountdownFallback("跳过2s", "app:id/search", right, 1000, 2000, true, false, true))
     }
 
     @Test fun ordinaryLabelsCannotAuthorizeATapEvenWhenTheyMatchTheSkipVocabulary() {

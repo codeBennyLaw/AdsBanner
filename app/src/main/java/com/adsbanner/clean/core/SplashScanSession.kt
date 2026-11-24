@@ -6,6 +6,8 @@ internal class SplashScanSession {
         private set
     var resumed = false
         private set
+    var knownControlsOnly = false
+        private set
     private var startedAt = 0L
     private var coveredAt: Long? = null
     private var coveredMs = 0L
@@ -14,16 +16,18 @@ internal class SplashScanSession {
 
     val covered: Boolean get() = coveredAt != null
 
-    fun start(pkg: String, now: Long, resumed: Boolean = false) {
+    fun start(pkg: String, now: Long, resumed: Boolean = false, knownControlsOnly: Boolean = false) {
         clear()
         packageName = pkg
         startedAt = now
         this.resumed = resumed
+        this.knownControlsOnly = knownControlsOnly
     }
 
     fun clear() {
         packageName = null
         resumed = false
+        knownControlsOnly = false
         startedAt = 0L
         coveredAt = null
         coveredMs = 0L
@@ -44,7 +48,7 @@ internal class SplashScanSession {
     fun age(now: Long): Long = (now - startedAt - coveredMs -
         (coveredAt?.let { now - it } ?: 0L)).coerceAtLeast(0L)
 
-    fun pending(now: Long, windowMs: Long): Boolean = packageName != null && !interacted &&
+    fun pending(now: Long, windowMs: Long): Boolean = packageName != null && (!interacted || knownControlsOnly) &&
         age(now) <= windowMs && now - startedAt <= windowMs + 30_000L
 
     // 通知栏可能盖住广告直到它自行消失，恢复时不能把正常页面的「关闭」当作开屏按钮。
@@ -53,7 +57,10 @@ internal class SplashScanSession {
     /** An independently confirmed ad cross can appear later; it still belongs to the original cold launch. */
     fun allowAdClose(now: Long, windowMs: Long): Boolean = pending(now, windowMs) && !resumed && !covered && !interacted
 
-    fun onUserInteraction() { if (packageName != null) interacted = true }
+    fun onUserInteraction() { if (packageName != null) { interacted = true; knownControlsOnly = false } }
+
+    /** A restored feed can scroll by itself; only reserved splash IDs may remain after that event. */
+    fun restrictToKnownControls() { if (packageName != null) { interacted = true; knownControlsOnly = true } }
 
     fun observeTarget() {
         targetSeen = true

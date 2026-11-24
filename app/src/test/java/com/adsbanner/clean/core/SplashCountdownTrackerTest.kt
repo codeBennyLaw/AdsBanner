@@ -4,6 +4,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SplashCountdownTrackerTest {
+    @Test fun fastNamedControlsConsumeOneAttemptWithoutAnyTimerObservation() {
+        val tracker = SplashCountdownTracker()
+        assertTrue(tracker.canAttempt(10, target))
+        tracker.consume(10, "跳过", target, 100)
+        assertFalse(tracker.canAttempt(10, target))
+        assertFalse(tracker.observe(10, "跳过3s", target, 1000))
+        tracker.invalidateProofs()
+        assertFalse(tracker.canAttempt(10, target))
+    }
+
+    @Test fun fastPollingIsLimitedToTheUnconfirmedTimerBurst() {
+        val tracker = SplashCountdownTracker()
+        assertNull(tracker.nextCheckDelay(0))
+        tracker.observe(10, "跳过3s", target, 100)
+        assertEquals(80L, tracker.nextCheckDelay(1000))
+        tracker.observe(10, "跳过3s", target, 1400)
+        assertNull(tracker.nextCheckDelay(1601))
+        tracker.invalidateProofs()
+        assertNull(tracker.nextCheckDelay(1700))
+    }
+
     private val target = SkipTargetPolicy.Bounds(820, 1810, 960, 1890)
 
     @Test fun chaoxingStyleTwoSecondLabelRequiresAnActualDecrease() {
