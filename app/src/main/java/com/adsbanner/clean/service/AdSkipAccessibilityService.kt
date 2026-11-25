@@ -1693,10 +1693,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (depth > 30 || visited++ >= 700) return null
             val bounds = Rect().also(node::getBoundsInScreen)
             if (node.packageName?.toString() == pending.pkg && node.windowId == root.windowId &&
+                node.isEnabled && !node.isEditable && !node.isCheckable &&
+                !SkipRule.isOrdinaryResourceId(node.viewIdResourceName) && !SkipRule.isSearchResourceId(node.viewIdResourceName) &&
                 (node.isVisibleToUser || covered || isStatusBarTarget(node)) &&
                 CainiaoSplashPolicy.targetBounds(bounds.toTargetBounds(), screen.x, screen.y) &&
                 (SkipRule.match(skipNodeLabel(node)) == SkipRule.STRONG ||
-                    (covered && CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toTargetBounds(), screen.x, screen.y)))) return copyNode(node)
+                    (SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty()).isEmpty() &&
+                        CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toTargetBounds(), screen.x, screen.y)))) return copyNode(node)
             for (index in 0 until node.childCount) {
                 if (visited >= 700) break
                 val child = node.getChild(index) ?: continue
@@ -1704,7 +1707,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
             }
             return null
         }
-        return try { for (container in containers.take(4)) walk(container, 0)?.let { return it }; null }
+        // Result verification never authorizes a new gesture. A recreated circular View can
+        // still block success when its separately drawn/accessible marker has disappeared.
+        return try {
+            for (container in containers.take(4)) {
+                if (container.windowId == root.windowId && CainiaoSplashPolicy.isContainer(pending.pkg,
+                        container.viewIdResourceName, Rect().also(container::getBoundsInScreen).toTargetBounds(), screen.x, screen.y))
+                    walk(container, 0)?.let { return it }
+            }
+            null
+        }
         finally { containers.forEach(::recycleNode) }
     }
 
