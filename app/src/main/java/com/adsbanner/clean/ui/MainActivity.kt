@@ -349,9 +349,25 @@ class MainActivity : AppCompatActivity() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
         val version = "当前版本：${com.adsbanner.clean.BuildConfig.VERSION_NAME}（${com.adsbanner.clean.BuildConfig.VERSION_CODE}）"
         val report = version + "\n\n" + SplashDiagnostics.describe(this) + "\n\n" + InterceptNotifier.describe(this)
+        val message = TextView(this).apply {
+            id = android.R.id.message
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+            text = report + "\n\n点击“测试”同时发送 2 条提示，不计入统计。长按诊断文字可复制。"
+            setTextIsSelectable(true)
+            setPadding(dp(24), 0, dp(24), dp(12))
+        }
+        val reportView = object : ScrollView(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                // Long reports must leave room for native dialog actions at large font sizes.
+                val limit = minOf(dp(320), (resources.displayMetrics.heightPixels * 0.38f).toInt())
+                val available = if (View.MeasureSpec.getMode(heightMeasureSpec) == View.MeasureSpec.UNSPECIFIED) limit
+                    else minOf(limit, View.MeasureSpec.getSize(heightMeasureSpec))
+                super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(available, View.MeasureSpec.AT_MOST))
+            }
+        }.apply { addView(message) }
         OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
-            .setMessage(report + "\n\n点击“测试”同时发送 2 条提示，不计入统计。长按诊断文字可复制。")
+            .setView(reportView)
             .setPositiveButton("测试") { _, _ -> sendTestNotifications() }
             .setNeutralButton("设置") { _, _ ->
                 if (canOpenSettings) {
@@ -362,7 +378,6 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("关闭", null)
             .show().apply {
-                findViewById<TextView>(android.R.id.message)?.setTextIsSelectable(true)
                 getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.contentDescription = "发送 2 条独立拦截提示"
                 getButton(android.content.DialogInterface.BUTTON_NEUTRAL)?.contentDescription = "打开系统实时通知设置"
             }
