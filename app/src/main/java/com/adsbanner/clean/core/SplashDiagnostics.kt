@@ -99,13 +99,8 @@ object SplashDiagnostics {
                 entry.optString("notification").takeIf(String::isNotEmpty)?.let { "\n$it" }.orEmpty() +
                 entry.optString("build").takeIf(String::isNotEmpty)?.let { "\n记录构建：$it" }.orEmpty() +
                 entry.optString("scanState").takeIf(String::isNotEmpty)?.let { "\n扫描状态：$it" }.orEmpty() +
-                entry.optJSONArray("samples")?.let { "\n结构样本：${it.length()} 份（详细记录可导出为文件）" }.orEmpty()
+                entry.optJSONArray("samples")?.let { "\n结构样本：${it.length()} 份" }.orEmpty()
         }
-    }
-
-    @Synchronized fun export(context: Context): String {
-        init(context)
-        return JSONArray(entries).toString()
     }
 
     private fun update(pkg: String, change: (JSONObject) -> Boolean) {

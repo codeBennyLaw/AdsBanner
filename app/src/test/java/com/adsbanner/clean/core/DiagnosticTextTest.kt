@@ -15,7 +15,7 @@ class DiagnosticTextTest {
             val result = DiagnosticText.limit(text)
             assertTrue(result.length <= DiagnosticText.MAX_CHARS)
             assertTrue(result.toByteArray(Charsets.UTF_8).size <= DiagnosticText.MAX_UTF8_BYTES)
-            assertTrue(result.endsWith("详细记录请点“导出”。"))
+            assertTrue(result.endsWith("…内容已精简。"))
             assertEquals(result, DiagnosticText.limit(result))
             assertEquals(result, result.toByteArray(Charsets.UTF_8).toString(Charsets.UTF_8))
         }

@@ -4,7 +4,7 @@ package com.adsbanner.clean.core
 internal object DiagnosticText {
     const val MAX_CHARS = 1600
     const val MAX_UTF8_BYTES = 4096
-    private const val SUFFIX = "\n…内容已精简，详细记录请点“导出”。"
+    private const val SUFFIX = "\n…内容已精简。"
 
     fun limit(text: String): String {
         val result = StringBuilder()
