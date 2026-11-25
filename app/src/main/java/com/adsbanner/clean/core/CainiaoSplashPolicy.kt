@@ -39,14 +39,22 @@ internal object CainiaoSplashPolicy {
     fun emptySdkMarker(pkg: String, className: String?, label: String, marker: SkipTargetPolicy.Bounds,
         target: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean = isPackage(pkg) &&
         className == "android.widget.TextView" && SkipRule.normalizedLabel(label).isEmpty() &&
-        markerBounds(marker, target, width, height)
+        lowerMarkerRow(marker, target, width, height) &&
+        (markerBounds(marker, target, width, height) ||
+            // Original SDK snapshots 19222366 and 21750819 expose this terminal
+            // empty TextView at the lower LEFT, independently of the painted logo.
+            (marker.left <= width * 0.10f && marker.right <= width * 0.25f))
 
-    private fun markerBounds(marker: SkipTargetPolicy.Bounds, target: SkipTargetPolicy.Bounds,
+    private fun lowerMarkerRow(marker: SkipTargetPolicy.Bounds, target: SkipTargetPolicy.Bounds,
         width: Int, height: Int): Boolean =
         width > 0 && height > 0 && marker.width > 0 && marker.height > 0 &&
             marker.left >= 0 && marker.right <= width &&
             marker.height <= height * 0.045f && marker.top >= height * 0.55f &&
-            marker.bottom <= height * 0.96f && marker.top > target.bottom &&
+            marker.bottom <= height * 0.96f && marker.top > target.bottom
+
+    private fun markerBounds(marker: SkipTargetPolicy.Bounds, target: SkipTargetPolicy.Bounds,
+        width: Int, height: Int): Boolean =
+        lowerMarkerRow(marker, target, width, height) &&
             ((marker.width <= width * 0.25f && marker.left >= width * 0.60f) ||
                 // A right-aligned SDK label may expose its entire MATCH_PARENT row.
                 (marker.left <= width * 0.10f && marker.right >= width * 0.90f && marker.width >= width * 0.75f))

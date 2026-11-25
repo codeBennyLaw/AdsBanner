@@ -48,16 +48,34 @@ class CainiaoSplashPolicyTest {
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle.copy(left = 800), width, height))
     }
 
-    @Test fun anEmptySdkBrandingNodeStillNeedsItsOwnClassAndLowerRightBounds() {
+    @Test fun anEmptySdkBrandingNodeStillNeedsItsOwnClassAndLowerEdgeBounds() {
         assertTrue(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad, circle, width, height))
         for (label in listOf("普通文字", "会员去广告", "AM广告设置", "广告权益"))
             assertFalse(label, CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", label, ad, circle, width, height))
         for (className in listOf("android.view.View", "android.widget.ImageView", "sdk.TextView", null))
             assertFalse(className, CainiaoSplashPolicy.emptySdkMarker(pkg, className, "", ad, circle, width, height))
         assertFalse(CainiaoSplashPolicy.emptySdkMarker("other.app", "android.widget.TextView", "", ad, circle, width, height))
-        assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad.copy(left = 0, right = 110), circle, width, height))
+        assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad.copy(left = 500, right = 610), circle, width, height))
         assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad.copy(top = 70, bottom = 110), circle, width, height))
         assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad.copy(right = ad.left), circle, width, height))
+    }
+
+    @Test fun originalPublicSnapshotsExposeTheEmptySdkMarkerOnTheLeft() {
+        // Unmodified geometry from the two snapshots linked by the upstream Cainiao rule.
+        val snapshots = listOf(
+            intArrayOf(1080, 2400, 912, 138, 1032, 258, 60, 1950, 156, 1992),
+            intArrayOf(1440, 3200, 1244, 176, 1384, 316, 70, 2619, 182, 2668)
+        )
+        for (s in snapshots) {
+            val target = SkipTargetPolicy.Bounds(s[2], s[3], s[4], s[5])
+            val marker = SkipTargetPolicy.Bounds(s[6], s[7], s[8], s[9])
+            assertTrue(CainiaoSplashPolicy.unlabeledBounds("android.view.View", target, s[0], s[1]))
+            assertTrue(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", marker, target, s[0], s[1]))
+            assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "广告设置", marker, target, s[0], s[1]))
+            assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.view.View", "", marker, target, s[0], s[1]))
+            assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", marker.copy(top = 0), target, s[0], s[1]))
+            assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", marker.copy(left = -1), target, s[0], s[1]))
+        }
     }
 
     @Test fun aCanvasRecreationUsesTheSameWindowWideTouchKey() {
