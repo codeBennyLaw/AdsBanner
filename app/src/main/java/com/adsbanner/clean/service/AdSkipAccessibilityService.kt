@@ -705,7 +705,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         pendingSkip = PendingSkip(candidate.copy(node = copyNode(candidate.node)), pkg,
             Rect().also(candidate.node::getBoundsInScreen), gesture, startedAt,
             candidate.node.windowId, startedUptime, knownSplashActivity(candidate.node))
-        SplashDiagnostics.submitted(pkg)
+        if (!gesture) SplashDiagnostics.submitted(pkg)
         if (schedule) handler.postDelayed(verifySkip, 80L)
     }
 
@@ -1503,6 +1503,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 override fun onCancelled(gestureDescription: GestureDescription?) = complete(false)
             }, handler)
         }.getOrDefault(false)
+        if (accepted) SplashDiagnostics.submitted(pkg)
         if (accepted && (target.coordinateOnly || cainiaoKey != null)) {
             splashCountdown.consume(candidate.node.windowId, skipNodeLabel(candidate.node), cainiaoKey ?: bounds.toTargetBounds(), SystemClock.elapsedRealtime())
         }
