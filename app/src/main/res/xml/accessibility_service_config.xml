@@ -8,6 +8,8 @@
     - canPerformGestures: 节点点击无效时，对目标按钮模拟触摸
     - flagIncludeNotImportantViews / flagRetrieveInteractiveWindows:
       很多跳过按钮被标记为"不重要视图"或在独立窗口中，必须打开才能拿到节点
+    - notificationTimeout=0: 及时接收窗口身份事件，避免随后旧窗口的同类事件覆盖它；
+      节点查询与整树遍历仍由引擎各自限频
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked|typeViewLongClicked|typeViewScrolled|typeWindowsChanged"
@@ -17,5 +19,5 @@
     android:canPerformGestures="true"
     android:description="@string/accessibility_description"
     android:isAccessibilityTool="true"
-    android:notificationTimeout="25"
+    android:notificationTimeout="0"
     android:settingsActivity="com.adsbanner.clean.ui.MainActivity" />
