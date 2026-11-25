@@ -156,6 +156,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private var skipTryCount = 0
+    private var cainiaoTraceNextAt = 0L
+    private var cainiaoTraceSamples = 0
     private var gestureInFlight = false
     private var actionGeneration = 0
     private var gestureTimeout: Runnable? = null
@@ -395,6 +397,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (canStartScan && Prefs.skipSplash && ProtectionStore.allows(pkg) && embeddedPagePackage != pkg && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
                 splashSession.start(pkg, now, resumed = entry != SplashResumeTracker.Entry.LAUNCH, knownControlsOnly = mainReturn)
                 SplashDiagnostics.start(this, pkg)
+                cainiaoTraceNextAt = 0L
+                cainiaoTraceSamples = 0
                 skipTryCount = 0
             }
         }
@@ -585,7 +589,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             return
         }
         if (!splashSession.pending(now, Prefs.splashWindowMs)) {
-            stopSplashScan()
+            stopSplashScan(diagnosticReason = "启动检测期限已结束，未执行跳过")
             return
         }
         if (jumpGuard.isReturningFrom(pkg)) {
@@ -608,6 +612,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val activePkg = active?.packageName?.toString()
             // 部分系统在通知栏展开时仍把应用标为活动窗口，不能仅凭活动包名判断遮挡。
             val covered = activePkg != pkg || hasSystemCover(active.windowId, screenWindows)
+            if (com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty() && CainiaoSplashPolicy.isPackage(pkg)) SplashDiagnostics.scanState(pkg,
+                "active=${activePkg.orEmpty()}, window=${active?.windowId ?: -1}, covered=$covered, restricted=${splashSession.knownControlsOnly}")
             if (activePkg != null && activePkg != pkg && activePkg !in IGNORED_PACKAGES && activePkg !in imePackages) {
                 if (splashSession.awaitingTarget(now)) {
                     splashSession.updateCoverage(now, true)
@@ -1033,24 +1039,33 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         // 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点，只认明确的"跳过"
         val weakAllowed = allowWeak && pkg !in WEAK_MATCH_BLOCKED
+        val traceNow = SystemClock.elapsedRealtime()
+        val trace = if (com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty() && !localOnly &&
+            CainiaoSplashPolicy.isPackage(pkg) && cainiaoTraceSamples < 6 && traceNow >= cainiaoTraceNextAt) {
+            cainiaoTraceSamples++
+            cainiaoTraceNextAt = traceNow + 1_000L
+            CainiaoScanTrace(screen, traceNow, splashSession.age(traceNow), foregroundActivity, covered, cainiaoOnly)
+                .also { report -> roots.values.forEach(report::root) }
+        } else null
         return try {
             if (localOnly) roots.values.flatMap { findLocalCandidates(it, pkg, screen, covered) }
-            else if (cainiaoOnly) roots.values.flatMap { findCainiaoCandidates(it, screen, covered, screenWindows) }
-            else roots.values.flatMap { findInTree(it, screen, weakAllowed, covered, screenWindows) }
+            else if (cainiaoOnly) roots.values.flatMap { findCainiaoCandidates(it, screen, covered, screenWindows, trace) }
+            else roots.values.flatMap { findInTree(it, screen, weakAllowed, covered, screenWindows, trace) }
                     .sortedWith(compareBy<Candidate> { it.weak }.thenByDescending { it.score })
         } finally {
+            trace?.let { SplashDiagnostics.sample(pkg, it.finish()) }
             roots.values.forEach(::recycleNode)
         }
     }
 
     private fun findCainiaoCandidates(root: AccessibilityNodeInfo, screen: Point, covered: Boolean,
-        screenWindows: List<AccessibilityWindowInfo>): List<Candidate> {
-        val containers = findCainiaoContainers(root)
+        screenWindows: List<AccessibilityWindowInfo>, trace: CainiaoScanTrace? = null): List<Candidate> {
+        val containers = findCainiaoContainers(root, trace)
         return try {
             containers.take(4).filter {
                 it.windowId == root.windowId && CainiaoSplashPolicy.isContainer(it.packageName?.toString().orEmpty(),
                     it.viewIdResourceName, Rect().also(it::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
-            }.flatMap { findInTree(it, screen, false, covered, screenWindows) }.filter { candidate ->
+            }.flatMap { findInTree(it, screen, false, covered, screenWindows, trace) }.filter { candidate ->
                 val allowed = !candidate.weak && CainiaoSplashPolicy.acceptsTarget(root.packageName?.toString().orEmpty(),
                     candidate.label, candidate.node.viewIdResourceName, Rect().also(candidate.node::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
                 if (!allowed) recycleNode(candidate.node)
@@ -1060,7 +1075,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     /** SDK hosts can expose nodes to traversal while not implementing resource-ID queries. */
-    private fun findCainiaoContainers(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+    private fun findCainiaoContainers(root: AccessibilityNodeInfo, trace: CainiaoScanTrace? = null): List<AccessibilityNodeInfo> {
         if (!CainiaoSplashPolicy.isPackage(root.packageName?.toString().orEmpty())) return emptyList()
         if (root.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) return listOf(copyNode(root))
         val queried = root.findAccessibilityNodeInfosByViewId(CainiaoSplashPolicy.CONTAINER_ID).orEmpty()
@@ -1070,13 +1085,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
         fun walk(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > 30 || visited++ >= 700 || containers.size >= 4 ||
                 node.packageName != root.packageName || node.windowId != root.windowId) return
+            trace?.node(node, depth)
             if (node.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) {
                 containers.add(copyNode(node))
                 return
             }
             for (index in 0 until node.childCount) {
                 if (visited >= 700 || containers.size >= 4) break
-                val child = node.getChild(index) ?: continue
+                val child = node.getChild(index)
+                if (child == null) { trace?.missingChild(); continue }
                 try { walk(child, depth + 1) } finally { recycleNode(child) }
             }
         }
@@ -1115,7 +1132,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         screen: Point,
         weakAllowed: Boolean,
         covered: Boolean,
-        screenWindows: List<AccessibilityWindowInfo>
+        screenWindows: List<AccessibilityWindowInfo>,
+        trace: CainiaoScanTrace? = null
     ): List<Candidate> {
         val candidates = ArrayList<Candidate>(4)
         var visited = 0
@@ -1131,6 +1149,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val visible = node.isVisibleToUser
             val label = nodeLabel(node)
             val buttonLabel = skipNodeLabel(node)
+            trace?.node(node, depth, buttonLabel)
 
             if ((label.isNotEmpty() || buttonLabel.isNotEmpty()) &&
                 (visible || covered || isStatusBarTarget(node, screenWindows))) {
@@ -1160,7 +1179,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (depth == 30) return
             for (i in 0 until node.childCount) {
                 if (visited >= 700) break
-                val child = node.getChild(i) ?: continue
+                val child = node.getChild(i)
+                if (child == null) { trace?.missingChild(); continue }
                 try {
                     walk(child, depth + 1)
                 } finally {
@@ -1193,6 +1213,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                             adMarkers.any { (label, marker) -> SplashSkipPolicy.markerNearTarget(label, marker,
                                 rect.toTargetBounds(), screen.x, screen.y) }))
                 }
+            trace?.decision(allowed)
             if (!allowed) recycleNode(candidate.node)
             allowed
         }
