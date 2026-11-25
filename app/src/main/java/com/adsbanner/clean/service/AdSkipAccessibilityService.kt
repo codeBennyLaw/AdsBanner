@@ -223,7 +223,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             (type == AccessibilityEvent.TYPE_VIEW_CLICKED || type == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED ||
                 type == AccessibilityEvent.TYPE_VIEW_SCROLLED) &&
             !(type == AccessibilityEvent.TYPE_VIEW_CLICKED && isPendingSkipClick(event))) {
-            if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED && KnownSplashControls.hasControls(pkg) && pendingSkip == null) {
+            if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED &&
+                (KnownSplashControls.hasControls(pkg) || CainiaoSplashPolicy.isPackage(pkg)) && pendingSkip == null) {
                 splashSession.restrictToKnownControls()
                 scheduleSplashScan(0L)
             } else {
@@ -651,7 +652,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         splashCadence.queried(now)
         if (!covered) skipTryCount++
         if (splashSession.knownControlsOnly) {
-            tryQuickSkip(pkg, covered, active)?.let { recycleNode(it.node) }
+            if (CainiaoSplashPolicy.isPackage(pkg)) {
+                // A restored homepage may scroll before the ad appears. Only the app-owned
+                // splash container remains eligible; ordinary feed skip text is never queried.
+                if (splashCadence.takeTreePass(now)) {
+                    actOnCandidates(findCandidates(pkg, false, covered, active, screenWindows, cainiaoOnly = true), pkg, covered)
+                }
+            } else tryQuickSkip(pkg, covered, active)?.let { recycleNode(it.node) }
             return
         }
 
@@ -978,7 +985,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private fun findCandidates(
         pkg: String, allowWeak: Boolean, covered: Boolean,
-        active: AccessibilityNodeInfo?, screenWindows: List<AccessibilityWindowInfo>, localOnly: Boolean = false
+        active: AccessibilityNodeInfo?, screenWindows: List<AccessibilityWindowInfo>, localOnly: Boolean = false,
+        cainiaoOnly: Boolean = false
     ): List<Candidate> {
         val screen = screenSize()
         val roots = LinkedHashMap<Int, AccessibilityNodeInfo>()
@@ -1016,11 +1024,29 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val weakAllowed = allowWeak && pkg !in WEAK_MATCH_BLOCKED
         return try {
             if (localOnly) roots.values.flatMap { findLocalCandidates(it, pkg, screen, covered) }
+            else if (cainiaoOnly) roots.values.flatMap { findCainiaoCandidates(it, screen, covered, screenWindows) }
             else roots.values.flatMap { findInTree(it, screen, weakAllowed, covered, screenWindows) }
                     .sortedWith(compareBy<Candidate> { it.weak }.thenByDescending { it.score })
         } finally {
             roots.values.forEach(::recycleNode)
         }
+    }
+
+    private fun findCainiaoCandidates(root: AccessibilityNodeInfo, screen: Point, covered: Boolean,
+        screenWindows: List<AccessibilityWindowInfo>): List<Candidate> {
+        val containers = if (root.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) listOf(copyNode(root))
+            else root.findAccessibilityNodeInfosByViewId(CainiaoSplashPolicy.CONTAINER_ID).orEmpty()
+        return try {
+            containers.take(4).filter {
+                it.windowId == root.windowId && CainiaoSplashPolicy.isContainer(it.packageName?.toString().orEmpty(),
+                    it.viewIdResourceName, Rect().also(it::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
+            }.flatMap { findInTree(it, screen, false, covered, screenWindows) }.filter { candidate ->
+                val allowed = !candidate.weak && CainiaoSplashPolicy.acceptsTarget(root.packageName?.toString().orEmpty(),
+                    candidate.label, candidate.node.viewIdResourceName, Rect().also(candidate.node::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
+                if (!allowed) recycleNode(candidate.node)
+                allowed
+            }
+        } finally { containers.forEach(::recycleNode) }
     }
 
     private fun findLocalCandidates(root: AccessibilityNodeInfo, pkg: String, screen: Point, covered: Boolean): List<Candidate> {
