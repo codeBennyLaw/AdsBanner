@@ -30,14 +30,14 @@ class CainiaoSplashPolicyTest {
         assertFalse(CainiaoSplashPolicy.acceptsTarget("other.app", "跳过", null, circle, width, height))
     }
 
-    @Test fun anUnlabeledCanvasControlMustHaveCircleSizeAndAnActualTrailingAdLabel() {
+    @Test fun anUnlabeledCanvasControlMustHaveCircleSizeAndAnActualAdLabel() {
         assertTrue(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle, width, height))
         for (label in listOf("AM广告", "AM 广告", "广告"))
-            assertTrue(label, CainiaoSplashPolicy.trailingAdLabel(pkg, label, ad, circle, width, height))
+            assertTrue(label, CainiaoSplashPolicy.adLabel(pkg, label, ad, circle, width, height))
         for (label in listOf("AM广告设置", "AM广告说明", "广告权益", "会员去广告"))
-            assertFalse(label, CainiaoSplashPolicy.trailingAdLabel(pkg, label, ad, circle, width, height))
-        assertFalse(CainiaoSplashPolicy.trailingAdLabel(pkg, "AM广告", ad.copy(top = 100, bottom = 140), circle, width, height))
-        assertFalse(CainiaoSplashPolicy.trailingAdLabel(pkg, "AM广告", ad.copy(left = 20, right = 130), circle, width, height))
+            assertFalse(label, CainiaoSplashPolicy.adLabel(pkg, label, ad, circle, width, height))
+        assertFalse(CainiaoSplashPolicy.adLabel(pkg, "AM广告", ad.copy(top = 100, bottom = 140), circle, width, height))
+        assertFalse(CainiaoSplashPolicy.adLabel(pkg, "AM广告", ad.copy(left = 20, right = 130), circle, width, height))
     }
 
     @Test fun adChoicesImagesShakeButtonsAndOrdinaryPagePositionsAreNotCanvasSkips() {
@@ -46,6 +46,18 @@ class CainiaoSplashPolicyTest {
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle.copy(top = 40, bottom = 144), width, height))
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle.copy(top = 1700, bottom = 1804), width, height))
         assertFalse(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle.copy(left = 800), width, height))
+    }
+
+    @Test fun anEmptySdkBrandingNodeStillNeedsItsOwnClassAndLowerRightBounds() {
+        assertTrue(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad, circle, width, height))
+        for (label in listOf("普通文字", "会员去广告", "AM广告设置", "广告权益"))
+            assertFalse(label, CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", label, ad, circle, width, height))
+        for (className in listOf("android.view.View", "android.widget.ImageView", "sdk.TextView", null))
+            assertFalse(className, CainiaoSplashPolicy.emptySdkMarker(pkg, className, "", ad, circle, width, height))
+        assertFalse(CainiaoSplashPolicy.emptySdkMarker("other.app", "android.widget.TextView", "", ad, circle, width, height))
+        assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad.copy(left = 0, right = 110), circle, width, height))
+        assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad.copy(top = 70, bottom = 110), circle, width, height))
+        assertFalse(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", ad.copy(right = ad.left), circle, width, height))
     }
 
     @Test fun aCanvasRecreationUsesTheSameWindowWideTouchKey() {

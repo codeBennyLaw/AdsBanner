@@ -30,9 +30,19 @@ internal object CainiaoSplashPolicy {
             bounds.width >= width * 0.04f && bounds.height >= height * 0.015f &&
             bounds.width >= bounds.height * 0.70f && bounds.width <= bounds.height * 1.50f
 
-    fun trailingAdLabel(pkg: String, label: String, marker: SkipTargetPolicy.Bounds,
+    fun adLabel(pkg: String, label: String, marker: SkipTargetPolicy.Bounds,
         target: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean = isPackage(pkg) &&
         (brandedMarker.matches(SkipRule.normalizedLabel(label)) || SkipRule.isStandaloneAdMarker(SkipRule.normalizedLabel(label))) &&
+        markerBounds(marker, target, width, height)
+
+    /** The SDK can draw its branding while exposing an empty terminal TextView beside the View. */
+    fun emptySdkMarker(pkg: String, className: String?, label: String, marker: SkipTargetPolicy.Bounds,
+        target: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean = isPackage(pkg) &&
+        className == "android.widget.TextView" && SkipRule.normalizedLabel(label).isEmpty() &&
+        markerBounds(marker, target, width, height)
+
+    private fun markerBounds(marker: SkipTargetPolicy.Bounds, target: SkipTargetPolicy.Bounds,
+        width: Int, height: Int): Boolean =
         SkipTargetPolicy.smallTarget(marker, width, height) && marker.width <= width * 0.25f &&
         marker.height <= height * 0.045f && marker.left >= width * 0.60f &&
         marker.top >= height * 0.55f && marker.bottom <= height * 0.96f && marker.top > target.bottom

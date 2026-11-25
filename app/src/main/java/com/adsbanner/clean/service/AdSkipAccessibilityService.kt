@@ -1239,7 +1239,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val screen = screenSize()
         if (CainiaoSplashPolicy.acceptsTarget(pkg, label, target.viewIdResourceName, bounds.toTargetBounds(), screen.x, screen.y)) {
             val raw = SkipRule.buttonLabel(target.text?.toString().orEmpty(), target.contentDescription?.toString().orEmpty())
-            if (raw.isNotEmpty() || hasCainiaoTrailingAdLabel(target, requireVisible = true)) {
+            if (raw.isNotEmpty() || hasCainiaoAdEvidence(target, requireVisible = true)) {
                 cainiaoSplashContainer(target, bounds)?.let { return AdControlContext(it) }
             }
         }
@@ -1508,7 +1508,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val screen = screenSize()
             val bounds = Rect().also(node::getBoundsInScreen)
             if (CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toTargetBounds(), screen.x, screen.y) &&
-                cainiaoSplashContainer(node, bounds) != null && hasCainiaoTrailingAdLabel(node, requireVisible = false)) return "跳过"
+                hasCainiaoAdEvidence(node, requireVisible = false)) return "跳过"
         }
         if (label.isEmpty() && SkipRule.isAdCloseResourceId(node.viewIdResourceName)) return "×"
         if (SkipRule.match(label) != SkipRule.STRONG || JumpAdRule.isAdSkip(label)) return label
@@ -1539,45 +1539,102 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun nodeLabel(node: AccessibilityNodeInfo): String =
         node.text?.toString()?.trim().orEmpty().ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
 
-    private fun cainiaoSplashContainer(target: AccessibilityNodeInfo, bounds: Rect): String? {
+    private fun cainiaoSplashContainer(target: AccessibilityNodeInfo, bounds: Rect): String? =
+        findCainiaoSplashContainer(target, bounds)?.let { container ->
+            try { container.viewIdResourceName } finally { recycleNode(container) }
+        }
+
+    private fun findCainiaoSplashContainer(target: AccessibilityNodeInfo, bounds: Rect): AccessibilityNodeInfo? {
         val pkg = target.packageName?.toString().orEmpty()
         if (!CainiaoSplashPolicy.isPackage(pkg)) return null
         val screen = screenSize()
-        var found = false
+        var container: AccessibilityNodeInfo? = null
+        var transferred = false
         var node: AccessibilityNodeInfo? = copyNode(target)
         try {
             repeat(30) {
-                val current = node ?: return CainiaoSplashPolicy.CONTAINER_ID.takeIf { found }
+                val current = node ?: run { transferred = true; return container }
                 if (current.packageName != target.packageName || current.windowId != target.windowId ||
                     !current.isEnabled || current.isEditable || current.isCheckable || current.isScrollable ||
                     SplashSkipPolicy.isNavigationContainer(current.className?.toString()) ||
                     SkipRule.isOrdinaryResourceId(current.viewIdResourceName) || SkipRule.isSearchResourceId(current.viewIdResourceName)) return null
                 val box = Rect().also(current::getBoundsInScreen)
-                if (box.contains(bounds) && CainiaoSplashPolicy.isContainer(pkg, current.viewIdResourceName,
-                        box.toTargetBounds(), screen.x, screen.y)) found = true
+                if (container == null && box.contains(bounds) && CainiaoSplashPolicy.isContainer(pkg, current.viewIdResourceName,
+                        box.toTargetBounds(), screen.x, screen.y)) container = copyNode(current)
                 val parent = current.parent
                 recycleNode(current)
                 node = parent
             }
-            return CainiaoSplashPolicy.CONTAINER_ID.takeIf { node == null && found }
-        } finally { node?.let(::recycleNode) }
+            if (node == null) { transferred = true; return container }
+            return null
+        } finally {
+            node?.let(::recycleNode)
+            if (!transferred) container?.let(::recycleNode)
+        }
     }
 
-    private fun hasCainiaoTrailingAdLabel(target: AccessibilityNodeInfo, requireVisible: Boolean): Boolean {
+    private fun hasCainiaoAdEvidence(target: AccessibilityNodeInfo, requireVisible: Boolean): Boolean {
         val pkg = target.packageName?.toString().orEmpty()
         if (!CainiaoSplashPolicy.isPackage(pkg)) return false
+        val targetBounds = Rect().also(target::getBoundsInScreen)
+        val container = findCainiaoSplashContainer(target, targetBounds) ?: return false
+        val screen = screenSize()
+        try {
+            if (hasCainiaoSdkSibling(target, container, requireVisible)) return true
+            val containerBounds = Rect().also(container::getBoundsInScreen)
+            var visited = 0
+            fun walk(node: AccessibilityNodeInfo, depth: Int): Boolean {
+                if (depth > 30 || visited++ >= 700 || node.packageName != target.packageName || node.windowId != target.windowId ||
+                    !node.isEnabled || node.isEditable || node.isCheckable || node.isScrollable ||
+                    SplashSkipPolicy.isNavigationContainer(node.className?.toString()) ||
+                    SkipRule.isOrdinaryResourceId(node.viewIdResourceName) || SkipRule.isSearchResourceId(node.viewIdResourceName)) return false
+                val bounds = Rect().also(node::getBoundsInScreen)
+                if ((!requireVisible || node.isVisibleToUser) && containerBounds.contains(bounds) &&
+                    CainiaoSplashPolicy.adLabel(pkg, nodeLabel(node), bounds.toTargetBounds(), targetBounds.toTargetBounds(), screen.x, screen.y)) return true
+                for (index in 0 until node.childCount) {
+                    if (visited >= 700) break
+                    val child = node.getChild(index) ?: continue
+                    try { if (walk(child, depth + 1)) return true } finally { recycleNode(child) }
+                }
+                return false
+            }
+            return walk(container, 0)
+        } finally { recycleNode(container) }
+    }
+
+    /** Public SDK structure: the circular View immediately precedes an empty terminal TextView,
+     * inside at least two FrameLayouts beneath the app's exact third-party splash container. */
+    private fun hasCainiaoSdkSibling(target: AccessibilityNodeInfo, container: AccessibilityNodeInfo,
+        requireVisible: Boolean): Boolean {
         val parent = target.parent ?: return false
         try {
-            if (parent.packageName != target.packageName || parent.windowId != target.windowId || parent.childCount !in 2..12) return false
+            if (parent.childCount !in 2..12) return false
+            val preceding = parent.getChild(parent.childCount - 2) ?: return false
+            try { if (preceding != target) return false } finally { recycleNode(preceding) }
             val marker = parent.getChild(parent.childCount - 1) ?: return false
             try {
-                if (marker.packageName != target.packageName || marker.windowId != target.windowId ||
-                    marker.className?.toString()?.substringAfterLast('.') != "TextView" || !marker.isEnabled ||
-                    (requireVisible && !marker.isVisibleToUser)) return false
                 val screen = screenSize()
-                return CainiaoSplashPolicy.trailingAdLabel(pkg, nodeLabel(marker), Rect().also(marker::getBoundsInScreen).toTargetBounds(),
-                    Rect().also(target::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
+                if (marker.packageName != target.packageName || marker.windowId != target.windowId ||
+                    !marker.isEnabled || marker.isEditable || marker.isCheckable || marker.isScrollable ||
+                    SkipRule.isOrdinaryResourceId(marker.viewIdResourceName) || SkipRule.isSearchResourceId(marker.viewIdResourceName) ||
+                    (requireVisible && !marker.isVisibleToUser) || !CainiaoSplashPolicy.emptySdkMarker(
+                        target.packageName?.toString().orEmpty(), marker.className?.toString(), nodeLabel(marker),
+                        Rect().also(marker::getBoundsInScreen).toTargetBounds(), Rect().also(target::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)) return false
             } finally { recycleNode(marker) }
+            var node: AccessibilityNodeInfo? = copyNode(parent)
+            var frames = 0
+            try {
+                repeat(30) {
+                    val current = node ?: return false
+                    if (current == container) return frames >= 2
+                    if (current.className?.toString() != "android.widget.FrameLayout") return false
+                    frames++
+                    val ancestor = current.parent
+                    recycleNode(current)
+                    node = ancestor
+                }
+                return false
+            } finally { node?.let(::recycleNode) }
         } finally { recycleNode(parent) }
     }
 
