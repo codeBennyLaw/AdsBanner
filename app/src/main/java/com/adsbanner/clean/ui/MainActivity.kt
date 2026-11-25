@@ -3,6 +3,8 @@ package com.adsbanner.clean.ui
 import android.Manifest
 import android.app.Dialog
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -352,7 +354,7 @@ class MainActivity : AppCompatActivity() {
         val message = TextView(this).apply {
             id = android.R.id.message
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-            text = report + "\n\n点击“测试”同时发送 2 条提示，不计入统计。长按诊断文字可复制。"
+            text = report + "\n\n点击“测试”同时发送 2 条提示，不计入统计。点击“复制”可复制完整诊断。"
             setTextIsSelectable(true)
             setPadding(dp(24), 0, dp(24), dp(12))
         }
@@ -376,8 +378,18 @@ class MainActivity : AppCompatActivity() {
                     toast("系统没有提供实时通知设置页")
                 }
             }
-            .setNegativeButton("关闭", null)
+            .setNegativeButton("复制", null)
             .show().apply {
+                getButton(android.content.DialogInterface.BUTTON_NEGATIVE)?.apply {
+                    contentDescription = "一键复制完整诊断"
+                    setOnClickListener {
+                        val clipboard = getSystemService(ClipboardManager::class.java)
+                        if (clipboard == null) toast("无法访问剪贴板") else {
+                            clipboard.setPrimaryClip(ClipData.newPlainText("AdsBanner 诊断", report))
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) toast("诊断已复制")
+                        }
+                    }
+                }
                 getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.contentDescription = "发送 2 条独立拦截提示"
                 getButton(android.content.DialogInterface.BUTTON_NEUTRAL)?.contentDescription = "打开系统实时通知设置"
             }
