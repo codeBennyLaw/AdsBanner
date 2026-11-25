@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val diagnosticBuild = providers.gradleProperty("diagnosticBuild").orElse("").get()
+require(diagnosticBuild.matches(Regex("[A-Za-z0-9._-]{0,64}")))
+
 android {
     namespace = "com.adsbanner.clean"
     compileSdk = 35
@@ -13,6 +16,7 @@ android {
         targetSdk = 35
         versionCode = 26
         versionName = "3.1.6"
+        buildConfigField("String", "DIAGNOSTIC_BUILD", "\"$diagnosticBuild\"")
 
     }
 

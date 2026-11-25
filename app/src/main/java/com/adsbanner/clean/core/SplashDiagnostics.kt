@@ -2,10 +2,11 @@ package com.adsbanner.clean.core
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.adsbanner.clean.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** A short local outcome trail, without page text, screenshots or accessibility trees. */
+/** A short local outcome trail. Probe builds add bounded structural metadata without page labels or screenshots. */
 object SplashDiagnostics {
     private const val LIMIT = 8
     private var storage: SharedPreferences? = null
@@ -24,7 +25,9 @@ object SplashDiagnostics {
     @Synchronized fun start(context: Context, pkg: String) {
         init(context)
         entries.add(0, JSONObject().put("pkg", pkg).put("time", System.currentTimeMillis())
-            .put("stage", "正在查找开屏控件").put("attempts", 0).put("found", false).put("ended", false))
+            .put("stage", "正在查找开屏控件").put("attempts", 0).put("found", false).put("ended", false).apply {
+                if (BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty()) put("build", BuildConfig.DIAGNOSTIC_BUILD)
+            })
         while (entries.size > LIMIT) entries.removeAt(entries.lastIndex)
         persist()
     }
@@ -64,6 +67,27 @@ object SplashDiagnostics {
         true
     }
 
+    /** Keep the three most informative structural samples from the actual failed launch. */
+    @Synchronized fun sample(pkg: String, report: JSONObject) = update(pkg) { entry ->
+        if (entry.optBoolean("ended")) false else {
+            val samples = entry.optJSONArray("samples") ?: JSONArray().also { entry.put("samples", it) }
+            if (samples.length() < 3) samples.put(report) else {
+                var weakest = 0
+                for (index in 1 until samples.length())
+                    if (samples.getJSONObject(index).optInt("rank") < samples.getJSONObject(weakest).optInt("rank")) weakest = index
+                if (report.optInt("rank") >= samples.getJSONObject(weakest).optInt("rank")) samples.put(weakest, report)
+                else return@update false
+            }
+            true
+        }
+    }
+
+    @Synchronized fun scanState(pkg: String, state: String) = update(pkg) { entry ->
+        if (entry.optBoolean("ended") || entry.optString("scanState") == state) false else {
+            entry.put("scanState", state.take(240)); true
+        }
+    }
+
     @Synchronized fun describe(context: Context): String {
         init(context)
         if (entries.isEmpty()) return "最近开屏检测：暂无记录"
@@ -72,7 +96,14 @@ object SplashDiagnostics {
             val pkg = entry.optString("pkg")
             "${AppInfoHelper.label(context, pkg)} · ${format.format(java.util.Date(entry.optLong("time")))}\n" +
                 entry.optString("stage") + "\n已提交动作：${entry.optInt("attempts")} 次" +
-                entry.optString("notification").takeIf(String::isNotEmpty)?.let { "\n$it" }.orEmpty()
+                entry.optString("notification").takeIf(String::isNotEmpty)?.let { "\n$it" }.orEmpty() +
+                entry.optString("build").takeIf(String::isNotEmpty)?.let { "\n记录构建：$it" }.orEmpty() +
+                entry.optString("scanState").takeIf(String::isNotEmpty)?.let { "\n扫描状态：$it" }.orEmpty() +
+                entry.optJSONArray("samples")?.let { samples ->
+                    "\n菜鸟结构样本（不含页面文字）：" + (0 until samples.length()).joinToString("\n", prefix = "\n") {
+                        samples.getJSONObject(it).toString()
+                    }
+                }.orEmpty()
         }
     }
 

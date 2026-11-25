@@ -349,7 +349,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun onNotifyRowClick() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
-        val version = "当前版本：${com.adsbanner.clean.BuildConfig.VERSION_NAME}（${com.adsbanner.clean.BuildConfig.VERSION_CODE}）"
+        val version = "当前版本：${com.adsbanner.clean.BuildConfig.VERSION_NAME}（${com.adsbanner.clean.BuildConfig.VERSION_CODE}）" +
+            com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD.takeIf(String::isNotEmpty)?.let { "\n诊断构建：$it" }.orEmpty()
         val report = version + "\n\n" + SplashDiagnostics.describe(this) + "\n\n" + InterceptNotifier.describe(this)
         val message = TextView(this).apply {
             id = android.R.id.message
