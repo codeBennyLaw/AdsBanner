@@ -2,13 +2,23 @@ package com.adsbanner.clean.core
 
 /** Confirm an already submitted action without confusing its event with a new user tap. */
 internal object SplashSkipConfirmationPolicy {
-    const val GESTURE_SETTLE_MS = 1_000L
+    const val RESULT_SETTLE_MS = 2_000L
+    const val WINDOW_SETTLE_MS = 2_000L
     const val ABSENCE_MS = 200L
 
     /** Only retain result verification; this does not authorize a click or prove success. */
-    fun canKeepGestureResult(gesture: Boolean, startedUptime: Long, eventUptime: Long,
-        targetWindowId: Int, eventWindowId: Int): Boolean = gesture && startedUptime > 0 &&
+    fun canKeepSubmittedResult(startedUptime: Long, eventUptime: Long,
+        targetWindowId: Int, eventWindowId: Int, relatedSource: Boolean): Boolean = relatedSource && startedUptime > 0 &&
         targetWindowId >= 0 && targetWindowId == eventWindowId && eventUptime - startedUptime in 0L..300L
+
+    fun awaitWindowResult(elapsed: Long, sameWindow: Boolean): Boolean =
+        !sameWindow && elapsed in 0L until WINDOW_SETTLE_MS
+
+    /** An old window can remain listed while a verified new activity fully covers it. */
+    fun originalWindowMayBeVisible(original: SkipTargetPolicy.Bounds?, current: SkipTargetPolicy.Bounds?,
+        currentAbove: Boolean, activityChanged: Boolean): Boolean = original != null &&
+        !(activityChanged && currentAbove && original.width > 0 && original.height > 0 &&
+            current != null && current.contains(original))
 
     fun ownGestureParentClick(gesture: Boolean, startedUptime: Long, eventUptime: Long,
         target: SkipTargetPolicy.Bounds, source: SkipTargetPolicy.Bounds): Boolean =

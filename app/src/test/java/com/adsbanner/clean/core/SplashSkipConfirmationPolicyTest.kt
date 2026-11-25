@@ -7,14 +7,34 @@ class SplashSkipConfirmationPolicyTest {
     private val target = SkipTargetPolicy.Bounds(820, 1810, 960, 1890)
     private val parent = SkipTargetPolicy.Bounds(0, 0, 1000, 2000)
 
-    @Test fun aTransitionReportMayRetainTheResultOnlyForTheSameAcceptedGestureWindow() {
-        assertTrue(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1060, 20, 20))
-        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(false, 1000, 1060, 20, 20))
-        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1060, 20, 21))
-        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1301, 20, 20))
-        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 999, 20, 20))
-        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 0, 60, 20, 20))
-        assertFalse(SplashSkipConfirmationPolicy.canKeepGestureResult(true, 1000, 1060, -1, -1))
+    @Test fun onlyANewWindowGetsAdditionalBoundedResultVerification() {
+        assertTrue(SplashSkipConfirmationPolicy.awaitWindowResult(1200, sameWindow = false))
+        assertFalse(SplashSkipConfirmationPolicy.awaitWindowResult(1200, sameWindow = true))
+        assertFalse(SplashSkipConfirmationPolicy.awaitWindowResult(-1, sameWindow = false))
+        assertFalse(SplashSkipConfirmationPolicy.awaitWindowResult(2000, sameWindow = false))
+    }
+
+    @Test fun aVerifiedFullActivityReplacementCanHideAnOldWindowStillListedByTheSystem() {
+        assertFalse(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(parent, parent, true, true))
+        assertTrue(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(parent, parent, true, false))
+        assertTrue(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(parent, parent, false, true))
+        assertTrue(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(parent, parent.copy(left = 200), true, true))
+    }
+
+    @Test fun missingOrEmptyWindowGeometryDoesNotInventAnActivityReplacement() {
+        assertFalse(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(null, parent, true, true))
+        assertTrue(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(parent, null, true, true))
+        assertTrue(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(parent.copy(right = 0), parent, true, true))
+    }
+
+    @Test fun anEarlyRelatedReportCanRetainEitherNativeOrGestureCompletionWithoutAuthorizingAnotherAction() {
+        assertTrue(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1060, 20, 20, relatedSource = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1060, 20, 20, relatedSource = false))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1060, 20, 21, relatedSource = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1301, 20, 20, relatedSource = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 999, 20, 20, relatedSource = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(0, 60, 20, 20, relatedSource = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1060, -1, -1, relatedSource = true))
     }
 
     @Test fun injectedGestureCanReportTheClickOnItsLargeAncestor() {
