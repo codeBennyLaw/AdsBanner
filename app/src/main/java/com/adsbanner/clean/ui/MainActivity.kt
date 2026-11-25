@@ -30,6 +30,7 @@ import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.core.StatsStore
 import com.adsbanner.clean.core.SplashDiagnostics
+import com.adsbanner.clean.core.DiagnosticText
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
 import com.adsbanner.clean.service.UpdateDownloadService
@@ -69,6 +70,22 @@ class MainActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) KeepAliveService.start(this)
         }
+
+    private val diagnosticExport = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) Thread {
+            val result = runCatching {
+                val report = org.json.JSONObject().put("version", com.adsbanner.clean.BuildConfig.VERSION_NAME)
+                    .put("versionCode", com.adsbanner.clean.BuildConfig.VERSION_CODE)
+                    .put("build", com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD)
+                    .put("records", org.json.JSONArray(SplashDiagnostics.export(this)))
+                    .put("notifications", InterceptNotifier.describe(this))
+                checkNotNull(contentResolver.openOutputStream(uri, "wt")).bufferedWriter(Charsets.UTF_8).use {
+                    it.write(report.toString())
+                }
+            }
+            runOnUiThread { if (!isFinishing && !isDestroyed) toast(if (result.isSuccess) "诊断文件已导出" else "导出失败，请重试") }
+        }.start()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -351,11 +368,11 @@ class MainActivity : AppCompatActivity() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
         val version = "当前版本：${com.adsbanner.clean.BuildConfig.VERSION_NAME}（${com.adsbanner.clean.BuildConfig.VERSION_CODE}）" +
             com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD.takeIf(String::isNotEmpty)?.let { "\n诊断构建：$it" }.orEmpty()
-        val report = version + "\n\n" + SplashDiagnostics.describe(this) + "\n\n" + InterceptNotifier.describe(this)
+        val report = DiagnosticText.limit(version + "\n\n" + SplashDiagnostics.describe(this) + "\n\n" + InterceptNotifier.describe(this))
         val message = TextView(this).apply {
             id = android.R.id.message
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-            text = report + "\n\n点击“测试”同时发送 2 条提示，不计入统计。点击“复制”可复制完整诊断。"
+            text = report + "\n\n复制仅包含简短摘要；详细记录请导出为文件。测试提示不计入统计。"
             setTextIsSelectable(true)
             setPadding(dp(24), 0, dp(24), dp(12))
         }
@@ -368,9 +385,19 @@ class MainActivity : AppCompatActivity() {
                 super.onMeasure(widthMeasureSpec, View.MeasureSpec.makeMeasureSpec(available, View.MeasureSpec.AT_MOST))
             }
         }.apply { addView(message) }
+        val reportContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(com.google.android.material.button.MaterialButton(this@MainActivity, null,
+                com.google.android.material.R.attr.borderlessButtonStyle).apply {
+                text = "导出详细记录"
+                contentDescription = "将详细诊断保存为文件"
+                setOnClickListener { diagnosticExport.launch("AdsBanner-诊断.json") }
+            }, LinearLayout.LayoutParams(-1, -2).apply { marginStart = dp(24); marginEnd = dp(24) })
+            addView(reportView)
+        }
         OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
-            .setView(reportView)
+            .setView(reportContent)
             .setPositiveButton("测试") { _, _ -> sendTestNotifications() }
             .setNeutralButton("设置") { _, _ ->
                 if (canOpenSettings) {
@@ -382,11 +409,11 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("复制", null)
             .show().apply {
                 getButton(android.content.DialogInterface.BUTTON_NEGATIVE)?.apply {
-                    contentDescription = "一键复制完整诊断"
+                    contentDescription = "复制简短诊断摘要"
                     setOnClickListener {
                         val clipboard = getSystemService(ClipboardManager::class.java)
                         if (clipboard == null) toast("无法访问剪贴板") else {
-                            clipboard.setPrimaryClip(ClipData.newPlainText("AdsBanner 诊断", report))
+                            clipboard.setPrimaryClip(ClipData.newPlainText("AdsBanner 诊断摘要", DiagnosticText.limit(report)))
                             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) toast("诊断已复制")
                         }
                     }
