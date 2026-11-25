@@ -68,4 +68,16 @@ class CainiaoSplashPolicyTest {
         assertFalse(tracker.canAttempt(20, CainiaoSplashPolicy.gestureKey(width, height)))
         assertTrue(tracker.canAttempt(21, key))
     }
+
+    @Test fun aFullWidthSdkFooterIsNotConfusedWithAnAdImageOrAnOffscreenRow() {
+        val footer = ad.copy(left = 0, right = width)
+        assertTrue(CainiaoSplashPolicy.adLabel(pkg, "AM广告", footer, circle, width, height))
+        assertTrue(CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", footer, circle, width, height))
+        for (bounds in listOf(footer.copy(top = 1400), footer.copy(left = -1), footer.copy(right = width + 1),
+                footer.copy(right = width / 2), footer.copy(top = 80, bottom = 120))) {
+            assertFalse(bounds.toString(), CainiaoSplashPolicy.adLabel(pkg, "AM广告", bounds, circle, width, height))
+            assertFalse(bounds.toString(), CainiaoSplashPolicy.emptySdkMarker(pkg, "android.widget.TextView", "", bounds, circle, width, height))
+        }
+        assertFalse(CainiaoSplashPolicy.adLabel(pkg, "广告权益", footer, circle, width, height))
+    }
 }

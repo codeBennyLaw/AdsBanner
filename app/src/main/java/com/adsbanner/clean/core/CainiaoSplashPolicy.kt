@@ -43,9 +43,13 @@ internal object CainiaoSplashPolicy {
 
     private fun markerBounds(marker: SkipTargetPolicy.Bounds, target: SkipTargetPolicy.Bounds,
         width: Int, height: Int): Boolean =
-        SkipTargetPolicy.smallTarget(marker, width, height) && marker.width <= width * 0.25f &&
-        marker.height <= height * 0.045f && marker.left >= width * 0.60f &&
-        marker.top >= height * 0.55f && marker.bottom <= height * 0.96f && marker.top > target.bottom
+        width > 0 && height > 0 && marker.width > 0 && marker.height > 0 &&
+            marker.left >= 0 && marker.right <= width &&
+            marker.height <= height * 0.045f && marker.top >= height * 0.55f &&
+            marker.bottom <= height * 0.96f && marker.top > target.bottom &&
+            ((marker.width <= width * 0.25f && marker.left >= width * 0.60f) ||
+                // A right-aligned SDK label may expose its entire MATCH_PARENT row.
+                (marker.left <= width * 0.10f && marker.right >= width * 0.90f && marker.width >= width * 0.75f))
 
     /** One accepted touch in the verified container/window, including when its canvas node is recreated. */
     fun gestureKey(width: Int, height: Int): SkipTargetPolicy.Bounds = SkipTargetPolicy.Bounds(0, 0, width, height)
