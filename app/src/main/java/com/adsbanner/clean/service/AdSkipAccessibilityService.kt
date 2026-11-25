@@ -1045,8 +1045,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private fun findCainiaoCandidates(root: AccessibilityNodeInfo, screen: Point, covered: Boolean,
         screenWindows: List<AccessibilityWindowInfo>): List<Candidate> {
-        val containers = if (root.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) listOf(copyNode(root))
-            else root.findAccessibilityNodeInfosByViewId(CainiaoSplashPolicy.CONTAINER_ID).orEmpty()
+        val containers = findCainiaoContainers(root)
         return try {
             containers.take(4).filter {
                 it.windowId == root.windowId && CainiaoSplashPolicy.isContainer(it.packageName?.toString().orEmpty(),
@@ -1058,6 +1057,31 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 allowed
             }
         } finally { containers.forEach(::recycleNode) }
+    }
+
+    /** SDK hosts can expose nodes to traversal while not implementing resource-ID queries. */
+    private fun findCainiaoContainers(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+        if (!CainiaoSplashPolicy.isPackage(root.packageName?.toString().orEmpty())) return emptyList()
+        if (root.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) return listOf(copyNode(root))
+        val queried = root.findAccessibilityNodeInfosByViewId(CainiaoSplashPolicy.CONTAINER_ID).orEmpty()
+        if (queried.isNotEmpty()) return queried
+        val containers = ArrayList<AccessibilityNodeInfo>(2)
+        var visited = 0
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 30 || visited++ >= 700 || containers.size >= 4 ||
+                node.packageName != root.packageName || node.windowId != root.windowId) return
+            if (node.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) {
+                containers.add(copyNode(node))
+                return
+            }
+            for (index in 0 until node.childCount) {
+                if (visited >= 700 || containers.size >= 4) break
+                val child = node.getChild(index) ?: continue
+                try { walk(child, depth + 1) } finally { recycleNode(child) }
+            }
+        }
+        walk(root, 0)
+        return containers
     }
 
     private fun findLocalCandidates(root: AccessibilityNodeInfo, pkg: String, screen: Point, covered: Boolean): List<Candidate> {
@@ -1697,7 +1721,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun findCainiaoReplacement(root: AccessibilityNodeInfo, pending: PendingSkip): AccessibilityNodeInfo? {
-        val containers = root.findAccessibilityNodeInfosByViewId(CainiaoSplashPolicy.CONTAINER_ID).orEmpty()
+        val containers = findCainiaoContainers(root)
         val covered = applicationCovered(root.windowId)
         val screen = screenSize()
         var visited = 0
