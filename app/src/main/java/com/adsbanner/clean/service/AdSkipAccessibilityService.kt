@@ -46,6 +46,7 @@ import com.adsbanner.clean.core.SplashResumeTracker
 import com.adsbanner.clean.core.SplashForegroundCheck
 import com.adsbanner.clean.core.ScreenStateGate
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.core.SplashDiagnostics
 
 /**
  * AdsBanner 的核心引擎，运行在系统无障碍通道里。
@@ -230,7 +231,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             } else {
                 val keepResult = canFinishPendingAfterInteraction(event)
                 splashSession.onUserInteraction()
-                stopSplashScan(preservePendingResult = keepResult)
+                stopSplashScan(preservePendingResult = keepResult, diagnosticReason = "用户操作后已停止检测")
             }
         }
         if (pendingSkip != null && !gestureInFlight) verifyPendingSkip(allowFallback = false)
@@ -393,6 +394,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             stopSplashScan()
             if (canStartScan && Prefs.skipSplash && ProtectionStore.allows(pkg) && embeddedPagePackage != pkg && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
                 splashSession.start(pkg, now, resumed = entry != SplashResumeTracker.Entry.LAUNCH, knownControlsOnly = mainReturn)
+                SplashDiagnostics.start(this, pkg)
                 skipTryCount = 0
             }
         }
@@ -469,8 +471,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
         getSystemService(android.os.PowerManager::class.java)?.isInteractive != false &&
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
 
-    private fun stopSplashScan(preservePendingResult: Boolean = false) {
+    private fun stopSplashScan(preservePendingResult: Boolean = false, diagnosticReason: String? = null) {
         val keepResult = preservePendingResult && pendingSkip != null
+        if (!keepResult) (splashSession.packageName ?: pendingSkip?.pkg)?.let { SplashDiagnostics.end(it, diagnosticReason) }
         if (keepResult) pendingSkip = pendingSkip?.let {
             it.copy(resultOnly = true, candidate = it.candidate.copy(gestureAllowed = false))
         }
@@ -686,6 +689,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun actOnCandidates(candidates: List<Candidate>, pkg: String, covered: Boolean) {
+        if (candidates.isNotEmpty()) SplashDiagnostics.found(pkg)
         try {
             // 先尝试多个候选的节点动作，避免不可点击的同名文字挡住真正的跳过按钮。
             val clicked = candidates.take(8).firstOrNull { clickCandidate(it, pkg, covered) }
@@ -701,11 +705,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         pendingSkip = PendingSkip(candidate.copy(node = copyNode(candidate.node)), pkg,
             Rect().also(candidate.node::getBoundsInScreen), gesture, startedAt,
             candidate.node.windowId, startedUptime, knownSplashActivity(candidate.node))
+        SplashDiagnostics.submitted(pkg)
         if (schedule) handler.postDelayed(verifySkip, 80L)
     }
 
     private fun clearPendingSkip() {
         handler.removeCallbacks(verifySkip)
+        pendingSkip?.let { SplashDiagnostics.unconfirmed(it.pkg) }
         pendingSkip?.let { recycleNode(it.candidate.node) }
         pendingSkip = null
     }
@@ -791,6 +797,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             try {
                 if (!current.resultOnly && !current.gesture && current.candidate.gestureAllowed) submitGesture(current.candidate, current.pkg)
                 if (pendingSkip == null) {
+                    SplashDiagnostics.unconfirmed(current.pkg)
+                    if (current.resultOnly) SplashDiagnostics.end(current.pkg, null)
                     if (current.gesture || !current.candidate.gestureAllowed) {
                         val label = skipNodeLabel(current.candidate.node)
                         val previous = failedSkips.firstOrNull { it.node == current.candidate.node && it.label == label }
@@ -908,7 +916,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         StatsStore.record(pkg, StatsStore.Kind.SPLASH)
         ProtectionStore.record(pkg, StatsStore.Kind.SPLASH, ruleName ?: "通用开屏规则")
         Log.i(TAG, "跳过开屏：\"$label\" @ $pkg")
-        InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
+        val notification = InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
+        SplashDiagnostics.completed(pkg, notification.description)
     }
 
     /** Query action labels across the window; text alone never authorizes a tap. */
@@ -934,6 +943,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         }
         fun click(node: AccessibilityNodeInfo): Candidate? {
             val candidate = candidateOf(node) ?: return null
+            SplashDiagnostics.found(pkg)
             if (clickCandidate(candidate, pkg, covered)) {
                 gestureFallback?.let { recycleNode(it.node) }
                 gestureFallback = null

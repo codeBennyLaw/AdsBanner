@@ -27,6 +27,7 @@ import com.adsbanner.clean.core.AppForeground
 import com.adsbanner.clean.core.Prefs
 import com.adsbanner.clean.core.ProtectionStore
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.core.SplashDiagnostics
 import com.adsbanner.clean.service.InterceptNotifier
 import com.adsbanner.clean.service.KeepAliveService
 import com.adsbanner.clean.service.UpdateDownloadService
@@ -346,9 +347,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun onNotifyRowClick() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
+        val version = "当前版本：${com.adsbanner.clean.BuildConfig.VERSION_NAME}（${com.adsbanner.clean.BuildConfig.VERSION_CODE}）"
+        val report = version + "\n\n" + SplashDiagnostics.describe(this) + "\n\n" + InterceptNotifier.describe(this)
         OriginDialog.Builder(this, findViewById(R.id.rowNotify))
             .setTitle("实时通知诊断")
-            .setMessage(InterceptNotifier.describe(this) + "\n\n点击“测试”同时发送 2 条提示，不计入统计。")
+            .setMessage(report + "\n\n点击“测试”同时发送 2 条提示，不计入统计。长按诊断文字可复制。")
             .setPositiveButton("测试") { _, _ -> sendTestNotifications() }
             .setNeutralButton("设置") { _, _ ->
                 if (canOpenSettings) {
@@ -359,6 +362,7 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("关闭", null)
             .show().apply {
+                findViewById<TextView>(android.R.id.message)?.setTextIsSelectable(true)
                 getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.contentDescription = "发送 2 条独立拦截提示"
                 getButton(android.content.DialogInterface.BUTTON_NEUTRAL)?.contentDescription = "打开系统实时通知设置"
             }

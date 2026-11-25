@@ -36,6 +36,14 @@ import com.adsbanner.clean.ui.MainActivity
  */
 object InterceptNotifier {
 
+    enum class Delivery(val description: String) {
+        SENT("拦截提示已发送，是否显示为 LiveUpdate 由系统决定"),
+        DISABLED("拦截实时提示开关关闭，未发送提示"),
+        NO_PERMISSION("通知权限未授权，未发送提示"),
+        BLOCKED("系统通知总开关或拦截提示渠道关闭，未发送提示"),
+        FAILED("拦截提示发送失败")
+    }
+
     private const val TAG = "AdsBanner"
     private const val CHANNEL_ID = "adsbanner_intercept"
 
@@ -74,12 +82,13 @@ object InterceptNotifier {
         var contentIntent: PendingIntent? = null
     }
 
-    fun notify(context: Context, appLabel: String, kind: StatsStore.Kind) {
-        if (!Prefs.interceptNotify) return
+    fun notify(context: Context, appLabel: String, kind: StatsStore.Kind): Delivery {
+        if (!Prefs.interceptNotify) return Delivery.DISABLED
 
         val app = context.applicationContext
-        val manager = app.getSystemService(NotificationManager::class.java) ?: return
-        if (!hasPostPermission(app) || !manager.areNotificationsEnabled() || !ensureChannel(app)) return
+        val manager = app.getSystemService(NotificationManager::class.java) ?: return Delivery.FAILED
+        if (!hasPostPermission(app)) return Delivery.NO_PERMISSION
+        if (!manager.areNotificationsEnabled() || !ensureChannel(app)) return Delivery.BLOCKED
         val title = when (kind) {
             StatsStore.Kind.SPLASH -> "已跳过开屏广告"
             StatsStore.Kind.JUMP -> "已拦截误触跳转"
@@ -89,9 +98,13 @@ object InterceptNotifier {
 
         session.contentIntent = contentIntent(app, session.id)
         synchronized(active) { active[session.id] = session }
-        push(app, session, 0, DURATION_MS)
+        if (!push(app, session, 0, DURATION_MS)) {
+            synchronized(active) { active.remove(session.id) }
+            return Delivery.FAILED
+        }
         trim(app)
         schedule(app)
+        return Delivery.SENT
     }
 
     private fun allocateId(): Int {
@@ -250,9 +263,9 @@ object InterceptNotifier {
 
     // ------------------------------------------------------------------ 内部实现
 
-    private fun push(context: Context, session: Session, progress: Int, remainingMs: Long) {
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (!hasPostPermission(context)) return
+    private fun push(context: Context, session: Session, progress: Int, remainingMs: Long): Boolean {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+        if (!hasPostPermission(context)) return false
 
         val builder = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notify)
@@ -277,10 +290,11 @@ object InterceptNotifier {
         val requestPromotion = LiveUpdate.isSupported()
         if (requestPromotion) LiveUpdate.applyStyle(builder, progress, session.text)
 
-        runCatching {
+        return runCatching {
             val notification = if (requestPromotion) LiveUpdate.build(builder) else builder.build()
             manager.notify(session.id, notification)
-        }.onFailure { Log.w(TAG, "发送拦截提示失败: ${it.message}") }
+            true
+        }.onFailure { Log.w(TAG, "发送拦截提示失败: ${it.message}") }.getOrDefault(false)
     }
 
     private fun contentIntent(context: Context, id: Int): PendingIntent {
