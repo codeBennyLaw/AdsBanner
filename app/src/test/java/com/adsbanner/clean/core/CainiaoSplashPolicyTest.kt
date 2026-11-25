@@ -11,6 +11,25 @@ class CainiaoSplashPolicyTest {
     private val ad = SkipTargetPolicy.Bounds(1110, 2320, 1220, 2360)
     private val container = SkipTargetPolicy.Bounds(0, 70, 1264, 2400)
 
+    @Test fun currentDeviceMsSdkHasAnActionlessCircleAndSeparateAdTag() {
+        val target = SkipTargetPolicy.Bounds(1112, 126, 1219, 233)
+        val tag = SkipTargetPolicy.Bounds(1112, 2299, 1264, 2384)
+        fun matches(id: String? = CainiaoSplashPolicy.MS_SKIP_ID, parentId: String? = CainiaoSplashPolicy.MS_SKIP_CONTAINER_ID,
+            label: String = "", bounds: SkipTargetPolicy.Bounds = target) = CainiaoSplashPolicy.namedSdkTarget(pkg,
+            "android.view.View", id, label, "android.widget.RelativeLayout", parentId, bounds, target, 1264, 2736)
+        assertTrue(matches())
+        assertFalse(matches(id = "$pkg:id/ms_splash_image"))
+        assertFalse(matches(parentId = "$pkg:id/layout_root"))
+        assertFalse(matches(label = "广告设置"))
+        assertFalse(matches(bounds = target.copy(left = 800)))
+        assertTrue(CainiaoSplashPolicy.namedSdkMarker(pkg, "android.widget.FrameLayout", CainiaoSplashPolicy.MS_AD_TAG_ID, tag, target, 1264, 2736))
+        assertFalse(CainiaoSplashPolicy.namedSdkMarker(pkg, "android.widget.ImageView", CainiaoSplashPolicy.MS_AD_TAG_ID, tag, target, 1264, 2736))
+        assertFalse(CainiaoSplashPolicy.namedSdkMarker(pkg, "android.widget.FrameLayout", "$pkg:id/ad_tag", tag, target, 1264, 2736))
+        assertFalse(CainiaoSplashPolicy.namedSdkMarker(pkg, "android.widget.FrameLayout", CainiaoSplashPolicy.MS_AD_TAG_ID, tag.copy(top = 100), target, 1264, 2736))
+        assertFalse(CainiaoSplashPolicy.namedSdkTarget("other.app", "android.view.View", CainiaoSplashPolicy.MS_SKIP_ID, "",
+            "android.widget.RelativeLayout", CainiaoSplashPolicy.MS_SKIP_CONTAINER_ID, target, target, 1264, 2736))
+    }
+
     @Test fun onlyTheExactAppOwnedFullSplashContainerSuppliesEvidence() {
         assertTrue(CainiaoSplashPolicy.isContainer(pkg, CainiaoSplashPolicy.CONTAINER_ID, container, width, height))
         assertFalse(CainiaoSplashPolicy.isContainer("other.app", CainiaoSplashPolicy.CONTAINER_ID, container, width, height))

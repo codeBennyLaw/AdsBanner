@@ -4,6 +4,9 @@ package com.adsbanner.clean.core
 internal object CainiaoSplashPolicy {
     const val PACKAGE = "com.cainiao.wireless"
     const val CONTAINER_ID = "$PACKAGE:id/fl_third_splash_container"
+    const val MS_SKIP_ID = "$PACKAGE:id/ms_skipView"
+    const val MS_SKIP_CONTAINER_ID = "$PACKAGE:id/ms_skipView_container"
+    const val MS_AD_TAG_ID = "$PACKAGE:id/ms_ad_tag_layout"
     private val brandedMarker = Regex("^AM\\s*广告$", RegexOption.IGNORE_CASE)
 
     fun isPackage(pkg: String): Boolean = pkg == PACKAGE
@@ -34,6 +37,18 @@ internal object CainiaoSplashPolicy {
         target: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean = isPackage(pkg) &&
         (brandedMarker.matches(SkipRule.normalizedLabel(label)) || SkipRule.isStandaloneAdMarker(SkipRule.normalizedLabel(label))) &&
         markerBounds(marker, target, width, height)
+
+    /** Captured on device: the MS SDK exposes an empty, actionless View inside a precise wrapper. */
+    fun namedSdkTarget(pkg: String, className: String?, id: String?, label: String,
+        parentClass: String?, parentId: String?, target: SkipTargetPolicy.Bounds, parent: SkipTargetPolicy.Bounds,
+        width: Int, height: Int): Boolean = isPackage(pkg) && className == "android.view.View" &&
+        id == MS_SKIP_ID && label.isBlank() && parentClass == "android.widget.RelativeLayout" &&
+        parentId == MS_SKIP_CONTAINER_ID && unlabeledBounds(className, target, width, height) &&
+        SkipTargetPolicy.preciseParent(target, parent)
+
+    fun namedSdkMarker(pkg: String, className: String?, id: String?, marker: SkipTargetPolicy.Bounds,
+        target: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean = isPackage(pkg) &&
+        className == "android.widget.FrameLayout" && id == MS_AD_TAG_ID && markerBounds(marker, target, width, height)
 
     /** The SDK can draw its branding while exposing an empty terminal TextView beside the View. */
     fun emptySdkMarker(pkg: String, className: String?, label: String, marker: SkipTargetPolicy.Bounds,

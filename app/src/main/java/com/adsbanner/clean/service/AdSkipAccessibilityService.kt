@@ -1663,6 +1663,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val container = findCainiaoSplashContainer(target, targetBounds) ?: return false
         val screen = screenSize()
         try {
+            if (hasCainiaoNamedSdkTarget(target, container, requireVisible)) return true
             if (hasCainiaoSdkSibling(target, container, requireVisible)) return true
             val containerBounds = Rect().also(container::getBoundsInScreen)
             var visited = 0
@@ -1683,6 +1684,45 @@ class AdSkipAccessibilityService : AccessibilityService() {
             }
             return walk(container, 0)
         } finally { recycleNode(container) }
+    }
+
+    /** The device trace identifies an MS skip wrapper and a separate, empty ad-tag layout.
+     * The caller has already checked the exact full splash container and all target ancestors. */
+    private fun hasCainiaoNamedSdkTarget(target: AccessibilityNodeInfo, container: AccessibilityNodeInfo,
+        requireVisible: Boolean): Boolean {
+        if (target.childCount != 0) return false
+        val wrapper = target.parent ?: return false
+        try {
+            val screen = screenSize()
+            val bounds = Rect().also(target::getBoundsInScreen)
+            if (wrapper.packageName != target.packageName || wrapper.windowId != target.windowId ||
+                !wrapper.isEnabled || wrapper.isEditable || wrapper.isCheckable || wrapper.isScrollable ||
+                wrapper.childCount != 1 || (requireVisible && !wrapper.isVisibleToUser) ||
+                !CainiaoSplashPolicy.namedSdkTarget(target.packageName?.toString().orEmpty(), target.className?.toString(),
+                    target.viewIdResourceName, SkipRule.buttonLabel(target.text?.toString().orEmpty(), target.contentDescription?.toString().orEmpty()),
+                    wrapper.className?.toString(), wrapper.viewIdResourceName, bounds.toTargetBounds(),
+                    Rect().also(wrapper::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)) return false
+            val host = wrapper.parent ?: return false
+            try {
+                if (host.packageName != target.packageName || host.windowId != target.windowId ||
+                    !host.isEnabled || host.isEditable || host.isCheckable || host.isScrollable ||
+                    host.childCount !in 2..12) return false
+                val hostBounds = Rect().also(host::getBoundsInScreen)
+                if (!hostBounds.contains(bounds) || !Rect().also(container::getBoundsInScreen).contains(hostBounds)) return false
+                for (index in 0 until host.childCount) {
+                    val marker = host.getChild(index) ?: continue
+                    try {
+                        val markerBounds = Rect().also(marker::getBoundsInScreen)
+                        if (marker.packageName == target.packageName && marker.windowId == target.windowId &&
+                            marker.isEnabled && !marker.isEditable && !marker.isCheckable && !marker.isScrollable &&
+                            (!requireVisible || marker.isVisibleToUser) && hostBounds.contains(markerBounds) &&
+                            CainiaoSplashPolicy.namedSdkMarker(target.packageName?.toString().orEmpty(), marker.className?.toString(),
+                                marker.viewIdResourceName, markerBounds.toTargetBounds(), bounds.toTargetBounds(), screen.x, screen.y)) return true
+                    } finally { recycleNode(marker) }
+                }
+                return false
+            } finally { recycleNode(host) }
+        } finally { recycleNode(wrapper) }
     }
 
     /** Public SDK structure: the circular View immediately precedes an empty terminal TextView,
