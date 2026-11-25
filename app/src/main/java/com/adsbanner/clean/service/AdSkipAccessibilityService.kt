@@ -524,7 +524,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     Rect().also(source::getBoundsInScreen).contains(pending.bounds))
             } finally { source?.let(::recycleNode) }
             if (SplashSkipConfirmationPolicy.canKeepSubmittedResult(pending.startedUptime, event.eventTime,
-                    pending.windowId, event.windowId, related)) return true
+                    pending.windowId, event.windowId, related,
+                    scrollReport = event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) return true
         }
         val root = resultRoot() ?: return false
         try {

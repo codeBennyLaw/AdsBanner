@@ -8,8 +8,9 @@ internal object SplashSkipConfirmationPolicy {
 
     /** Only retain result verification; this does not authorize a click or prove success. */
     fun canKeepSubmittedResult(startedUptime: Long, eventUptime: Long,
-        targetWindowId: Int, eventWindowId: Int, relatedSource: Boolean): Boolean = relatedSource && startedUptime > 0 &&
-        targetWindowId >= 0 && targetWindowId == eventWindowId && eventUptime - startedUptime in 0L..300L
+        targetWindowId: Int, eventWindowId: Int, relatedSource: Boolean, scrollReport: Boolean = false): Boolean =
+        relatedSource && startedUptime > 0 && targetWindowId >= 0 && targetWindowId == eventWindowId &&
+            eventUptime - startedUptime in 0L..(if (scrollReport) RESULT_SETTLE_MS else 300L)
 
     fun awaitWindowResult(elapsed: Long, sameWindow: Boolean): Boolean =
         !sameWindow && elapsed in 0L until WINDOW_SETTLE_MS

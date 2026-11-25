@@ -42,6 +42,16 @@ class SplashSkipConfirmationPolicyTest {
         assertFalse(SplashSkipConfirmationPolicy.ownGestureParentClick(false, 1000, 1060, target, parent))
     }
 
+    @Test fun aLateRelatedScrollKeepsOnlyTheExistingResultUntilItsOriginalDeadline() {
+        assertTrue(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1750, 20, 20, true, scrollReport = true))
+        assertTrue(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 3000, 20, 20, true, scrollReport = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 3001, 20, 20, true, scrollReport = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1750, 20, 21, true, scrollReport = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1750, 20, 20, false, scrollReport = true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1750, 20, 20, true))
+        assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 999, 20, 20, true, scrollReport = true))
+    }
+
     @Test fun earlierOrLaterRealUserClicksDoNotBelongToTheGesture() {
         assertFalse(SplashSkipConfirmationPolicy.ownGestureParentClick(true, 1000, 999, target, parent))
         assertFalse(SplashSkipConfirmationPolicy.ownGestureParentClick(true, 1000, 1301, target, parent))
