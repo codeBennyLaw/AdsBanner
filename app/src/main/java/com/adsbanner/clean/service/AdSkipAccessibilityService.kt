@@ -711,7 +711,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
         pendingSkip = PendingSkip(candidate.copy(node = copyNode(candidate.node)), pkg,
             Rect().also(candidate.node::getBoundsInScreen), gesture, startedAt,
             candidate.node.windowId, startedUptime, knownSplashActivity(candidate.node))
-        if (!gesture) SplashDiagnostics.submitted(pkg)
+        if (!gesture) SplashDiagnostics.submitted(pkg, splashSession.age(startedAt))
         if (schedule) handler.postDelayed(verifySkip, 80L)
     }
 
@@ -794,7 +794,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val settleMs = SplashSkipConfirmationPolicy.RESULT_SETTLE_MS
             if (!allowFallback || elapsed < settleMs) {
                 handler.removeCallbacks(verifySkip)
-                handler.postDelayed(verifySkip, (settleMs - elapsed).coerceIn(40L, 100L))
+                val maxDelay = if (pending.gesture && elapsed < 160L) 40L else 100L
+                handler.postDelayed(verifySkip, (settleMs - elapsed).coerceIn(40L, maxDelay))
                 return
             }
             val current = pendingSkip ?: return
@@ -824,12 +825,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun confirmPendingDisappearance() {
         val pending = pendingSkip ?: return
         val now = SystemClock.elapsedRealtime()
-        if (pending.absentAt?.let { now - it >= SplashSkipConfirmationPolicy.ABSENCE_MS } == true) {
-            recordSplashSkip(pending.pkg, pending.candidate.label, pending.candidate.rule?.name)
+        val absentAt = pending.absentAt ?: now
+        val remaining = SplashSkipConfirmationPolicy.ABSENCE_MS - (now - absentAt)
+        if (remaining <= 0) {
+            recordSplashSkip(pending, now)
         } else {
             if (pending.absentAt == null) pendingSkip = pending.copy(absentAt = now)
             handler.removeCallbacks(verifySkip)
-            handler.postDelayed(verifySkip, 100L)
+            // Keep checking for reappearing controls without pushing the final check past its deadline.
+            handler.postDelayed(verifySkip, minOf(100L, remaining))
         }
     }
 
@@ -917,13 +921,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
         } finally { nodes.forEach(::recycleNode) }
     }
 
-    private fun recordSplashSkip(pkg: String, label: String, ruleName: String? = null) {
+    private fun recordSplashSkip(pending: PendingSkip, confirmedAt: Long) {
+        val pkg = pending.pkg
         stopSplashScan()
         StatsStore.record(pkg, StatsStore.Kind.SPLASH)
-        ProtectionStore.record(pkg, StatsStore.Kind.SPLASH, ruleName ?: "通用开屏规则")
-        Log.i(TAG, "跳过开屏：\"$label\" @ $pkg")
+        ProtectionStore.record(pkg, StatsStore.Kind.SPLASH, pending.candidate.rule?.name ?: "通用开屏规则")
+        Log.i(TAG, "跳过开屏：\"${pending.candidate.label}\" @ $pkg")
         val notification = InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
-        SplashDiagnostics.completed(pkg, notification.description)
+        SplashDiagnostics.completed(pkg, notification.description, confirmedAt - pending.startedAt,
+            if (notification == InterceptNotifier.Delivery.SENT) SystemClock.elapsedRealtime() - confirmedAt else null)
     }
 
     /** Query action labels across the window; text alone never authorizes a tap. */
@@ -1541,14 +1547,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val path = Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 60L)).build()
         gestureInFlight = true
-        beginSkipVerification(candidate, pkg, gesture = true, schedule = false)
+        val startedAt = SystemClock.elapsedRealtime()
+        beginSkipVerification(candidate, pkg, gesture = true, schedule = false, startedAt = startedAt)
         fun complete(success: Boolean) {
             if (generation != actionGeneration || !gestureInFlight) return
             gestureInFlight = false
             gestureTimeout?.let(handler::removeCallbacks)
             gestureTimeout = null
             if (success && Prefs.skipSplash && ProtectionStore.allows(pkg) && pendingSkip?.pkg == pkg && foregroundPkg == pkg && isScreenInteractive()) {
-                handler.postDelayed(verifySkip, 80L)
+                handler.post(verifySkip)
             } else {
                 clearPendingSkip()
                 scheduleSplashScan(100L)
@@ -1561,7 +1568,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 override fun onCancelled(gestureDescription: GestureDescription?) = complete(false)
             }, handler)
         }.getOrDefault(false)
-        if (accepted) SplashDiagnostics.submitted(pkg)
+        if (accepted) SplashDiagnostics.submitted(pkg, splashSession.age(startedAt))
         if (accepted && (target.coordinateOnly || cainiaoKey != null)) {
             splashCountdown.consume(candidate.node.windowId, skipNodeLabel(candidate.node), cainiaoKey ?: bounds.toTargetBounds(), SystemClock.elapsedRealtime())
         }

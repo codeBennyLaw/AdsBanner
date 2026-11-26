@@ -40,7 +40,8 @@ object SplashDiagnostics {
         }
     }
 
-    @Synchronized fun submitted(pkg: String) = update(pkg) { entry ->
+    @Synchronized fun submitted(pkg: String, scanMs: Long) = update(pkg) { entry ->
+        if (BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty()) entry.put("scanToActionMs", scanMs)
         entry.put("attempts", entry.optInt("attempts") + 1).put("stage", "已提交跳过，等待广告关闭").put("ended", false)
         true
     }
@@ -61,9 +62,12 @@ object SplashDiagnostics {
         }
     }
 
-    @Synchronized fun completed(pkg: String, notification: String) = update(pkg) { entry ->
+    @Synchronized fun completed(pkg: String, notification: String, confirmMs: Long, notifyMs: Long?) = update(pkg) { entry ->
         entry.put("stage", "广告关闭已确认，统计已保存").put("notification", notification)
             .put("completed", true).put("ended", true)
+        if (BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty()) {
+            entry.put("actionToConfirmMs", confirmMs).put("confirmToNotifyMs", notifyMs)
+        }
         true
     }
 
@@ -102,6 +106,13 @@ object SplashDiagnostics {
             "${AppInfoHelper.label(context, pkg)} · ${timestamp(entry)}\n" +
                 entry.optString("stage") + "\n已提交动作：${entry.optInt("attempts")} 次" +
                 entry.optString("notification").takeIf(String::isNotEmpty)?.let { "\n$it" }.orEmpty() +
+                entry.optLong("scanToActionMs", -1L).takeIf { it >= 0L }?.let { scanMs ->
+                    val confirmMs = entry.optLong("actionToConfirmMs", -1L)
+                    val notifyMs = entry.optLong("confirmToNotifyMs", -1L)
+                    "\n耗时：有效检测→动作 ${scanMs}ms" +
+                        (if (confirmMs >= 0L) "，动作→确认 ${confirmMs}ms" else "") +
+                        (if (notifyMs >= 0L) "，确认→通知提交 ${notifyMs}ms" else "")
+                }.orEmpty() +
                 entry.optString("build").takeIf(String::isNotEmpty)?.let { "\n记录构建：$it" }.orEmpty() +
                 entry.optString("scanState").takeIf(String::isNotEmpty)?.let { "\n扫描状态：$it" }.orEmpty() +
                 entry.optJSONArray("samples")?.let { "\n结构样本：${it.length()} 份" }.orEmpty()
