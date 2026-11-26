@@ -1069,6 +1069,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 val allowed = !candidate.weak && candidate.node.packageName == root.packageName &&
                     candidate.node.windowId == root.windowId && CainiaoSplashPolicy.acceptsTarget(root.packageName?.toString().orEmpty(),
                     candidate.label, candidate.node.viewIdResourceName, Rect().also(candidate.node::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
+                trace?.restrictedDecision(allowed)
                 if (!allowed) recycleNode(candidate.node)
                 allowed
             }

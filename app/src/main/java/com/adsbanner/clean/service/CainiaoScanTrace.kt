@@ -32,6 +32,7 @@ internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activ
     fun root(node: AccessibilityNodeInfo) = capture { if (roots.length() < 4) roots.put(metadata(node)) }
     fun missingChild() { unavailable++ }
     fun decision(allowed: Boolean) { decisions.add(if (allowed) "candidate-ad-proof-passed" else "candidate-ad-proof-rejected") }
+    fun restrictedDecision(allowed: Boolean) { decisions.add(if (allowed) "restricted-target-passed" else "restricted-target-rejected") }
 
     fun node(node: AccessibilityNodeInfo, depth: Int, normalized: String = "") {
         capture { inspectNode(node, depth, normalized) }
@@ -50,11 +51,14 @@ internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activ
             bounds.width() <= width * 0.50f && bounds.height() <= height * 0.25f
         val circleGeometry = CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toBounds(), width, height)
         val targetGeometry = CainiaoSplashPolicy.targetBounds(bounds.toBounds(), width, height)
-        val priority = (if (category == "skip") 100 else 0) + (if (circleGeometry) 30 else 0) +
+        val lowerControl = CainiaoSplashPolicy.lowerLeftBounds(bounds.toBounds(), width, height) && node.childCount == 0
+        val priority = (if (category == "skip" || kind(normalized) == "skip") 100 else 0) +
+            (if (id == CainiaoSplashPolicy.MS_SKIP_ID) 90 else 0) + (if (lowerControl) 25 else 0) + (if (circleGeometry) 30 else 0) +
             (if (targetGeometry) 20 else 0) + (if (node.childCount == 0) 5 else 0) + (if (node.isClickable) 10 else 0)
         val weakest = targets.indices.minByOrNull { targets[it].optInt("priority") }
-        if ((upperControl || category == "skip") && (weakest == null || targets.size < 3 || priority > targets[weakest].optInt("priority")) &&
-            seenTargets.add("${node.className}:$bounds:$category")) {
+        if ((upperControl || lowerControl || category == "skip") &&
+            (weakest == null || targets.size < 3 || priority > targets[weakest].optInt("priority")) &&
+            seenTargets.add("${node.windowId}:$id:${node.className}:$bounds:$category")) {
             val target = metadata(node).put("depth", depth).put("normalized", kind(normalized))
                 .put("circleGeometry", circleGeometry).put("targetGeometry", targetGeometry).put("priority", priority)
             val ancestors = JSONArray()
@@ -81,8 +85,9 @@ internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activ
             target.put("ancestors", ancestors)
             if (targets.size < 3) targets.add(target) else targets[weakest!!] = target
         }
-        if (markers.length() < 4 && bounds.height() > 0 && bounds.height() <= height * 0.10f &&
-            bounds.top > height * 0.5f && (category == "ad" || (category == "empty" && node.className?.toString() == "android.widget.TextView")))
+        if (markers.length() < 4 && bounds.height() > 0 && bounds.height() <= height * 0.10f && bounds.top > height * 0.5f &&
+            (category == "ad" || id == CainiaoSplashPolicy.MS_AD_TAG_ID ||
+                (category == "empty" && node.className?.toString() == "android.widget.TextView")))
             markers.put(metadata(node))
     }
 
@@ -90,7 +95,8 @@ internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activ
         .put("maxDepth", maxDepth).put("exactContainers", containers).put("resourceIds", JSONArray(ids.toList()))
         .put("targets", JSONArray(targets)).put("lowerMarkers", markers).put("decisions", JSONArray(decisions.toList()))
         .put("readErrors", JSONArray(errors.toList()))
-        .put("rank", targets.size * 1000 + containers * 100 + minOf(visited, 99))
+        .put("rank", (targets.maxOfOrNull { it.optInt("priority") } ?: 0) * 100 +
+            targets.size * 1000 + containers * 100 + minOf(visited, 99))
 
     private fun capture(read: () -> Unit) {
         try { read() } catch (error: Exception) {

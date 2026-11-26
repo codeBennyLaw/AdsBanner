@@ -92,9 +92,14 @@ object SplashDiagnostics {
         init(context)
         if (entries.isEmpty()) return "最近开屏检测：暂无记录"
         val format = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault())
-        return "最近开屏检测（仅保存在本机，最多 $LIMIT 条）：\n" + entries.joinToString("\n\n") { entry ->
+        fun timestamp(entry: JSONObject) = format.format(java.util.Date(entry.optLong("time")))
+        val evidence = entries.asSequence().filter { CainiaoSplashPolicy.isPackage(it.optString("pkg")) && !it.optBoolean("completed") }
+            .mapNotNull { entry -> entry.optJSONArray("samples")?.let(DiagnosticText::cainiaoSample)?.let { sample ->
+                "菜鸟结构 · ${timestamp(entry)}\n${entry.optString("scanState").let { if (it.isEmpty()) "" else "扫描状态：$it\n" }}$sample"
+            } }.take(2).joinToString("\n\n", postfix = "\n\n").takeIf(String::isNotBlank).orEmpty()
+        return evidence + "最近开屏检测（仅保存在本机，最多 $LIMIT 条）：\n" + entries.joinToString("\n\n") { entry ->
             val pkg = entry.optString("pkg")
-            "${AppInfoHelper.label(context, pkg)} · ${format.format(java.util.Date(entry.optLong("time")))}\n" +
+            "${AppInfoHelper.label(context, pkg)} · ${timestamp(entry)}\n" +
                 entry.optString("stage") + "\n已提交动作：${entry.optInt("attempts")} 次" +
                 entry.optString("notification").takeIf(String::isNotEmpty)?.let { "\n$it" }.orEmpty() +
                 entry.optString("build").takeIf(String::isNotEmpty)?.let { "\n记录构建：$it" }.orEmpty() +

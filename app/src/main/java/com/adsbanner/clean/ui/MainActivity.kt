@@ -352,7 +352,7 @@ class MainActivity : AppCompatActivity() {
         val canOpenSettings = InterceptNotifier.canOpenPromotionSettings(this)
         val version = "当前版本：${com.adsbanner.clean.BuildConfig.VERSION_NAME}（${com.adsbanner.clean.BuildConfig.VERSION_CODE}）" +
             com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD.takeIf(String::isNotEmpty)?.let { "\n诊断构建：$it" }.orEmpty()
-        val report = DiagnosticText.limit(version + "\n\n" + SplashDiagnostics.describe(this) + "\n\n" + InterceptNotifier.describe(this))
+        val report = DiagnosticText.limit(version + "\n\n" + InterceptNotifier.describe(this) + "\n\n" + SplashDiagnostics.describe(this))
         val message = TextView(this).apply {
             id = android.R.id.message
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
