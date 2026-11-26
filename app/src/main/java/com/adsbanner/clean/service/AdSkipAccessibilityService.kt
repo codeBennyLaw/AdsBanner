@@ -1066,7 +1066,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 it.windowId == root.windowId && CainiaoSplashPolicy.isContainer(it.packageName?.toString().orEmpty(),
                     it.viewIdResourceName, Rect().also(it::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
             }.flatMap { findInTree(it, screen, false, covered, screenWindows, trace) }.filter { candidate ->
-                val allowed = !candidate.weak && CainiaoSplashPolicy.acceptsTarget(root.packageName?.toString().orEmpty(),
+                val allowed = !candidate.weak && candidate.node.packageName == root.packageName &&
+                    candidate.node.windowId == root.windowId && CainiaoSplashPolicy.acceptsTarget(root.packageName?.toString().orEmpty(),
                     candidate.label, candidate.node.viewIdResourceName, Rect().also(candidate.node::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
                 if (!allowed) recycleNode(candidate.node)
                 allowed
@@ -1290,6 +1291,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             scoreOf(SkipRule.STRONG, target, screen, label) <= 0) return null
         val context = namedAdControl(node, label, target)
         if (context.forbidden) return null
+        if (splashSession.knownControlsOnly && splashSession.packageName == pkg && CainiaoSplashPolicy.isPackage(pkg) &&
+            context.id != CainiaoSplashPolicy.CONTAINER_ID) return null
         val dedicatedPage = KnownSplashControls.matches(pkg, knownSplashActivity(node), null, label, target.toTargetBounds(), screen.x, screen.y)
         val xunleiSplash = XunleiSplashPolicy.acceptsTarget(pkg, knownSplashActivity(node), label, node.viewIdResourceName,
             target.toTargetBounds(), screen.x, screen.y) && hasSafeAdEvidenceHierarchy(node) && hasLiveAdMarker(pkg, node.windowId, covered, target,
@@ -1321,7 +1324,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val screen = screenSize()
         if (CainiaoSplashPolicy.acceptsTarget(pkg, label, target.viewIdResourceName, bounds.toTargetBounds(), screen.x, screen.y)) {
             val raw = SkipRule.buttonLabel(target.text?.toString().orEmpty(), target.contentDescription?.toString().orEmpty())
-            if (raw.isNotEmpty() || hasCainiaoAdEvidence(target, requireVisible = true)) {
+            if ((raw.isNotEmpty() && CainiaoSplashPolicy.targetBounds(bounds.toTargetBounds(), screen.x, screen.y)) ||
+                hasCainiaoAdEvidence(target, requireVisible = true)) {
                 cainiaoSplashContainer(target, bounds)?.let { return AdControlContext(it) }
             }
         }
@@ -1788,15 +1792,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
         var visited = 0
         fun walk(node: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
             if (depth > 30 || visited++ >= 700) return null
-            val bounds = Rect().also(node::getBoundsInScreen)
+            val bounds = Rect().also(node::getBoundsInScreen).toTargetBounds()
             if (node.packageName?.toString() == pending.pkg && node.windowId == root.windowId &&
                 node.isEnabled && !node.isEditable && !node.isCheckable &&
                 !SkipRule.isOrdinaryResourceId(node.viewIdResourceName) && !SkipRule.isSearchResourceId(node.viewIdResourceName) &&
                 (node.isVisibleToUser || covered || isStatusBarTarget(node)) &&
-                CainiaoSplashPolicy.targetBounds(bounds.toTargetBounds(), screen.x, screen.y) &&
+                (CainiaoSplashPolicy.targetBounds(bounds, screen.x, screen.y) ||
+                    CainiaoSplashPolicy.lowerLeftBounds(bounds, screen.x, screen.y)) &&
                 (SkipRule.match(skipNodeLabel(node)) == SkipRule.STRONG ||
                     (SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty()).isEmpty() &&
-                        CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toTargetBounds(), screen.x, screen.y)))) return copyNode(node)
+                        CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds, screen.x, screen.y)))) return copyNode(node)
             for (index in 0 until node.childCount) {
                 if (visited >= 700) break
                 val child = node.getChild(index) ?: continue

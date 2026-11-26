@@ -23,8 +23,15 @@ internal object CainiaoSplashPolicy {
 
     fun acceptsTarget(pkg: String, label: String, id: String?, bounds: SkipTargetPolicy.Bounds,
         width: Int, height: Int): Boolean = isPackage(pkg) &&
-        SkipRule.normalizedLabel(label).let { it == "跳过" || it.equals("skip", ignoreCase = true) } &&
-        !SkipRule.isOrdinaryResourceId(id) && !SkipRule.isSearchResourceId(id) && targetBounds(bounds, width, height)
+        !SkipRule.isOrdinaryResourceId(id) && !SkipRule.isSearchResourceId(id) &&
+        (SkipRule.normalizedLabel(label).let { it == "跳过" || it.equals("skip", ignoreCase = true) } &&
+            targetBounds(bounds, width, height) ||
+            JumpAdRule.skipCountdownSeconds(label)?.let { it in 1..10 } == true && lowerLeftBounds(bounds, width, height))
+
+    fun lowerLeftBounds(bounds: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean =
+        SkipTargetPolicy.smallTarget(bounds, width, height) && bounds.left <= width * 0.10f &&
+            bounds.right <= width * 0.25f && bounds.top >= height * 0.65f &&
+            bounds.bottom <= height * 0.93f && bounds.height <= height * 0.08f
 
     /** Do not confuse a tiny ad-choice dot or a large shake/CTA surface with the circular control. */
     fun unlabeledBounds(className: String?, bounds: SkipTargetPolicy.Bounds, width: Int, height: Int): Boolean =

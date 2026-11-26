@@ -49,6 +49,21 @@ class CainiaoSplashPolicyTest {
         assertFalse(CainiaoSplashPolicy.acceptsTarget("other.app", "跳过", null, circle, width, height))
     }
 
+    @Test fun lowerLeftRequiresAnExplicitCountdownOnADedicatedCompactTarget() {
+        // Approximate pixel bounds from the reported screenshot, for geometry only.
+        val skip = SkipTargetPolicy.Bounds(9, 2150, 174, 2237)
+        assertTrue(CainiaoSplashPolicy.acceptsTarget(pkg, "跳过 2", null, skip, width, 2736))
+        assertTrue(CainiaoSplashPolicy.adLabel(pkg, "广告", ad, skip, width, 2736))
+        for (label in listOf("跳过", "跳过 0", "跳过 11", "跳过登录 2", "滑动或点击有惊喜"))
+            assertFalse(label, CainiaoSplashPolicy.acceptsTarget(pkg, label, null, skip, width, 2736))
+        assertFalse(CainiaoSplashPolicy.acceptsTarget(pkg, "跳过 2", "$pkg:id/search", skip, width, 2736))
+        assertFalse(CainiaoSplashPolicy.acceptsTarget("other.app", "跳过 2", null, skip, width, 2736))
+        assertFalse(CainiaoSplashPolicy.acceptsTarget(pkg, "跳过 2", null, skip.copy(right = 900), width, 2736))
+        assertFalse(CainiaoSplashPolicy.acceptsTarget(pkg, "跳过 2", null, skip.copy(top = 1600, bottom = 1687), width, 2736))
+        assertFalse(CainiaoSplashPolicy.adLabel(pkg, "广告", skip, skip, width, 2736))
+        assertFalse(CainiaoSplashPolicy.adLabel(pkg, "广告设置", ad, skip, width, 2736))
+    }
+
     @Test fun anUnlabeledCanvasControlMustHaveCircleSizeAndAnActualAdLabel() {
         assertTrue(CainiaoSplashPolicy.unlabeledBounds("android.view.View", circle, width, height))
         for (label in listOf("AM广告", "AM 广告", "广告"))
