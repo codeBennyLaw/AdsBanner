@@ -14,8 +14,8 @@ android {
         applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "3.1.6"
+        versionCode = 27
+        versionName = "3.1.7"
         buildConfigField("String", "DIAGNOSTIC_BUILD", "\"$diagnosticBuild\"")
 
     }
