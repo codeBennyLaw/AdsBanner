@@ -662,13 +662,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         splashCadence.queried(now)
         if (!covered) skipTryCount++
         if (splashSession.knownControlsOnly) {
+            tryQuickSkip(pkg, covered, active)?.let { recycleNode(it.node); return }
             if (CainiaoSplashPolicy.isPackage(pkg)) {
-                // A restored homepage may scroll before the ad appears. Only the app-owned
-                // splash container remains eligible; ordinary feed skip text is never queried.
-                if (splashCadence.takeTreePass(now)) {
+                // Some SDK providers cannot answer text or resource-ID queries.
+                if (!gestureInFlight && splashCadence.takeTreePass(now)) {
                     actOnCandidates(findCandidates(pkg, false, covered, active, screenWindows, cainiaoOnly = true), pkg, covered)
                 }
-            } else tryQuickSkip(pkg, covered, active)?.let { recycleNode(it.node) }
+            }
             return
         }
 
@@ -929,11 +929,14 @@ class AdSkipAccessibilityService : AccessibilityService() {
     /** Query action labels across the window; text alone never authorizes a tap. */
     private fun tryQuickSkip(pkg: String, covered: Boolean, active: AccessibilityNodeInfo?): Candidate? {
         val screen = screenSize()
+        val cainiao = CainiaoSplashPolicy.isPackage(pkg)
+        val restricted = splashSession.knownControlsOnly
+        val controlIds = if (cainiao) listOf(CainiaoSplashPolicy.MS_SKIP_ID) else KnownSplashControls.queryIds(pkg)
         var gestureFallback: Candidate? = null
         fun candidateOf(node: AccessibilityNodeInfo): Candidate? {
-            if (node.packageName?.toString() != pkg) return null
+            if (node.packageName?.toString() != pkg || (cainiao && restricted && node.windowId != active?.windowId)) return null
             val raw = SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty())
-            if (SkipRule.match(raw) != SkipRule.STRONG && !KnownSplashControls.isControlId(pkg, node.viewIdResourceName)) return null
+            if (SkipRule.match(raw) != SkipRule.STRONG && node.viewIdResourceName !in controlIds) return null
             // Entering-window bounds can be cached before the control reaches its visible position.
             if (!node.refresh() || node.packageName?.toString() != pkg || !node.isEnabled) return null
             val label = skipNodeLabel(node)
@@ -941,9 +944,14 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val rect = Rect().also(node::getBoundsInScreen)
             val score = scoreOf(SkipRule.STRONG, rect, screen)
             if (rect.isEmpty || score <= 0) return null
-            if (splashSession.knownControlsOnly) {
-                val context = namedAdControl(node, label, rect)
-                if (context.forbidden || !KnownSplashControls.isControlId(pkg, context.id)) return null
+            if (restricted) {
+                if (cainiao) {
+                    // clickCandidate rechecks the precise container and ad evidence after refresh.
+                    if (!CainiaoSplashPolicy.acceptsTarget(pkg, label, node.viewIdResourceName, rect.toTargetBounds(), screen.x, screen.y)) return null
+                } else {
+                    val context = namedAdControl(node, label, rect)
+                    if (context.forbidden || !KnownSplashControls.isControlId(pkg, context.id)) return null
+                }
             }
             return Candidate(copyNode(node), label, score, false)
         }
@@ -960,7 +968,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             return null
         }
         fun query(root: AccessibilityNodeInfo): Candidate? {
-            for (id in KnownSplashControls.queryIds(pkg)) {
+            for (id in controlIds) {
                 val nodes = runCatching { root.findAccessibilityNodeInfosByViewId(id) }.getOrDefault(emptyList())
                 try {
                     for (node in nodes.take(8)) {
@@ -974,9 +982,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 }
                 finally { nodes.forEach(::recycleNode) }
             }
-            if (splashSession.knownControlsOnly) return null
+            if (restricted && !cainiao) return null
             // 查询在目标应用内执行，避免为了一个按钮逐个跨进程读取数百个无关节点。
-            for (text in arrayOf("跳过", "skip", "关闭广告", "跳")) {
+            for (text in if (restricted) listOf("跳过", "skip") else listOf("跳过", "skip", "关闭广告", "跳")) {
                 val nodes = runCatching { root.findAccessibilityNodeInfosByText(text) }.getOrDefault(emptyList())
                 try {
                     for (node in nodes.take(8)) click(node)?.let { return it }
