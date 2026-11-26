@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val diagnosticBuild = providers.gradleProperty("diagnosticBuild").orElse("").get()
+require(diagnosticBuild.matches(Regex("[A-Za-z0-9._-]{0,64}")))
+
 android {
     namespace = "com.adsbanner.clean"
     compileSdk = 35
@@ -11,8 +14,9 @@ android {
         applicationId = "com.adsbanner.clean"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "3.1.5"
+        versionCode = 26
+        versionName = "3.1.6"
+        buildConfigField("String", "DIAGNOSTIC_BUILD", "\"$diagnosticBuild\"")
 
     }
 
@@ -46,14 +50,15 @@ android {
     }
 }
 
-// 产物命名：AdsBanner-<buildType>-v-<major-minor-patch>.apk
+// 诊断产物追加构建标识，避免同版本普通包与诊断包重名。
 androidComponents {
     onVariants { variant ->
         val buildType = variant.buildType
         variant.outputs.forEach { output ->
             val version = (output.versionName.orNull ?: "1.0.0").replace('.', '-')
             val impl = output as? com.android.build.api.variant.impl.VariantOutputImpl ?: return@forEach
-            impl.outputFileName.set("AdsBanner-$buildType-v-$version.apk")
+            val suffix = if (diagnosticBuild.isEmpty()) "" else "-$diagnosticBuild"
+            impl.outputFileName.set("AdsBanner-$buildType-v-$version$suffix.apk")
         }
     }
 }

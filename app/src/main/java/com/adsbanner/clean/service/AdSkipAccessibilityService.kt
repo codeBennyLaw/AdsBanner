@@ -46,6 +46,7 @@ import com.adsbanner.clean.core.SplashResumeTracker
 import com.adsbanner.clean.core.SplashForegroundCheck
 import com.adsbanner.clean.core.ScreenStateGate
 import com.adsbanner.clean.core.StatsStore
+import com.adsbanner.clean.core.SplashDiagnostics
 
 /**
  * AdsBanner 的核心引擎，运行在系统无障碍通道里。
@@ -155,6 +156,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private var skipTryCount = 0
+    private var cainiaoTraceNextAt = 0L
+    private var cainiaoTraceSamples = 0
     private var gestureInFlight = false
     private var actionGeneration = 0
     private var gestureTimeout: Runnable? = null
@@ -223,13 +226,14 @@ class AdSkipAccessibilityService : AccessibilityService() {
             (type == AccessibilityEvent.TYPE_VIEW_CLICKED || type == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED ||
                 type == AccessibilityEvent.TYPE_VIEW_SCROLLED) &&
             !(type == AccessibilityEvent.TYPE_VIEW_CLICKED && isPendingSkipClick(event))) {
-            if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED && KnownSplashControls.hasControls(pkg) && pendingSkip == null) {
+            if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED &&
+                (KnownSplashControls.hasControls(pkg) || CainiaoSplashPolicy.isPackage(pkg)) && pendingSkip == null) {
                 splashSession.restrictToKnownControls()
                 scheduleSplashScan(0L)
             } else {
                 val keepResult = canFinishPendingAfterInteraction(event)
                 splashSession.onUserInteraction()
-                stopSplashScan(preservePendingResult = keepResult)
+                stopSplashScan(preservePendingResult = keepResult, diagnosticReason = "用户操作后已停止检测")
             }
         }
         if (pendingSkip != null && !gestureInFlight) verifyPendingSkip(allowFallback = false)
@@ -392,6 +396,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
             stopSplashScan()
             if (canStartScan && Prefs.skipSplash && ProtectionStore.allows(pkg) && embeddedPagePackage != pkg && !AppInfoHelper.isHomeOrSystem(this, pkg)) {
                 splashSession.start(pkg, now, resumed = entry != SplashResumeTracker.Entry.LAUNCH, knownControlsOnly = mainReturn)
+                SplashDiagnostics.start(this, pkg)
+                cainiaoTraceNextAt = 0L
+                cainiaoTraceSamples = 0
                 skipTryCount = 0
             }
         }
@@ -468,8 +475,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
         getSystemService(android.os.PowerManager::class.java)?.isInteractive != false &&
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
 
-    private fun stopSplashScan(preservePendingResult: Boolean = false) {
+    private fun stopSplashScan(preservePendingResult: Boolean = false, diagnosticReason: String? = null) {
         val keepResult = preservePendingResult && pendingSkip != null
+        if (!keepResult) (splashSession.packageName ?: pendingSkip?.pkg)?.let { SplashDiagnostics.end(it, diagnosticReason) }
         if (keepResult) pendingSkip = pendingSkip?.let {
             it.copy(resultOnly = true, candidate = it.candidate.copy(gestureAllowed = false))
         }
@@ -523,7 +531,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
                     Rect().also(source::getBoundsInScreen).contains(pending.bounds))
             } finally { source?.let(::recycleNode) }
             if (SplashSkipConfirmationPolicy.canKeepSubmittedResult(pending.startedUptime, event.eventTime,
-                    pending.windowId, event.windowId, related)) return true
+                    pending.windowId, event.windowId, related,
+                    scrollReport = event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)) return true
         }
         val root = resultRoot() ?: return false
         try {
@@ -580,7 +589,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             return
         }
         if (!splashSession.pending(now, Prefs.splashWindowMs)) {
-            stopSplashScan()
+            stopSplashScan(diagnosticReason = "启动检测期限已结束，未执行跳过")
             return
         }
         if (jumpGuard.isReturningFrom(pkg)) {
@@ -603,6 +612,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val activePkg = active?.packageName?.toString()
             // 部分系统在通知栏展开时仍把应用标为活动窗口，不能仅凭活动包名判断遮挡。
             val covered = activePkg != pkg || hasSystemCover(active.windowId, screenWindows)
+            if (com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty() && CainiaoSplashPolicy.isPackage(pkg)) SplashDiagnostics.scanState(pkg,
+                "active=${activePkg.orEmpty()}, window=${active?.windowId ?: -1}, covered=$covered, restricted=${splashSession.knownControlsOnly}")
             if (activePkg != null && activePkg != pkg && activePkg !in IGNORED_PACKAGES && activePkg !in imePackages) {
                 if (splashSession.awaitingTarget(now)) {
                     splashSession.updateCoverage(now, true)
@@ -651,7 +662,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         splashCadence.queried(now)
         if (!covered) skipTryCount++
         if (splashSession.knownControlsOnly) {
-            tryQuickSkip(pkg, covered, active)?.let { recycleNode(it.node) }
+            tryQuickSkip(pkg, covered, active)?.let { recycleNode(it.node); return }
+            if (CainiaoSplashPolicy.isPackage(pkg)) {
+                // Some SDK providers cannot answer text or resource-ID queries.
+                if (!gestureInFlight && splashCadence.takeTreePass(now)) {
+                    actOnCandidates(findCandidates(pkg, false, covered, active, screenWindows, cainiaoOnly = true), pkg, covered)
+                }
+            }
             return
         }
 
@@ -678,6 +695,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun actOnCandidates(candidates: List<Candidate>, pkg: String, covered: Boolean) {
+        if (candidates.isNotEmpty()) SplashDiagnostics.found(pkg)
         try {
             // 先尝试多个候选的节点动作，避免不可点击的同名文字挡住真正的跳过按钮。
             val clicked = candidates.take(8).firstOrNull { clickCandidate(it, pkg, covered) }
@@ -693,11 +711,13 @@ class AdSkipAccessibilityService : AccessibilityService() {
         pendingSkip = PendingSkip(candidate.copy(node = copyNode(candidate.node)), pkg,
             Rect().also(candidate.node::getBoundsInScreen), gesture, startedAt,
             candidate.node.windowId, startedUptime, knownSplashActivity(candidate.node))
+        if (!gesture) SplashDiagnostics.submitted(pkg, splashSession.age(startedAt))
         if (schedule) handler.postDelayed(verifySkip, 80L)
     }
 
     private fun clearPendingSkip() {
         handler.removeCallbacks(verifySkip)
+        pendingSkip?.let { SplashDiagnostics.unconfirmed(it.pkg) }
         pendingSkip?.let { recycleNode(it.candidate.node) }
         pendingSkip = null
     }
@@ -774,7 +794,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val settleMs = SplashSkipConfirmationPolicy.RESULT_SETTLE_MS
             if (!allowFallback || elapsed < settleMs) {
                 handler.removeCallbacks(verifySkip)
-                handler.postDelayed(verifySkip, (settleMs - elapsed).coerceIn(40L, 100L))
+                val maxDelay = if (pending.gesture && elapsed < 160L) 40L else 100L
+                handler.postDelayed(verifySkip, (settleMs - elapsed).coerceIn(40L, maxDelay))
                 return
             }
             val current = pendingSkip ?: return
@@ -783,6 +804,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             try {
                 if (!current.resultOnly && !current.gesture && current.candidate.gestureAllowed) submitGesture(current.candidate, current.pkg)
                 if (pendingSkip == null) {
+                    SplashDiagnostics.unconfirmed(current.pkg)
+                    if (current.resultOnly) SplashDiagnostics.end(current.pkg, null)
                     if (current.gesture || !current.candidate.gestureAllowed) {
                         val label = skipNodeLabel(current.candidate.node)
                         val previous = failedSkips.firstOrNull { it.node == current.candidate.node && it.label == label }
@@ -802,12 +825,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun confirmPendingDisappearance() {
         val pending = pendingSkip ?: return
         val now = SystemClock.elapsedRealtime()
-        if (pending.absentAt?.let { now - it >= SplashSkipConfirmationPolicy.ABSENCE_MS } == true) {
-            recordSplashSkip(pending.pkg, pending.candidate.label, pending.candidate.rule?.name)
+        val absentAt = pending.absentAt ?: now
+        val remaining = SplashSkipConfirmationPolicy.ABSENCE_MS - (now - absentAt)
+        if (remaining <= 0) {
+            recordSplashSkip(pending, now)
         } else {
             if (pending.absentAt == null) pendingSkip = pending.copy(absentAt = now)
             handler.removeCallbacks(verifySkip)
-            handler.postDelayed(verifySkip, 100L)
+            // Keep checking for reappearing controls without pushing the final check past its deadline.
+            handler.postDelayed(verifySkip, minOf(100L, remaining))
         }
     }
 
@@ -895,22 +921,28 @@ class AdSkipAccessibilityService : AccessibilityService() {
         } finally { nodes.forEach(::recycleNode) }
     }
 
-    private fun recordSplashSkip(pkg: String, label: String, ruleName: String? = null) {
+    private fun recordSplashSkip(pending: PendingSkip, confirmedAt: Long) {
+        val pkg = pending.pkg
         stopSplashScan()
         StatsStore.record(pkg, StatsStore.Kind.SPLASH)
-        ProtectionStore.record(pkg, StatsStore.Kind.SPLASH, ruleName ?: "通用开屏规则")
-        Log.i(TAG, "跳过开屏：\"$label\" @ $pkg")
-        InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
+        ProtectionStore.record(pkg, StatsStore.Kind.SPLASH, pending.candidate.rule?.name ?: "通用开屏规则")
+        Log.i(TAG, "跳过开屏：\"${pending.candidate.label}\" @ $pkg")
+        val notification = InterceptNotifier.notify(this, AppInfoHelper.label(this, pkg), StatsStore.Kind.SPLASH)
+        SplashDiagnostics.completed(pkg, notification.description, confirmedAt - pending.startedAt,
+            if (notification == InterceptNotifier.Delivery.SENT) SystemClock.elapsedRealtime() - confirmedAt else null)
     }
 
     /** Query action labels across the window; text alone never authorizes a tap. */
     private fun tryQuickSkip(pkg: String, covered: Boolean, active: AccessibilityNodeInfo?): Candidate? {
         val screen = screenSize()
+        val cainiao = CainiaoSplashPolicy.isPackage(pkg)
+        val restricted = splashSession.knownControlsOnly
+        val controlIds = if (cainiao) listOf(CainiaoSplashPolicy.MS_SKIP_ID) else KnownSplashControls.queryIds(pkg)
         var gestureFallback: Candidate? = null
         fun candidateOf(node: AccessibilityNodeInfo): Candidate? {
-            if (node.packageName?.toString() != pkg) return null
+            if (node.packageName?.toString() != pkg || (cainiao && restricted && node.windowId != active?.windowId)) return null
             val raw = SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty())
-            if (SkipRule.match(raw) != SkipRule.STRONG && !KnownSplashControls.isControlId(pkg, node.viewIdResourceName)) return null
+            if (SkipRule.match(raw) != SkipRule.STRONG && node.viewIdResourceName !in controlIds) return null
             // Entering-window bounds can be cached before the control reaches its visible position.
             if (!node.refresh() || node.packageName?.toString() != pkg || !node.isEnabled) return null
             val label = skipNodeLabel(node)
@@ -918,14 +950,20 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val rect = Rect().also(node::getBoundsInScreen)
             val score = scoreOf(SkipRule.STRONG, rect, screen)
             if (rect.isEmpty || score <= 0) return null
-            if (splashSession.knownControlsOnly) {
-                val context = namedAdControl(node, label, rect)
-                if (context.forbidden || !KnownSplashControls.isControlId(pkg, context.id)) return null
+            if (restricted) {
+                if (cainiao) {
+                    // clickCandidate rechecks the precise container and ad evidence after refresh.
+                    if (!CainiaoSplashPolicy.acceptsTarget(pkg, label, node.viewIdResourceName, rect.toTargetBounds(), screen.x, screen.y)) return null
+                } else {
+                    val context = namedAdControl(node, label, rect)
+                    if (context.forbidden || !KnownSplashControls.isControlId(pkg, context.id)) return null
+                }
             }
             return Candidate(copyNode(node), label, score, false)
         }
         fun click(node: AccessibilityNodeInfo): Candidate? {
             val candidate = candidateOf(node) ?: return null
+            SplashDiagnostics.found(pkg)
             if (clickCandidate(candidate, pkg, covered)) {
                 gestureFallback?.let { recycleNode(it.node) }
                 gestureFallback = null
@@ -936,7 +974,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             return null
         }
         fun query(root: AccessibilityNodeInfo): Candidate? {
-            for (id in KnownSplashControls.queryIds(pkg)) {
+            for (id in controlIds) {
                 val nodes = runCatching { root.findAccessibilityNodeInfosByViewId(id) }.getOrDefault(emptyList())
                 try {
                     for (node in nodes.take(8)) {
@@ -950,9 +988,9 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 }
                 finally { nodes.forEach(::recycleNode) }
             }
-            if (splashSession.knownControlsOnly) return null
+            if (restricted && !cainiao) return null
             // 查询在目标应用内执行，避免为了一个按钮逐个跨进程读取数百个无关节点。
-            for (text in arrayOf("跳过", "skip", "关闭广告", "跳")) {
+            for (text in if (restricted) listOf("跳过", "skip") else listOf("跳过", "skip", "关闭广告", "跳")) {
                 val nodes = runCatching { root.findAccessibilityNodeInfosByText(text) }.getOrDefault(emptyList())
                 try {
                     for (node in nodes.take(8)) click(node)?.let { return it }
@@ -978,7 +1016,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
     private fun findCandidates(
         pkg: String, allowWeak: Boolean, covered: Boolean,
-        active: AccessibilityNodeInfo?, screenWindows: List<AccessibilityWindowInfo>, localOnly: Boolean = false
+        active: AccessibilityNodeInfo?, screenWindows: List<AccessibilityWindowInfo>, localOnly: Boolean = false,
+        cainiaoOnly: Boolean = false
     ): List<Candidate> {
         val screen = screenSize()
         val roots = LinkedHashMap<Int, AccessibilityNodeInfo>()
@@ -1014,13 +1053,68 @@ class AdSkipAccessibilityService : AccessibilityService() {
 
         // 这些应用里「关闭 / ×」是常规导航控件，弱匹配一律不点，只认明确的"跳过"
         val weakAllowed = allowWeak && pkg !in WEAK_MATCH_BLOCKED
+        val traceNow = SystemClock.elapsedRealtime()
+        val trace = if (com.adsbanner.clean.BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty() && !localOnly &&
+            CainiaoSplashPolicy.isPackage(pkg) && cainiaoTraceSamples < 6 && traceNow >= cainiaoTraceNextAt) {
+            cainiaoTraceSamples++
+            cainiaoTraceNextAt = traceNow + 1_000L
+            CainiaoScanTrace(screen, traceNow, splashSession.age(traceNow), foregroundActivity, covered, cainiaoOnly)
+                .also { report -> roots.values.forEach(report::root) }
+        } else null
         return try {
             if (localOnly) roots.values.flatMap { findLocalCandidates(it, pkg, screen, covered) }
-            else roots.values.flatMap { findInTree(it, screen, weakAllowed, covered, screenWindows) }
+            else if (cainiaoOnly) roots.values.flatMap { findCainiaoCandidates(it, screen, covered, screenWindows, trace) }
+            else roots.values.flatMap { findInTree(it, screen, weakAllowed, covered, screenWindows, trace) }
                     .sortedWith(compareBy<Candidate> { it.weak }.thenByDescending { it.score })
         } finally {
+            trace?.let { SplashDiagnostics.sample(pkg, it.finish()) }
             roots.values.forEach(::recycleNode)
         }
+    }
+
+    private fun findCainiaoCandidates(root: AccessibilityNodeInfo, screen: Point, covered: Boolean,
+        screenWindows: List<AccessibilityWindowInfo>, trace: CainiaoScanTrace? = null): List<Candidate> {
+        val containers = findCainiaoContainers(root, trace)
+        return try {
+            containers.take(4).filter {
+                it.windowId == root.windowId && CainiaoSplashPolicy.isContainer(it.packageName?.toString().orEmpty(),
+                    it.viewIdResourceName, Rect().also(it::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
+            }.flatMap { findInTree(it, screen, false, covered, screenWindows, trace) }.filter { candidate ->
+                val allowed = !candidate.weak && candidate.node.packageName == root.packageName &&
+                    candidate.node.windowId == root.windowId && CainiaoSplashPolicy.acceptsTarget(root.packageName?.toString().orEmpty(),
+                    candidate.label, candidate.node.viewIdResourceName, Rect().also(candidate.node::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
+                trace?.restrictedDecision(allowed)
+                if (!allowed) recycleNode(candidate.node)
+                allowed
+            }
+        } finally { containers.forEach(::recycleNode) }
+    }
+
+    /** SDK hosts can expose nodes to traversal while not implementing resource-ID queries. */
+    private fun findCainiaoContainers(root: AccessibilityNodeInfo, trace: CainiaoScanTrace? = null): List<AccessibilityNodeInfo> {
+        if (!CainiaoSplashPolicy.isPackage(root.packageName?.toString().orEmpty())) return emptyList()
+        if (root.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) return listOf(copyNode(root))
+        val queried = root.findAccessibilityNodeInfosByViewId(CainiaoSplashPolicy.CONTAINER_ID).orEmpty()
+        if (queried.isNotEmpty()) return queried
+        val containers = ArrayList<AccessibilityNodeInfo>(2)
+        var visited = 0
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 30 || visited++ >= 700 || containers.size >= 4 ||
+                node.packageName != root.packageName || node.windowId != root.windowId) return
+            trace?.node(node, depth)
+            if (node.viewIdResourceName == CainiaoSplashPolicy.CONTAINER_ID) {
+                containers.add(copyNode(node))
+                return
+            }
+            for (index in 0 until node.childCount) {
+                if (visited >= 700 || containers.size >= 4) break
+                val child = node.getChild(index)
+                if (child == null) { trace?.missingChild(); continue }
+                try { walk(child, depth + 1) } finally { recycleNode(child) }
+            }
+        }
+        walk(root, 0)
+        return containers
     }
 
     private fun findLocalCandidates(root: AccessibilityNodeInfo, pkg: String, screen: Point, covered: Boolean): List<Candidate> {
@@ -1054,7 +1148,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         screen: Point,
         weakAllowed: Boolean,
         covered: Boolean,
-        screenWindows: List<AccessibilityWindowInfo>
+        screenWindows: List<AccessibilityWindowInfo>,
+        trace: CainiaoScanTrace? = null
     ): List<Candidate> {
         val candidates = ArrayList<Candidate>(4)
         var visited = 0
@@ -1070,6 +1165,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val visible = node.isVisibleToUser
             val label = nodeLabel(node)
             val buttonLabel = skipNodeLabel(node)
+            trace?.node(node, depth, buttonLabel)
 
             if ((label.isNotEmpty() || buttonLabel.isNotEmpty()) &&
                 (visible || covered || isStatusBarTarget(node, screenWindows))) {
@@ -1099,7 +1195,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             if (depth == 30) return
             for (i in 0 until node.childCount) {
                 if (visited >= 700) break
-                val child = node.getChild(i) ?: continue
+                val child = node.getChild(i)
+                if (child == null) { trace?.missingChild(); continue }
                 try {
                     walk(child, depth + 1)
                 } finally {
@@ -1132,6 +1229,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                             adMarkers.any { (label, marker) -> SplashSkipPolicy.markerNearTarget(label, marker,
                                 rect.toTargetBounds(), screen.x, screen.y) }))
                 }
+            trace?.decision(allowed)
             if (!allowed) recycleNode(candidate.node)
             allowed
         }
@@ -1208,6 +1306,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
             scoreOf(SkipRule.STRONG, target, screen, label) <= 0) return null
         val context = namedAdControl(node, label, target)
         if (context.forbidden) return null
+        if (splashSession.knownControlsOnly && splashSession.packageName == pkg && CainiaoSplashPolicy.isPackage(pkg) &&
+            context.id != CainiaoSplashPolicy.CONTAINER_ID) return null
         val dedicatedPage = KnownSplashControls.matches(pkg, knownSplashActivity(node), null, label, target.toTargetBounds(), screen.x, screen.y)
         val xunleiSplash = XunleiSplashPolicy.acceptsTarget(pkg, knownSplashActivity(node), label, node.viewIdResourceName,
             target.toTargetBounds(), screen.x, screen.y) && hasSafeAdEvidenceHierarchy(node) && hasLiveAdMarker(pkg, node.windowId, covered, target,
@@ -1239,7 +1339,8 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val screen = screenSize()
         if (CainiaoSplashPolicy.acceptsTarget(pkg, label, target.viewIdResourceName, bounds.toTargetBounds(), screen.x, screen.y)) {
             val raw = SkipRule.buttonLabel(target.text?.toString().orEmpty(), target.contentDescription?.toString().orEmpty())
-            if (raw.isNotEmpty() || hasCainiaoTrailingAdLabel(target, requireVisible = true)) {
+            if ((raw.isNotEmpty() && CainiaoSplashPolicy.targetBounds(bounds.toTargetBounds(), screen.x, screen.y)) ||
+                hasCainiaoAdEvidence(target, requireVisible = true)) {
                 cainiaoSplashContainer(target, bounds)?.let { return AdControlContext(it) }
             }
         }
@@ -1446,14 +1547,15 @@ class AdSkipAccessibilityService : AccessibilityService() {
         val path = Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }
         val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0L, 60L)).build()
         gestureInFlight = true
-        beginSkipVerification(candidate, pkg, gesture = true, schedule = false)
+        val startedAt = SystemClock.elapsedRealtime()
+        beginSkipVerification(candidate, pkg, gesture = true, schedule = false, startedAt = startedAt)
         fun complete(success: Boolean) {
             if (generation != actionGeneration || !gestureInFlight) return
             gestureInFlight = false
             gestureTimeout?.let(handler::removeCallbacks)
             gestureTimeout = null
             if (success && Prefs.skipSplash && ProtectionStore.allows(pkg) && pendingSkip?.pkg == pkg && foregroundPkg == pkg && isScreenInteractive()) {
-                handler.postDelayed(verifySkip, 80L)
+                handler.post(verifySkip)
             } else {
                 clearPendingSkip()
                 scheduleSplashScan(100L)
@@ -1466,6 +1568,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
                 override fun onCancelled(gestureDescription: GestureDescription?) = complete(false)
             }, handler)
         }.getOrDefault(false)
+        if (accepted) SplashDiagnostics.submitted(pkg, splashSession.age(startedAt))
         if (accepted && (target.coordinateOnly || cainiaoKey != null)) {
             splashCountdown.consume(candidate.node.windowId, skipNodeLabel(candidate.node), cainiaoKey ?: bounds.toTargetBounds(), SystemClock.elapsedRealtime())
         }
@@ -1508,7 +1611,7 @@ class AdSkipAccessibilityService : AccessibilityService() {
             val screen = screenSize()
             val bounds = Rect().also(node::getBoundsInScreen)
             if (CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toTargetBounds(), screen.x, screen.y) &&
-                cainiaoSplashContainer(node, bounds) != null && hasCainiaoTrailingAdLabel(node, requireVisible = false)) return "跳过"
+                hasCainiaoAdEvidence(node, requireVisible = false)) return "跳过"
         }
         if (label.isEmpty() && SkipRule.isAdCloseResourceId(node.viewIdResourceName)) return "×"
         if (SkipRule.match(label) != SkipRule.STRONG || JumpAdRule.isAdSkip(label)) return label
@@ -1539,45 +1642,142 @@ class AdSkipAccessibilityService : AccessibilityService() {
     private fun nodeLabel(node: AccessibilityNodeInfo): String =
         node.text?.toString()?.trim().orEmpty().ifEmpty { node.contentDescription?.toString()?.trim().orEmpty() }
 
-    private fun cainiaoSplashContainer(target: AccessibilityNodeInfo, bounds: Rect): String? {
+    private fun cainiaoSplashContainer(target: AccessibilityNodeInfo, bounds: Rect): String? =
+        findCainiaoSplashContainer(target, bounds)?.let { container ->
+            try { container.viewIdResourceName } finally { recycleNode(container) }
+        }
+
+    private fun findCainiaoSplashContainer(target: AccessibilityNodeInfo, bounds: Rect): AccessibilityNodeInfo? {
         val pkg = target.packageName?.toString().orEmpty()
         if (!CainiaoSplashPolicy.isPackage(pkg)) return null
         val screen = screenSize()
-        var found = false
+        var container: AccessibilityNodeInfo? = null
+        var transferred = false
         var node: AccessibilityNodeInfo? = copyNode(target)
         try {
             repeat(30) {
-                val current = node ?: return CainiaoSplashPolicy.CONTAINER_ID.takeIf { found }
+                val current = node ?: run { transferred = true; return container }
                 if (current.packageName != target.packageName || current.windowId != target.windowId ||
                     !current.isEnabled || current.isEditable || current.isCheckable || current.isScrollable ||
                     SplashSkipPolicy.isNavigationContainer(current.className?.toString()) ||
                     SkipRule.isOrdinaryResourceId(current.viewIdResourceName) || SkipRule.isSearchResourceId(current.viewIdResourceName)) return null
                 val box = Rect().also(current::getBoundsInScreen)
-                if (box.contains(bounds) && CainiaoSplashPolicy.isContainer(pkg, current.viewIdResourceName,
-                        box.toTargetBounds(), screen.x, screen.y)) found = true
+                if (container == null && box.contains(bounds) && CainiaoSplashPolicy.isContainer(pkg, current.viewIdResourceName,
+                        box.toTargetBounds(), screen.x, screen.y)) container = copyNode(current)
                 val parent = current.parent
                 recycleNode(current)
                 node = parent
             }
-            return CainiaoSplashPolicy.CONTAINER_ID.takeIf { node == null && found }
-        } finally { node?.let(::recycleNode) }
+            if (node == null) { transferred = true; return container }
+            return null
+        } finally {
+            node?.let(::recycleNode)
+            if (!transferred) container?.let(::recycleNode)
+        }
     }
 
-    private fun hasCainiaoTrailingAdLabel(target: AccessibilityNodeInfo, requireVisible: Boolean): Boolean {
+    private fun hasCainiaoAdEvidence(target: AccessibilityNodeInfo, requireVisible: Boolean): Boolean {
         val pkg = target.packageName?.toString().orEmpty()
         if (!CainiaoSplashPolicy.isPackage(pkg)) return false
+        val targetBounds = Rect().also(target::getBoundsInScreen)
+        val container = findCainiaoSplashContainer(target, targetBounds) ?: return false
+        val screen = screenSize()
+        try {
+            if (hasCainiaoNamedSdkTarget(target, container, requireVisible)) return true
+            if (hasCainiaoSdkSibling(target, container, requireVisible)) return true
+            val containerBounds = Rect().also(container::getBoundsInScreen)
+            var visited = 0
+            fun walk(node: AccessibilityNodeInfo, depth: Int): Boolean {
+                if (depth > 30 || visited++ >= 700 || node.packageName != target.packageName || node.windowId != target.windowId ||
+                    !node.isEnabled || node.isEditable || node.isCheckable || node.isScrollable ||
+                    SplashSkipPolicy.isNavigationContainer(node.className?.toString()) ||
+                    SkipRule.isOrdinaryResourceId(node.viewIdResourceName) || SkipRule.isSearchResourceId(node.viewIdResourceName)) return false
+                val bounds = Rect().also(node::getBoundsInScreen)
+                if ((!requireVisible || node.isVisibleToUser) && containerBounds.contains(bounds) &&
+                    CainiaoSplashPolicy.adLabel(pkg, nodeLabel(node), bounds.toTargetBounds(), targetBounds.toTargetBounds(), screen.x, screen.y)) return true
+                for (index in 0 until node.childCount) {
+                    if (visited >= 700) break
+                    val child = node.getChild(index) ?: continue
+                    try { if (walk(child, depth + 1)) return true } finally { recycleNode(child) }
+                }
+                return false
+            }
+            return walk(container, 0)
+        } finally { recycleNode(container) }
+    }
+
+    /** The device trace identifies an MS skip wrapper and a separate, empty ad-tag layout.
+     * The caller has already checked the exact full splash container and all target ancestors. */
+    private fun hasCainiaoNamedSdkTarget(target: AccessibilityNodeInfo, container: AccessibilityNodeInfo,
+        requireVisible: Boolean): Boolean {
+        if (target.childCount != 0) return false
+        val wrapper = target.parent ?: return false
+        try {
+            val screen = screenSize()
+            val bounds = Rect().also(target::getBoundsInScreen)
+            if (wrapper.packageName != target.packageName || wrapper.windowId != target.windowId ||
+                !wrapper.isEnabled || wrapper.isEditable || wrapper.isCheckable || wrapper.isScrollable ||
+                wrapper.childCount != 1 || (requireVisible && !wrapper.isVisibleToUser) ||
+                !CainiaoSplashPolicy.namedSdkTarget(target.packageName?.toString().orEmpty(), target.className?.toString(),
+                    target.viewIdResourceName, SkipRule.buttonLabel(target.text?.toString().orEmpty(), target.contentDescription?.toString().orEmpty()),
+                    wrapper.className?.toString(), wrapper.viewIdResourceName, bounds.toTargetBounds(),
+                    Rect().also(wrapper::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)) return false
+            val host = wrapper.parent ?: return false
+            try {
+                if (host.packageName != target.packageName || host.windowId != target.windowId ||
+                    !host.isEnabled || host.isEditable || host.isCheckable || host.isScrollable ||
+                    host.childCount !in 2..12) return false
+                val hostBounds = Rect().also(host::getBoundsInScreen)
+                if (!hostBounds.contains(bounds) || !Rect().also(container::getBoundsInScreen).contains(hostBounds)) return false
+                for (index in 0 until host.childCount) {
+                    val marker = host.getChild(index) ?: continue
+                    try {
+                        val markerBounds = Rect().also(marker::getBoundsInScreen)
+                        if (marker.packageName == target.packageName && marker.windowId == target.windowId &&
+                            marker.isEnabled && !marker.isEditable && !marker.isCheckable && !marker.isScrollable &&
+                            (!requireVisible || marker.isVisibleToUser) && hostBounds.contains(markerBounds) &&
+                            CainiaoSplashPolicy.namedSdkMarker(target.packageName?.toString().orEmpty(), marker.className?.toString(),
+                                marker.viewIdResourceName, markerBounds.toTargetBounds(), bounds.toTargetBounds(), screen.x, screen.y)) return true
+                    } finally { recycleNode(marker) }
+                }
+                return false
+            } finally { recycleNode(host) }
+        } finally { recycleNode(wrapper) }
+    }
+
+    /** Public SDK structure: the circular View immediately precedes an empty terminal TextView,
+     * inside at least two FrameLayouts beneath the app's exact third-party splash container. */
+    private fun hasCainiaoSdkSibling(target: AccessibilityNodeInfo, container: AccessibilityNodeInfo,
+        requireVisible: Boolean): Boolean {
         val parent = target.parent ?: return false
         try {
-            if (parent.packageName != target.packageName || parent.windowId != target.windowId || parent.childCount !in 2..12) return false
+            if (parent.childCount !in 2..12) return false
+            val preceding = parent.getChild(parent.childCount - 2) ?: return false
+            try { if (preceding != target) return false } finally { recycleNode(preceding) }
             val marker = parent.getChild(parent.childCount - 1) ?: return false
             try {
-                if (marker.packageName != target.packageName || marker.windowId != target.windowId ||
-                    marker.className?.toString()?.substringAfterLast('.') != "TextView" || !marker.isEnabled ||
-                    (requireVisible && !marker.isVisibleToUser)) return false
                 val screen = screenSize()
-                return CainiaoSplashPolicy.trailingAdLabel(pkg, nodeLabel(marker), Rect().also(marker::getBoundsInScreen).toTargetBounds(),
-                    Rect().also(target::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)
+                if (marker.packageName != target.packageName || marker.windowId != target.windowId ||
+                    !marker.isEnabled || marker.isEditable || marker.isCheckable || marker.isScrollable ||
+                    SkipRule.isOrdinaryResourceId(marker.viewIdResourceName) || SkipRule.isSearchResourceId(marker.viewIdResourceName) ||
+                    (requireVisible && !marker.isVisibleToUser) || !CainiaoSplashPolicy.emptySdkMarker(
+                        target.packageName?.toString().orEmpty(), marker.className?.toString(), nodeLabel(marker),
+                        Rect().also(marker::getBoundsInScreen).toTargetBounds(), Rect().also(target::getBoundsInScreen).toTargetBounds(), screen.x, screen.y)) return false
             } finally { recycleNode(marker) }
+            var node: AccessibilityNodeInfo? = copyNode(parent)
+            var frames = 0
+            try {
+                repeat(30) {
+                    val current = node ?: return false
+                    if (current == container) return frames >= 2
+                    if (current.className?.toString() != "android.widget.FrameLayout") return false
+                    frames++
+                    val ancestor = current.parent
+                    recycleNode(current)
+                    node = ancestor
+                }
+                return false
+            } finally { node?.let(::recycleNode) }
         } finally { recycleNode(parent) }
     }
 
@@ -1602,18 +1802,22 @@ class AdSkipAccessibilityService : AccessibilityService() {
     }
 
     private fun findCainiaoReplacement(root: AccessibilityNodeInfo, pending: PendingSkip): AccessibilityNodeInfo? {
-        val containers = root.findAccessibilityNodeInfosByViewId(CainiaoSplashPolicy.CONTAINER_ID).orEmpty()
+        val containers = findCainiaoContainers(root)
         val covered = applicationCovered(root.windowId)
         val screen = screenSize()
         var visited = 0
         fun walk(node: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
             if (depth > 30 || visited++ >= 700) return null
-            val bounds = Rect().also(node::getBoundsInScreen)
+            val bounds = Rect().also(node::getBoundsInScreen).toTargetBounds()
             if (node.packageName?.toString() == pending.pkg && node.windowId == root.windowId &&
+                node.isEnabled && !node.isEditable && !node.isCheckable &&
+                !SkipRule.isOrdinaryResourceId(node.viewIdResourceName) && !SkipRule.isSearchResourceId(node.viewIdResourceName) &&
                 (node.isVisibleToUser || covered || isStatusBarTarget(node)) &&
-                CainiaoSplashPolicy.targetBounds(bounds.toTargetBounds(), screen.x, screen.y) &&
+                (CainiaoSplashPolicy.targetBounds(bounds, screen.x, screen.y) ||
+                    CainiaoSplashPolicy.lowerLeftBounds(bounds, screen.x, screen.y)) &&
                 (SkipRule.match(skipNodeLabel(node)) == SkipRule.STRONG ||
-                    (covered && CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds.toTargetBounds(), screen.x, screen.y)))) return copyNode(node)
+                    (SkipRule.buttonLabel(node.text?.toString().orEmpty(), node.contentDescription?.toString().orEmpty()).isEmpty() &&
+                        CainiaoSplashPolicy.unlabeledBounds(node.className?.toString(), bounds, screen.x, screen.y)))) return copyNode(node)
             for (index in 0 until node.childCount) {
                 if (visited >= 700) break
                 val child = node.getChild(index) ?: continue
@@ -1621,7 +1825,16 @@ class AdSkipAccessibilityService : AccessibilityService() {
             }
             return null
         }
-        return try { for (container in containers.take(4)) walk(container, 0)?.let { return it }; null }
+        // Result verification never authorizes a new gesture. A recreated circular View can
+        // still block success when its separately drawn/accessible marker has disappeared.
+        return try {
+            for (container in containers.take(4)) {
+                if (container.windowId == root.windowId && CainiaoSplashPolicy.isContainer(pending.pkg,
+                        container.viewIdResourceName, Rect().also(container::getBoundsInScreen).toTargetBounds(), screen.x, screen.y))
+                    walk(container, 0)?.let { return it }
+            }
+            null
+        }
         finally { containers.forEach(::recycleNode) }
     }
 
