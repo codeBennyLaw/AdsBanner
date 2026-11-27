@@ -27,6 +27,32 @@ class SplashSkipConfirmationPolicyTest {
         assertTrue(SplashSkipConfirmationPolicy.originalWindowMayBeVisible(parent.copy(right = 0), parent, true, true))
     }
 
+    @Test fun aVerifiedActivityCanReplaceADetachedWindowWithoutChangingClass() {
+        val replaced = SplashSkipConfirmationPolicy.replacedRemovedWindow(parent, parent, originalListed = false,
+            originalNodeReadable = false, screenWidth = 1000, screenHeight = 2000)
+        assertTrue(replaced)
+        assertFalse(SplashSkipConfirmationPolicy.targetMayRemain(false, false, false, false, false, false, activityReplacement = replaced))
+    }
+
+    @Test fun unknownActivityPartialCoverageAndStillReadableSplashCannotProveClose() {
+        fun replaces(original: SkipTargetPolicy.Bounds? = parent, current: SkipTargetPolicy.Bounds? = parent,
+            listed: Boolean = false, readable: Boolean = false) =
+            SplashSkipConfirmationPolicy.replacedRemovedWindow(original, current, listed, readable, 1000, 2000)
+        assertFalse(replaces(current = null))
+        assertFalse(replaces(current = parent.copy(left = 40)))
+        assertFalse(replaces(original = null))
+        assertFalse(replaces(original = parent.copy(bottom = 0)))
+        assertFalse(replaces(listed = true))
+        assertFalse(replaces(readable = true))
+    }
+
+    @Test fun windowEntryAnimationMayMovePartOfTheOriginalBoundsOutsideTheDisplay() {
+        val shifted = SkipTargetPolicy.Bounds(21, 0, 981, 2099)
+        val settled = SkipTargetPolicy.Bounds(0, 0, 959, 2099)
+        assertTrue(SplashSkipConfirmationPolicy.replacedRemovedWindow(shifted, settled, false, false, 960, 2100))
+        assertFalse(SplashSkipConfirmationPolicy.replacedRemovedWindow(shifted, settled.copy(left = 100), false, false, 960, 2100))
+    }
+
     @Test fun anEarlyRelatedReportCanRetainEitherNativeOrGestureCompletionWithoutAuthorizingAnotherAction() {
         assertTrue(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1060, 20, 20, relatedSource = true))
         assertFalse(SplashSkipConfirmationPolicy.canKeepSubmittedResult(1000, 1060, 20, 20, relatedSource = false))
@@ -64,7 +90,7 @@ class SplashSkipConfirmationPolicyTest {
     }
 
     @Test fun aStaleVisibleNodeFromAClosedWindowDoesNotPreventCounting() {
-        assertFalse(SplashSkipConfirmationPolicy.targetMayRemain(true, true, false, false, false, false, activityChanged = true))
+        assertFalse(SplashSkipConfirmationPolicy.targetMayRemain(true, true, false, false, false, false, activityReplacement = true))
     }
 
     @Test fun anotherDialogOverAStillVisibleOriginalWindowDoesNotProveClosure() {
