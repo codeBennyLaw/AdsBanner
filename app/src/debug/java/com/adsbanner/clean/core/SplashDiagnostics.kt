@@ -2,15 +2,23 @@ package com.adsbanner.clean.core
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Point
 import com.adsbanner.clean.BuildConfig
+import com.adsbanner.clean.service.CainiaoScanTrace
+import com.adsbanner.clean.service.InterceptNotifier
 import org.json.JSONArray
 import org.json.JSONObject
 
 /** A short local outcome trail. Probe builds add bounded structural metadata without page labels or screenshots. */
-object SplashDiagnostics {
+internal object SplashDiagnostics {
     private const val LIMIT = 8
     private var storage: SharedPreferences? = null
     private val entries = ArrayList<JSONObject>(LIMIT)
+
+    fun allowsTrace(pkg: String): Boolean = BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty() && CainiaoSplashPolicy.isPackage(pkg)
+
+    fun newTrace(screen: Point, now: Long, age: Long, activity: String, covered: Boolean, restricted: Boolean): SplashScanTrace =
+        CainiaoScanTrace(screen, now, age, activity, covered, restricted)
 
     @Synchronized fun init(context: Context) {
         if (storage != null) return
@@ -53,17 +61,29 @@ object SplashDiagnostics {
         }
     }
 
-    @Synchronized fun end(pkg: String, reason: String?) = update(pkg) { entry ->
+    @Synchronized fun end(pkg: String, reason: SplashScanEndReason?) = update(pkg) { entry ->
         if (entry.optBoolean("completed") || entry.optBoolean("ended")) false else {
-            val stage = if (entry.optInt("attempts") > 0) "已提交跳过，未能确认广告关闭，未统计"
-                else reason ?: if (entry.optBoolean("found")) "候选未通过操作条件，未执行跳过" else "未找到可确认的开屏控件，未执行跳过"
+            val stage = when {
+                entry.optInt("attempts") > 0 -> "已提交跳过，未能确认广告关闭，未统计"
+                reason == SplashScanEndReason.USER_INTERACTION -> "用户操作后已停止检测"
+                reason == SplashScanEndReason.TIMEOUT -> "启动检测期限已结束，未执行跳过"
+                entry.optBoolean("found") -> "候选未通过操作条件，未执行跳过"
+                else -> "未找到可确认的开屏控件，未执行跳过"
+            }
             entry.put("stage", stage).put("ended", true)
             true
         }
     }
 
-    @Synchronized fun completed(pkg: String, notification: String, confirmMs: Long, notifyMs: Long?) = update(pkg) { entry ->
-        entry.put("stage", "广告关闭已确认，统计已保存").put("notification", notification)
+    @Synchronized fun completed(pkg: String, notification: InterceptNotifier.Delivery, confirmMs: Long, notifyMs: Long?) = update(pkg) { entry ->
+        val description = when (notification) {
+            InterceptNotifier.Delivery.SENT -> "拦截提示已发送，是否显示为 LiveUpdate 由系统决定"
+            InterceptNotifier.Delivery.DISABLED -> "拦截实时提示开关关闭，未发送提示"
+            InterceptNotifier.Delivery.NO_PERMISSION -> "通知权限未授权，未发送提示"
+            InterceptNotifier.Delivery.BLOCKED -> "系统通知总开关或拦截提示渠道关闭，未发送提示"
+            InterceptNotifier.Delivery.FAILED -> "拦截提示发送失败"
+        }
+        entry.put("stage", "广告关闭已确认，统计已保存").put("notification", description)
             .put("completed", true).put("ended", true)
         if (BuildConfig.DIAGNOSTIC_BUILD.isNotEmpty()) {
             entry.put("actionToConfirmMs", confirmMs).put("confirmToNotifyMs", notifyMs)

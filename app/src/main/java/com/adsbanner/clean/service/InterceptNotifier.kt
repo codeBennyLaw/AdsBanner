@@ -36,18 +36,12 @@ import com.adsbanner.clean.ui.MainActivity
  */
 object InterceptNotifier {
 
-    enum class Delivery(val description: String) {
-        SENT("拦截提示已发送，是否显示为 LiveUpdate 由系统决定"),
-        DISABLED("拦截实时提示开关关闭，未发送提示"),
-        NO_PERMISSION("通知权限未授权，未发送提示"),
-        BLOCKED("系统通知总开关或拦截提示渠道关闭，未发送提示"),
-        FAILED("拦截提示发送失败")
-    }
+    enum class Delivery { SENT, DISABLED, NO_PERMISSION, BLOCKED, FAILED }
 
     private const val TAG = "AdsBanner"
-    private const val CHANNEL_ID = "adsbanner_intercept"
+    internal const val CHANNEL_ID = "adsbanner_intercept"
 
-    /** 通知 ID 区间，同时用来识别哪些通知属于拦截提示 */
+    /** 拦截提示使用的通知 ID 区间。 */
     private const val ID_BASE = 2002
     private const val ID_SPAN = 200
 
@@ -215,52 +209,6 @@ object InterceptNotifier {
             .putExtra(EXTRA_APP_PACKAGE, context.packageName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    /**
-     * 逐环节列出当前状态，用来确认到底卡在哪一步：
-     * 系统版本 -> 接口 -> 授权 -> 通知总开关 -> 实际是否被提升。
-     */
-    fun describe(context: Context): String {
-        val manager = context.getSystemService(NotificationManager::class.java)
-
-        val live = manager?.activeNotifications
-            ?.filter {
-                it.packageName == context.packageName &&
-                    it.id >= ID_BASE && it.id <= ID_BASE + ID_SPAN
-            }
-            .orEmpty()
-
-        val promotedFlag = runCatching {
-            Notification::class.java.getField("FLAG_PROMOTED_ONGOING").getInt(null)
-        }.getOrDefault(0)
-
-        val promoted = live.count { promotedFlag != 0 && (it.notification.flags and promotedFlag) != 0 }
-        val sessions = live.sortedBy { it.id }.map { posted ->
-            val notification = posted.notification
-            val appLabel = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
-            val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-            val state = if (promotedFlag != 0 && (notification.flags and promotedFlag) != 0) "已提升" else
-                when (LiveUpdate.isEligible(notification)) {
-                    true -> "符合条件，未提升"
-                    false -> "不符合提升条件"
-                    null -> "系统未返回资格判定"
-                }
-            "$appLabel · $title：$state"
-        }
-
-        return listOf(
-            "系统：Android ${Build.VERSION.SDK_INT}（API ${Build.VERSION.SDK_INT}）",
-            "实时通知接口：" + if (supportsLiveUpdates()) "可用" else "不可用",
-            "实时通知授权：" + when {
-                !supportsLiveUpdates() -> "不适用"
-                canPostPromoted(context) -> "已授权"
-                else -> "未授权"
-            },
-            "通知总开关：" + if (manager?.areNotificationsEnabled() == true) "开启" else "关闭",
-            "当前拦截提示：${live.size} 条，已提升 $promoted 条",
-            if (sessions.isEmpty()) "当前无正在显示的提示" else sessions.joinToString("\n")
-        ).joinToString("\n")
-    }
-
     // ------------------------------------------------------------------ 内部实现
 
     private fun push(context: Context, session: Session, progress: Int, remainingMs: Long): Boolean {
@@ -338,7 +286,7 @@ object InterceptNotifier {
     /**
      * Android 16 实时通知适配。接口全部反射，避免为了几个方法把 compileSdk 提到 36。
      */
-    private object LiveUpdate {
+    internal object LiveUpdate {
 
         private val characteristics by lazy {
             runCatching { Notification::class.java.getMethod("hasPromotableCharacteristics") }.getOrNull()

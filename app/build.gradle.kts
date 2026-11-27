@@ -16,8 +16,6 @@ android {
         targetSdk = 35
         versionCode = 27
         versionName = "3.1.7"
-        buildConfigField("String", "DIAGNOSTIC_BUILD", "\"$diagnosticBuild\"")
-
     }
 
     buildFeatures {
@@ -27,6 +25,7 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            buildConfigField("String", "DIAGNOSTIC_BUILD", "\"$diagnosticBuild\"")
         }
         release {
             isMinifyEnabled = false
@@ -57,7 +56,7 @@ androidComponents {
         variant.outputs.forEach { output ->
             val version = (output.versionName.orNull ?: "1.0.0").replace('.', '-')
             val impl = output as? com.android.build.api.variant.impl.VariantOutputImpl ?: return@forEach
-            val suffix = if (diagnosticBuild.isEmpty()) "" else "-$diagnosticBuild"
+            val suffix = if (buildType == "debug" && diagnosticBuild.isNotEmpty()) "-$diagnosticBuild" else ""
             impl.outputFileName.set("AdsBanner-$buildType-v-$version$suffix.apk")
         }
     }
