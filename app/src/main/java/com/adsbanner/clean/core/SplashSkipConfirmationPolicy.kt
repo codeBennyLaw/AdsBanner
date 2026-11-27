@@ -21,6 +21,17 @@ internal object SplashSkipConfirmationPolicy {
         !(activityChanged && currentAbove && original.width > 0 && original.height > 0 &&
             current != null && current.contains(original))
 
+    /** A new instance of the same Activity can replace the splash without changing its class name. */
+    fun replacedRemovedWindow(original: SkipTargetPolicy.Bounds?, activeActivity: SkipTargetPolicy.Bounds?,
+        originalListed: Boolean, originalNodeReadable: Boolean, screenWidth: Int, screenHeight: Int): Boolean {
+        if (originalListed || originalNodeReadable || original == null || activeActivity == null) return false
+        // A window can extend past the display during its entry animation. Compare its visible area,
+        // using the last display pixel as the outer edge to account for window-bounds rounding.
+        val visible = SkipTargetPolicy.Bounds(maxOf(0, original.left), maxOf(0, original.top),
+            minOf(screenWidth - 1, original.right), minOf(screenHeight - 1, original.bottom))
+        return visible.width > 0 && visible.height > 0 && activeActivity.contains(visible)
+    }
+
     fun ownGestureParentClick(gesture: Boolean, startedUptime: Long, eventUptime: Long,
         target: SkipTargetPolicy.Bounds, source: SkipTargetPolicy.Bounds): Boolean =
         gesture && startedUptime > 0 && eventUptime - startedUptime in 0L..300L &&
@@ -28,6 +39,6 @@ internal object SplashSkipConfirmationPolicy {
 
     /** A cached visible node in an old, hidden activity is not a visible advertisement. */
     fun targetMayRemain(matches: Boolean, nodeVisible: Boolean, sameWindow: Boolean,
-        originalWindowVisible: Boolean, covered: Boolean, statusBarTarget: Boolean, activityChanged: Boolean = false): Boolean =
-        if (!sameWindow) originalWindowVisible || !activityChanged else matches && (nodeVisible || covered || statusBarTarget)
+        originalWindowVisible: Boolean, covered: Boolean, statusBarTarget: Boolean, activityReplacement: Boolean = false): Boolean =
+        if (!sameWindow) originalWindowVisible || !activityReplacement else matches && (nodeVisible || covered || statusBarTarget)
 }

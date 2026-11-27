@@ -7,12 +7,13 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.adsbanner.clean.core.CainiaoSplashPolicy
 import com.adsbanner.clean.core.SkipRule
 import com.adsbanner.clean.core.SkipTargetPolicy
+import com.adsbanner.clean.core.SplashScanTrace
 import org.json.JSONArray
 import org.json.JSONObject
 
 /** Read-only evidence from the current window, using the engine's existing bounded tree pass.
  * Page text/description is reduced to a category. No screenshot, clipboard or arbitrary label is saved. */
-internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activity: String, covered: Boolean, restricted: Boolean) {
+internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activity: String, covered: Boolean, restricted: Boolean) : SplashScanTrace {
     private val width = screen.x
     private val height = screen.y
     private val roots = JSONArray()
@@ -29,12 +30,12 @@ internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activ
     private val report = JSONObject().put("screen", "${width}x$height").put("sampledAtMs", sampledAt).put("ageMs", age)
         .put("activity", identifier(activity)).put("covered", covered).put("restricted", restricted)
 
-    fun root(node: AccessibilityNodeInfo) = capture { if (roots.length() < 4) roots.put(metadata(node)) }
-    fun missingChild() { unavailable++ }
-    fun decision(allowed: Boolean) { decisions.add(if (allowed) "candidate-ad-proof-passed" else "candidate-ad-proof-rejected") }
-    fun restrictedDecision(allowed: Boolean) { decisions.add(if (allowed) "restricted-target-passed" else "restricted-target-rejected") }
+    override fun root(node: AccessibilityNodeInfo) = capture { if (roots.length() < 4) roots.put(metadata(node)) }
+    override fun missingChild() { unavailable++ }
+    override fun decision(allowed: Boolean) { decisions.add(if (allowed) "candidate-ad-proof-passed" else "candidate-ad-proof-rejected") }
+    override fun restrictedDecision(allowed: Boolean) { decisions.add(if (allowed) "restricted-target-passed" else "restricted-target-rejected") }
 
-    fun node(node: AccessibilityNodeInfo, depth: Int, normalized: String = "") {
+    override fun node(node: AccessibilityNodeInfo, depth: Int, normalized: String) {
         capture { inspectNode(node, depth, normalized) }
     }
 
@@ -91,7 +92,7 @@ internal class CainiaoScanTrace(screen: Point, sampledAt: Long, age: Long, activ
             markers.put(metadata(node))
     }
 
-    fun finish(): JSONObject = report.put("roots", roots).put("visited", visited).put("missingChildren", unavailable)
+    override fun finish(): JSONObject = report.put("roots", roots).put("visited", visited).put("missingChildren", unavailable)
         .put("maxDepth", maxDepth).put("exactContainers", containers).put("resourceIds", JSONArray(ids.toList()))
         .put("targets", JSONArray(targets)).put("lowerMarkers", markers).put("decisions", JSONArray(decisions.toList()))
         .put("readErrors", JSONArray(errors.toList()))
